@@ -29,6 +29,7 @@ const HUD_GAP: f64 = 8.0;
 const HUD_CHAR_WIDTH_ESTIMATE: f64 = 9.6;
 const HUD_LINE_HEIGHT_ESTIMATE: f64 = 22.0;
 const HUD_TEXT_MEASURE_HEIGHT: f64 = 10_000.0;
+const HUD_TEXT_MEASURE_MAX_WIDTH: f64 = 1_000_000.0; // 折り返しが起きない十分大きな幅
 const HUD_CORNER_RADIUS: f64 = 14.0;
 const HUD_BORDER_WIDTH: f64 = 1.0;
 const HUD_ICON_FONT_SIZE: f64 = 18.0;
@@ -1571,14 +1572,13 @@ unsafe fn measure_text_natural_width(label: *mut AnyObject, scale: f64) -> f64 {
     let bounds = NSRect {
         origin: NSPoint { x: 0.0, y: 0.0 },
         size: NSSize {
-            width: 1_000_000.0,
+            width: HUD_TEXT_MEASURE_MAX_WIDTH,
             height: HUD_TEXT_MEASURE_HEIGHT,
         },
     };
     let size: NSSize = msg_send![cell, cellSizeForBounds: bounds];
     let text_content_width = size.width.ceil();
-    (text_content_width + dims.horizontal_padding * 2.0 + dims.icon_width + dims.gap)
-        .clamp(dims.min_width, dims.max_width)
+    text_content_width + dims.horizontal_padding * 2.0 + dims.icon_width + dims.gap
 }
 
 unsafe fn measure_text_height(label: *mut AnyObject, text_width: f64, scale: f64) -> f64 {

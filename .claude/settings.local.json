@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash:*)",
+      "Read(//private/tmp/**)",
+      "Read(//private/var/folders/**)",
+      "Bash(/Users/somei/Repos/SomeiRepos/cliip-show/.dojo/run_dojo.sh:*)"
+    ]
+  }
+}
