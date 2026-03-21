@@ -1,0 +1,118 @@
+<svg width="800" height="500" viewBox="0 0 800 500" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="shadow-win" x="-5%" y="-5%" width="110%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="20" flood-color="#000" flood-opacity="0.7"/>
+    </filter>
+    <filter id="shadow-hud" x="-5%" y="-30%" width="110%" height="160%">
+      <feDropShadow dx="0" dy="4" stdDeviation="12" flood-color="#000" flood-opacity="0.55"/>
+    </filter>
+    <clipPath id="clip-win">
+      <rect x="40" y="28" width="720" height="444" rx="12"/>
+    </clipPath>
+  </defs>
+
+  <!-- Desktop background -->
+  <rect width="800" height="500" fill="#0d0e1a"/>
+
+  <!-- Window shadow + body -->
+  <rect x="40" y="28" width="720" height="444" rx="12" fill="#1e1e2e" filter="url(#shadow-win)"/>
+
+  <!-- Window contents (clipped) -->
+  <g clip-path="url(#clip-win)">
+
+    <!-- Titlebar -->
+    <rect x="40" y="28" width="720" height="40" fill="#181825"/>
+    <line x1="40" y1="67.5" x2="760" y2="67.5" stroke="#313244" stroke-width="1"/>
+
+    <!-- Traffic lights -->
+    <circle cx="68" cy="48" r="6" fill="#ff5f57"/>
+    <circle cx="88" cy="48" r="6" fill="#febc2e"/>
+    <circle cx="108" cy="48" r="6" fill="#28c840"/>
+
+    <!-- Window title -->
+    <text x="400" y="53" text-anchor="middle"
+          font-family="-apple-system,'SF Pro Text','Helvetica Neue',sans-serif"
+          font-size="12.5" font-weight="500" fill="#6c7086">README.md — cliip-show</text>
+
+    <!-- ━━━ README content ━━━ -->
+
+    <!-- # cliip-show (visible just above the HUD) -->
+    <text x="60" y="86"
+          font-family="-apple-system,'Hiragino Sans','Helvetica Neue',sans-serif"
+          font-size="20" font-weight="700" fill="#cdd6f4">cliip-show</text>
+
+    <!-- Text selection highlight behind "コピーしたと思ったのにできてなかった 😡" -->
+    <rect x="57" y="174" width="460" height="26" rx="3" fill="#2060d0" fill-opacity="0.38"/>
+
+    <!-- コピーしたと思ったのにできてなかった 😡 (selected) -->
+    <text x="60" y="193"
+          font-family="-apple-system,'Hiragino Sans','Helvetica Neue',sans-serif"
+          font-size="14" fill="#ffffff">コピーしたと思ったのにできてなかった 😡</text>
+
+    <!-- ペーストしたら意図したコピー内容と違った 😡 😡 -->
+    <text x="60" y="229"
+          font-family="-apple-system,'Hiragino Sans','Helvetica Neue',sans-serif"
+          font-size="14" fill="#cdd6f4">ペーストしたら意図したコピー内容と違った 😡 😡</text>
+
+    <!-- そんなことありませんか？ -->
+    <text x="60" y="265"
+          font-family="-apple-system,'Hiragino Sans','Helvetica Neue',sans-serif"
+          font-size="14" fill="#cdd6f4">そんなことありませんか？</text>
+
+    <!-- ありますよねぇ〜 🤓 -->
+    <text x="60" y="301"
+          font-family="-apple-system,'Hiragino Sans','Helvetica Neue',sans-serif"
+          font-size="14" fill="#cdd6f4">ありますよねぇ〜 🤓</text>
+
+    <!-- てなわけで、 -->
+    <text x="60" y="337"
+          font-family="-apple-system,'Hiragino Sans','Helvetica Neue',sans-serif"
+          font-size="14" fill="#cdd6f4">てなわけで、</text>
+
+    <!-- コピーされたプレーンテキストを... -->
+    <text x="60" y="373"
+          font-family="-apple-system,'Hiragino Sans','Helvetica Neue',sans-serif"
+          font-size="14" fill="#cdd6f4">コピーされたプレーンテキストを画面中央に表示する、macOS向けの常駐アプリ</text>
+    <text x="60" y="395"
+          font-family="'SF Mono',Menlo,monospace"
+          font-size="13" fill="#89dceb">cliip-show</text>
+    <text x="133" y="395"
+          font-family="-apple-system,'Hiragino Sans','Helvetica Neue',sans-serif"
+          font-size="14" fill="#cdd6f4">です 🐟</text>
+
+    <!-- ## 概要 -->
+    <text x="60" y="431"
+          font-family="-apple-system,'Hiragino Sans','Helvetica Neue',sans-serif"
+          font-size="17" font-weight="700" fill="#cdd6f4">概要</text>
+
+    <!-- - クリップボードの更新を監視し... -->
+    <text x="60" y="461"
+          font-family="-apple-system,'Hiragino Sans','Helvetica Neue',sans-serif"
+          font-size="14" fill="#6c7086">- クリップボードの更新を監視し、コピー直後にHUD表示します</text>
+
+  </g>
+
+  <!-- ━━━ HUD overlay ━━━ -->
+  <!-- position=top: upper quarter of screen -->
+
+  <!-- Drop shadow -->
+  <rect x="70" y="100" width="660" height="57" rx="15" fill="#000" filter="url(#shadow-hud)"/>
+
+  <!-- Background: rgba(0,0,0,0.78) — from source -->
+  <rect x="70" y="100" width="660" height="57" rx="15" fill="#000" fill-opacity="0.78"/>
+
+  <!-- Border: white 14% — from source -->
+  <rect x="70" y="100" width="660" height="57" rx="15" fill="none"
+        stroke="white" stroke-opacity="0.14" stroke-width="1"/>
+
+  <!-- 📋 icon -->
+  <text x="86" y="137"
+        font-family="-apple-system,'Apple Color Emoji',sans-serif"
+        font-size="18" fill="white">📋</text>
+
+  <!-- Copied text (Menlo 18px, white) — from source -->
+  <text x="116" y="137"
+        font-family="Menlo,'Courier New',monospace"
+        font-size="18" fill="white">コピーしたと思ったのにできてなかった 😡</text>
+
+</svg>
