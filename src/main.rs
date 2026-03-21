@@ -453,9 +453,7 @@ fn parse_config_key(raw: &str) -> Option<ConfigKey> {
     match raw {
         "poll_interval_secs" | "poll-interval-secs" => Some(ConfigKey::PollIntervalSecs),
         "hud_duration_secs" | "hud-duration-secs" => Some(ConfigKey::HudDurationSecs),
-        "hud_fade_duration_secs" | "hud-fade-duration-secs" => {
-            Some(ConfigKey::HudFadeDurationSecs)
-        }
+        "hud_fade_duration_secs" | "hud-fade-duration-secs" => Some(ConfigKey::HudFadeDurationSecs),
         "max_chars_per_line" | "max-chars-per-line" => Some(ConfigKey::MaxCharsPerLine),
         "max_lines" | "max-lines" => Some(ConfigKey::MaxLines),
         "hud_position" | "hud-position" => Some(ConfigKey::HudPosition),
@@ -590,7 +588,10 @@ fn set_config_value(
 fn print_effective_settings(settings: DisplaySettings) {
     println!("poll_interval_secs = {}", settings.poll_interval_secs);
     println!("hud_duration_secs = {}", settings.hud_duration_secs);
-    println!("hud_fade_duration_secs = {}", settings.hud_fade_duration_secs);
+    println!(
+        "hud_fade_duration_secs = {}",
+        settings.hud_fade_duration_secs
+    );
     println!("max_chars_per_line = {}", settings.truncate_max_width);
     println!("max_lines = {}", settings.truncate_max_lines);
     println!("hud_position = {}", settings.hud_position.as_str());
@@ -764,7 +765,9 @@ fn handle_config_command<I: Iterator<Item = String>>(args: &mut I) -> bool {
                 eprintln!("warning: {warning}");
             }
             println!("updated config: {}", path.display());
-            println!("hint: restart the service to apply changes: brew services restart cliip-show");
+            println!(
+                "hint: restart the service to apply changes: brew services restart cliip-show"
+            );
             println!("[effective]");
             let effective =
                 apply_env_overrides(apply_config_file(default_display_settings(), &config));
@@ -1302,12 +1305,7 @@ extern "C" fn poll_pasteboard(this: &AnyObject, _: Sel, _: *mut AnyObject) {
         let () = msg_send![state.label, setStringValue: message];
         let () = msg_send![message, release];
 
-        layout_hud(
-            state.window,
-            state.icon_label,
-            state.label,
-            state.settings,
-        );
+        layout_hud(state.window, state.icon_label, state.label, state.settings);
 
         // フェード中なら止めてアルファを戻す
         if !state.fade_timer.is_null() {
@@ -1517,9 +1515,8 @@ unsafe fn create_hud_window(
         },
     };
 
-    let symbol_name = nsstring_from_str("doc.on.clipboard");
-    let symbol_image: *mut AnyObject =
-        msg_send![class!(NSImage), imageWithSystemSymbolName: symbol_name accessibilityDescription: ptr::null::<AnyObject>()];
+    let symbol_name = nsstring_from_str("list.clipboard");
+    let symbol_image: *mut AnyObject = msg_send![class!(NSImage), imageWithSystemSymbolName: symbol_name accessibilityDescription: ptr::null::<AnyObject>()];
     let () = msg_send![symbol_name, release];
 
     let icon_font_size = (HUD_ICON_FONT_SIZE * clamped_scale).clamp(10.0, 44.0);
@@ -1651,8 +1648,8 @@ unsafe fn layout_hud(
     settings: DisplaySettings,
 ) {
     let dims = hud_dimensions(settings.hud_scale);
-    let clamped_width = measure_text_natural_width(label, settings.hud_scale)
-        .clamp(dims.min_width, dims.max_width);
+    let clamped_width =
+        measure_text_natural_width(label, settings.hud_scale).clamp(dims.min_width, dims.max_width);
     let text_width = clamped_width - (dims.horizontal_padding * 2.0 + dims.icon_width + dims.gap);
     let measured_text_height = measure_text_height(label, text_width, settings.hud_scale);
     let metrics = compute_hud_layout_metrics_with_scale(
@@ -2092,7 +2089,8 @@ narrow_clamped: w=220.0 text_w=151.8 h=57.2 text_h=24.2 label_y=16.5 icon_y=16.5
     #[test]
     fn fade_total_ticks_calculation_is_exact() {
         // fade_duration=DEFAULT_HUD_FADE_DURATION_SECS, FADE_TICK_INTERVAL_SECS=1/60 → 18 ticks
-        let total = (super::DEFAULT_HUD_FADE_DURATION_SECS / super::FADE_TICK_INTERVAL_SECS).ceil() as u32;
+        let total =
+            (super::DEFAULT_HUD_FADE_DURATION_SECS / super::FADE_TICK_INTERVAL_SECS).ceil() as u32;
         assert_eq!(total, 18);
     }
 
@@ -2121,5 +2119,4 @@ narrow_clamped: w=220.0 text_w=151.8 h=57.2 text_h=24.2 label_y=16.5 icon_y=16.5
         let alpha = 1.0 - (elapsed as f64 / total as f64);
         assert!((alpha - 0.5).abs() < 1e-10, "alpha={}", alpha);
     }
-
 }

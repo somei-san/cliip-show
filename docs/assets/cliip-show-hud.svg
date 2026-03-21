@@ -96,23 +96,33 @@
   <!-- position=top: upper quarter of screen -->
 
   <!-- Drop shadow -->
-  <rect x="70" y="100" width="660" height="57" rx="15" fill="#000" filter="url(#shadow-hud)"/>
+  <rect x="185" y="102" width="430" height="42" rx="12" fill="#000" filter="url(#shadow-hud)"/>
 
   <!-- Background: rgba(0,0,0,0.78) — from source -->
-  <rect x="70" y="100" width="660" height="57" rx="15" fill="#000" fill-opacity="0.78"/>
+  <rect x="185" y="102" width="430" height="42" rx="12" fill="#000" fill-opacity="0.78"/>
 
   <!-- Border: white 14% — from source -->
-  <rect x="70" y="100" width="660" height="57" rx="15" fill="none"
+  <rect x="185" y="102" width="430" height="42" rx="12" fill="none"
         stroke="white" stroke-opacity="0.14" stroke-width="1"/>
 
-  <!-- 📋 icon -->
-  <text x="86" y="137"
-        font-family="-apple-system,'Apple Color Emoji',sans-serif"
-        font-size="18" fill="white">📋</text>
+  <!-- list.clipboard icon (SF Symbols style) -->
+  <g transform="translate(197, 112) scale(0.58)" fill="none" stroke="white" stroke-opacity="0.9">
+    <!-- Clipboard board -->
+    <rect x="1" y="5" width="20" height="24" rx="3" stroke-width="2"/>
+    <!-- Clipboard clip -->
+    <rect x="6.5" y="2" width="9" height="5.5" rx="2" stroke-width="2"/>
+    <!-- List items: bullet + line -->
+    <circle cx="7" cy="15" r="1.4" fill="white" fill-opacity="0.85" stroke="none"/>
+    <line x1="10.5" y1="15" x2="17" y2="15" stroke-width="1.5" stroke-opacity="0.85"/>
+    <circle cx="7" cy="20" r="1.4" fill="white" fill-opacity="0.85" stroke="none"/>
+    <line x1="10.5" y1="20" x2="17" y2="20" stroke-width="1.5" stroke-opacity="0.85"/>
+    <circle cx="7" cy="25" r="1.4" fill="white" fill-opacity="0.85" stroke="none"/>
+    <line x1="10.5" y1="25" x2="17" y2="25" stroke-width="1.5" stroke-opacity="0.85"/>
+  </g>
 
-  <!-- Copied text (Menlo 18px, white) — from source -->
-  <text x="116" y="137"
+  <!-- Copied text — from source -->
+  <text x="219" y="129"
         font-family="Menlo,'Courier New',monospace"
-        font-size="18" fill="white">コピーしたと思ったのにできてなかった 😡</text>
+        font-size="13.5" fill="white">コピーしたと思ったのにできてなかった 😡</text>
 
 </svg>
