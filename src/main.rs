@@ -1517,24 +1517,26 @@ unsafe fn create_hud_window(
         },
     };
 
-    let icon_label: *mut AnyObject = msg_send![class!(NSTextField), alloc];
-    let icon_label: *mut AnyObject = msg_send![icon_label, initWithFrame: icon_rect];
-    let () = msg_send![icon_label, setBezeled: false];
-    let () = msg_send![icon_label, setBordered: false];
-    let () = msg_send![icon_label, setEditable: false];
-    let () = msg_send![icon_label, setSelectable: false];
-    let () = msg_send![icon_label, setDrawsBackground: false];
-    let () = msg_send![icon_label, setAlignment: 1isize];
-    let () = msg_send![icon_label, setLineBreakMode: 0isize];
-    let () = msg_send![icon_label, setUsesSingleLineMode: true];
-    let white: *mut AnyObject = msg_send![class!(NSColor), whiteColor];
-    let () = msg_send![icon_label, setTextColor: white];
+    let symbol_name = nsstring_from_str("doc.on.clipboard");
+    let symbol_image: *mut AnyObject =
+        msg_send![class!(NSImage), imageWithSystemSymbolName: symbol_name accessibilityDescription: ptr::null::<AnyObject>()];
+    let () = msg_send![symbol_name, release];
+
     let icon_font_size = (HUD_ICON_FONT_SIZE * clamped_scale).clamp(10.0, 44.0);
-    let icon_font: *mut AnyObject = msg_send![class!(NSFont), systemFontOfSize: icon_font_size];
-    let () = msg_send![icon_label, setFont: icon_font];
-    let icon_text = nsstring_from_str("📋");
-    let () = msg_send![icon_label, setStringValue: icon_text];
-    let () = msg_send![icon_text, release];
+    let symbol_config: *mut AnyObject = msg_send![
+        class!(NSImageSymbolConfiguration),
+        configurationWithPointSize: icon_font_size
+        weight: 0.0f64  // NSFontWeightRegular
+    ];
+    let configured_image: *mut AnyObject =
+        msg_send![symbol_image, imageWithSymbolConfiguration: symbol_config];
+
+    let icon_label: *mut AnyObject = msg_send![class!(NSImageView), alloc];
+    let icon_label: *mut AnyObject = msg_send![icon_label, initWithFrame: icon_rect];
+    let () = msg_send![icon_label, setImage: configured_image];
+    let () = msg_send![icon_label, setImageScaling: 0isize]; // NSImageScaleNone
+    let white: *mut AnyObject = msg_send![class!(NSColor), whiteColor];
+    let () = msg_send![icon_label, setContentTintColor: white];
 
     let label_rect = NSRect {
         origin: NSPoint {
