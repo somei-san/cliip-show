@@ -87,7 +87,7 @@ MAX_DIFF_PERMILLE=80 ./scripts/visual_regression.sh
 ### 1. リリーススクリプトを実行する
 
 ```bash
-./scripts/release.sh 0.2.0
+./scripts/release.sh 0.1.4
 ```
 
 バージョンを引数で指定すると、`Cargo.toml` のバージョン更新 → コミット・push → タグ作成・push を一括で行います。

@@ -1522,8 +1522,7 @@ unsafe fn create_hud_window(
     let () = msg_send![icon_label, setDrawsBackground: false];
 
     let icon_font_size = (HUD_ICON_FONT_SIZE * clamped_scale).clamp(10.0, 44.0);
-    let system_font: *mut AnyObject =
-        msg_send![class!(NSFont), systemFontOfSize: icon_font_size];
+    let system_font: *mut AnyObject = msg_send![class!(NSFont), systemFontOfSize: icon_font_size];
     if !system_font.is_null() {
         let () = msg_send![icon_label, setFont: system_font];
     }

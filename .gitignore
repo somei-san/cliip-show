@@ -22,3 +22,5 @@ target
 
 # Visual regression temporary artifacts
 tests/visual/artifacts/
+
+.claude/settings.local.json
