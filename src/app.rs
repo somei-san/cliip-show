@@ -86,6 +86,7 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
             .and_then(|p| std::fs::metadata(p).ok())
             .and_then(|m| m.modified().ok());
 
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
         *APP_STATE.lock().expect("APP_STATE lock poisoned") = Some(AppState {
             last_change_count,
             pasteboard,
@@ -188,6 +189,7 @@ unsafe fn reload_config_if_changed(state: &mut AppState) {
 
 extern "C" fn poll_pasteboard(this: &AnyObject, _: Sel, _: *mut AnyObject) {
     unsafe {
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
         let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
         let Some(state) = guard.as_mut() else {
             return;
@@ -247,6 +249,7 @@ extern "C" fn poll_pasteboard(this: &AnyObject, _: Sel, _: *mut AnyObject) {
 
 extern "C" fn hide_hud(this: &AnyObject, _: Sel, _: *mut AnyObject) {
     unsafe {
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
         let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
         let Some(state) = guard.as_mut() else {
             return;
@@ -291,6 +294,7 @@ extern "C" fn hide_hud(this: &AnyObject, _: Sel, _: *mut AnyObject) {
 
 extern "C" fn fade_tick(_: &AnyObject, _: Sel, timer: *mut AnyObject) {
     unsafe {
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
         let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
         let Some(state) = guard.as_mut() else {
             let () = msg_send![timer, invalidate];

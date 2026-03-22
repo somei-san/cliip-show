@@ -205,6 +205,10 @@ pub fn generate_diff_png(
             }
         } else {
             // 直接バッファ操作: RGBA 8bpp を仮定（create_bitmap_rep_for_bounds と同じ設定）
+            // Safety:
+            // - bytes_per_row >= width * 4 は直前の境界チェックで保証済み
+            // - データポインタは null でないことを直前でチェック済み
+            // - ループ変数 y < height, x < width なのでオフセットはバッファ範囲内
             for y in 0..baseline_height as usize {
                 for x in 0..baseline_width as usize {
                     let b_offset = y * bytes_per_row_baseline + x * 4;

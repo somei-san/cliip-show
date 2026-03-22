@@ -312,6 +312,8 @@ pub fn parse_hud_emoji(raw: &str) -> Option<&'static str> {
     if trimmed.is_empty() {
         return None;
     }
+    // DisplaySettings が hud_emoji: &'static str を要求するため、Box::leak で 'static ライフタイムを生成する。
+    // ホットリロード時に呼ばれるが、リークするのは最大でも数十バイト程度（設定ファイル変更のたびに1個）であり許容範囲内。
     Some(Box::leak(trimmed.to_string().into_boxed_str()))
 }
 
