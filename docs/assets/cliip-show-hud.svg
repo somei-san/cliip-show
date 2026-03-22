@@ -105,10 +105,10 @@
   <rect x="185" y="102" width="430" height="42" rx="12" fill="none"
         stroke="white" stroke-opacity="0.14" stroke-width="1"/>
 
-  <!-- Peanut emoji icon -->
+  <!-- Clipboard emoji icon -->
   <text x="199" y="130"
         font-family="-apple-system,'Helvetica Neue',sans-serif"
-        font-size="16" fill="white">🥜</text>
+        font-size="16" fill="white">📋</text>
 
   <!-- Copied text — from source -->
   <text x="226" y="129"

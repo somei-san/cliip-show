@@ -67,7 +67,7 @@ pub fn handle_cli_flags() -> bool {
             );
             let _ = writeln!(
                 help,
-                "  hud_emoji               default=🥜 (任意の文字・絵文字)"
+                "  hud_emoji               default=📋 (任意の文字・絵文字)"
             );
             let _ = writeln!(help);
             let _ = writeln!(
@@ -120,7 +120,7 @@ pub fn handle_cli_flags() -> bool {
             );
             let _ = writeln!(
                 help,
-                "  CLIIP_SHOW_HUD_EMOJI            HUD icon emoji (default: 🥜)"
+                "  CLIIP_SHOW_HUD_EMOJI            HUD icon emoji (default: 📋)"
             );
             print!("{help}");
             true

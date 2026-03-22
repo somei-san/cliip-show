@@ -126,7 +126,7 @@ pub fn default_display_settings() -> DisplaySettings {
         hud_position: HudPosition::Top,
         hud_scale: DEFAULT_HUD_SCALE,
         hud_background_color: HudBackgroundColor::default(),
-        hud_emoji: "🥜",
+        hud_emoji: "📋",
     }
 }
 
