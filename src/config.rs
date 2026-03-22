@@ -329,8 +329,40 @@ pub fn parse_f64_value(value: f64, default: f64, min: f64, max: f64) -> f64 {
     value.clamp(min, max)
 }
 
+/// `usize` は NaN/Infinity を持たないため `default` パラメータは不要。
+/// 範囲外の値は `min`/`max` にクランプして返す。
 pub fn parse_usize_value(value: usize, min: usize, max: usize) -> usize {
     value.clamp(min, max)
+}
+
+/// `set_config_value` 内で f64 フィールドをパース・バリデーション・クランプする共通処理。
+/// 成功時は `(clamped_value, clamp_warning_message)` を返す。
+fn parse_and_clamp_f64(
+    raw: &str,
+    key: &'static str,
+    min: f64,
+    max: f64,
+) -> Result<(f64, Option<String>), AppError> {
+    let trimmed = raw.trim();
+    let parsed = trimmed.parse::<f64>().map_err(|_| AppError::InvalidValue {
+        key,
+        message: format!("invalid f64: {trimmed}"),
+    })?;
+    if !parsed.is_finite() {
+        return Err(AppError::InvalidValue {
+            key,
+            message: format!("value must be finite, got: {trimmed}"),
+        });
+    }
+    let clamped = parsed.clamp(min, max);
+    let warn = if parsed < min || parsed > max {
+        Some(format!(
+            "{key} was clamped from {parsed} to {clamped} (allowed range: {min}..={max})"
+        ))
+    } else {
+        None
+    };
+    Ok((clamped, warn))
 }
 
 fn parse_f64_config_value(value: f64, default: f64, min: f64, max: f64, key: &str) -> f64 {
@@ -441,63 +473,39 @@ pub fn set_config_value(
 ) -> Result<Option<String>, AppError> {
     match key {
         ConfigKey::PollIntervalSecs => {
-            let raw = value.trim();
-            let parsed = raw.parse::<f64>().map_err(|_| AppError::InvalidValue {
-                key: "poll_interval_secs",
-                message: format!("invalid f64: {raw}"),
-            })?;
-            if !parsed.is_finite() {
-                return Err(AppError::InvalidValue {
-                    key: "poll_interval_secs",
-                    message: format!("value must be finite, got: {raw}"),
-                });
-            }
-            let clamped = parsed.clamp(MIN_POLL_INTERVAL_SECS, MAX_POLL_INTERVAL_SECS);
+            let (clamped, warn) = parse_and_clamp_f64(
+                value,
+                "poll_interval_secs",
+                MIN_POLL_INTERVAL_SECS,
+                MAX_POLL_INTERVAL_SECS,
+            )?;
             config.display.poll_interval_secs = Some(clamped);
-            if parsed < MIN_POLL_INTERVAL_SECS || parsed > MAX_POLL_INTERVAL_SECS {
-                return Ok(Some(format!(
-                    "poll_interval_secs was clamped from {parsed} to {clamped} (allowed range: {MIN_POLL_INTERVAL_SECS}..={MAX_POLL_INTERVAL_SECS})"
-                )));
+            if let Some(msg) = warn {
+                return Ok(Some(msg));
             }
         }
         ConfigKey::HudDurationSecs => {
-            let raw = value.trim();
-            let parsed = raw.parse::<f64>().map_err(|_| AppError::InvalidValue {
-                key: "hud_duration_secs",
-                message: format!("invalid f64: {raw}"),
-            })?;
-            if !parsed.is_finite() {
-                return Err(AppError::InvalidValue {
-                    key: "hud_duration_secs",
-                    message: format!("value must be finite, got: {raw}"),
-                });
-            }
-            let clamped = parsed.clamp(MIN_HUD_DURATION_SECS, MAX_HUD_DURATION_SECS);
+            let (clamped, warn) = parse_and_clamp_f64(
+                value,
+                "hud_duration_secs",
+                MIN_HUD_DURATION_SECS,
+                MAX_HUD_DURATION_SECS,
+            )?;
             config.display.hud_duration_secs = Some(clamped);
-            if parsed < MIN_HUD_DURATION_SECS || parsed > MAX_HUD_DURATION_SECS {
-                return Ok(Some(format!(
-                    "hud_duration_secs was clamped from {parsed} to {clamped} (allowed range: {MIN_HUD_DURATION_SECS}..={MAX_HUD_DURATION_SECS})"
-                )));
+            if let Some(msg) = warn {
+                return Ok(Some(msg));
             }
         }
         ConfigKey::HudFadeDurationSecs => {
-            let raw = value.trim();
-            let parsed = raw.parse::<f64>().map_err(|_| AppError::InvalidValue {
-                key: "hud_fade_duration_secs",
-                message: format!("invalid f64: {raw}"),
-            })?;
-            if !parsed.is_finite() {
-                return Err(AppError::InvalidValue {
-                    key: "hud_fade_duration_secs",
-                    message: format!("value must be finite, got: {raw}"),
-                });
-            }
-            let clamped = parsed.clamp(MIN_HUD_FADE_DURATION_SECS, MAX_HUD_FADE_DURATION_SECS);
+            let (clamped, warn) = parse_and_clamp_f64(
+                value,
+                "hud_fade_duration_secs",
+                MIN_HUD_FADE_DURATION_SECS,
+                MAX_HUD_FADE_DURATION_SECS,
+            )?;
             config.display.hud_fade_duration_secs = Some(clamped);
-            if parsed < MIN_HUD_FADE_DURATION_SECS || parsed > MAX_HUD_FADE_DURATION_SECS {
-                return Ok(Some(format!(
-                    "hud_fade_duration_secs was clamped from {parsed} to {clamped} (allowed range: {MIN_HUD_FADE_DURATION_SECS}..={MAX_HUD_FADE_DURATION_SECS})"
-                )));
+            if let Some(msg) = warn {
+                return Ok(Some(msg));
             }
         }
         ConfigKey::MaxCharsPerLine => {
@@ -537,23 +545,11 @@ pub fn set_config_value(
             config.display.hud_position = Some(parsed);
         }
         ConfigKey::HudScale => {
-            let raw = value.trim();
-            let parsed = raw.parse::<f64>().map_err(|_| AppError::InvalidValue {
-                key: "hud_scale",
-                message: format!("invalid f64: {raw}"),
-            })?;
-            if !parsed.is_finite() {
-                return Err(AppError::InvalidValue {
-                    key: "hud_scale",
-                    message: format!("value must be finite, got: {raw}"),
-                });
-            }
-            let clamped = parsed.clamp(MIN_HUD_SCALE, MAX_HUD_SCALE);
+            let (clamped, warn) =
+                parse_and_clamp_f64(value, "hud_scale", MIN_HUD_SCALE, MAX_HUD_SCALE)?;
             config.display.hud_scale = Some(clamped);
-            if parsed < MIN_HUD_SCALE || parsed > MAX_HUD_SCALE {
-                return Ok(Some(format!(
-                    "hud_scale was clamped from {parsed} to {clamped} (allowed range: {MIN_HUD_SCALE}..={MAX_HUD_SCALE})"
-                )));
+            if let Some(msg) = warn {
+                return Ok(Some(msg));
             }
         }
         ConfigKey::HudBackgroundColor => {

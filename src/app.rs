@@ -33,7 +33,10 @@ pub struct AppState {
     pub config_check_counter: u32,
 }
 
-// All UI interactions happen on the AppKit main thread.
+// SAFETY: AppState は APP_STATE の Mutex で排他制御されており、
+// 実際の AppKit 操作はすべてメインスレッドのタイマーコールバック内でのみ行われる。
+// Mutex<Option<AppState>> が Sync であるためにはラップする型が Send である必要があり、
+// ここで明示的に実装する。
 unsafe impl Send for AppState {}
 
 pub static APP_STATE: Mutex<Option<AppState>> = Mutex::new(None);
@@ -144,6 +147,7 @@ unsafe fn reload_config_if_changed(state: &mut AppState) {
     }
 
     // hud_background_color が変わったら背景レイヤーを即時更新
+    // content_view・layer が nil の場合は msg_send が no-op となり更新がスキップされる（ObjC 仕様）
     if new_settings.hud_background_color != state.settings.hud_background_color {
         let content_view: *mut AnyObject = msg_send![state.window, contentView];
         let layer: *mut AnyObject = msg_send![content_view, layer];

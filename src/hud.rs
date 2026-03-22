@@ -150,6 +150,8 @@ pub unsafe fn create_hud_window(
     let clear: *mut AnyObject = msg_send![class!(NSColor), clearColor];
     let () = msg_send![window, setBackgroundColor: clear];
 
+    // ObjC では nil へのメッセージ送信は no-op（nil を返す）。
+    // content_view・layer が万一 nil でもスタイリングがスキップされるだけで動作は継続する。
     let content_view: *mut AnyObject = msg_send![window, contentView];
     let () = msg_send![content_view, setWantsLayer: true];
     let layer: *mut AnyObject = msg_send![content_view, layer];
