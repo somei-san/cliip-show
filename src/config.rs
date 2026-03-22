@@ -516,7 +516,7 @@ pub fn set_config_value(
             })?;
             let clamped = parse_usize_value(parsed, MIN_TRUNCATE_MAX_WIDTH, MAX_TRUNCATE_MAX_WIDTH);
             config.display.max_chars_per_line = Some(clamped);
-            if parsed < MIN_TRUNCATE_MAX_WIDTH || parsed > MAX_TRUNCATE_MAX_WIDTH {
+            if !(MIN_TRUNCATE_MAX_WIDTH..=MAX_TRUNCATE_MAX_WIDTH).contains(&parsed) {
                 return Ok(Some(format!(
                     "max_chars_per_line was clamped from {parsed} to {clamped} (allowed range: {MIN_TRUNCATE_MAX_WIDTH}..={MAX_TRUNCATE_MAX_WIDTH})"
                 )));
@@ -530,7 +530,7 @@ pub fn set_config_value(
             })?;
             let clamped = parse_usize_value(parsed, MIN_TRUNCATE_MAX_LINES, MAX_TRUNCATE_MAX_LINES);
             config.display.max_lines = Some(clamped);
-            if parsed < MIN_TRUNCATE_MAX_LINES || parsed > MAX_TRUNCATE_MAX_LINES {
+            if !(MIN_TRUNCATE_MAX_LINES..=MAX_TRUNCATE_MAX_LINES).contains(&parsed) {
                 return Ok(Some(format!(
                     "max_lines was clamped from {parsed} to {clamped} (allowed range: {MIN_TRUNCATE_MAX_LINES}..={MAX_TRUNCATE_MAX_LINES})"
                 )));

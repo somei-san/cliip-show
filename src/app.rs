@@ -74,7 +74,10 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
         let last_change_count: isize = msg_send![pasteboard, changeCount];
 
         let (window, icon_label, label) = create_hud_window(settings);
-        assert!(!window.is_null(), "HUD ウィンドウの作成に失敗しました");
+        if window.is_null() {
+            eprintln!("fatal: HUD ウィンドウの作成に失敗しました");
+            std::process::exit(1);
+        }
 
         // パスが解決できない場合もパスだけは保持し、後でファイルが作成されても検知できるようにする
         let config_path = crate::config::config_file_path().ok();
@@ -150,18 +153,26 @@ unsafe fn reload_config_if_changed(state: &mut AppState) {
     // content_view・layer が nil の場合は msg_send が no-op となり更新がスキップされる（ObjC 仕様）
     if new_settings.hud_background_color != state.settings.hud_background_color {
         let content_view: *mut AnyObject = msg_send![state.window, contentView];
-        let layer: *mut AnyObject = msg_send![content_view, layer];
-        let (r, g, b, a) = hud_background_rgba(new_settings.hud_background_color);
-        let bg: *mut AnyObject =
-            msg_send![class!(NSColor), colorWithCalibratedRed: r green: g blue: b alpha: a];
-        let cg_color: *mut std::ffi::c_void = msg_send![bg, CGColor];
-        let () = msg_send![layer, setBackgroundColor: cg_color];
-        let (border_white, border_alpha) =
-            hud_border_white_alpha(new_settings.hud_background_color);
-        let border_obj: *mut AnyObject =
-            msg_send![class!(NSColor), colorWithCalibratedWhite: border_white alpha: border_alpha];
-        let border_cg: *mut std::ffi::c_void = msg_send![border_obj, CGColor];
-        let () = msg_send![layer, setBorderColor: border_cg];
+        if content_view.is_null() {
+            eprintln!("warning: contentView が null です。背景色の更新をスキップします");
+        } else {
+            let layer: *mut AnyObject = msg_send![content_view, layer];
+            if layer.is_null() {
+                eprintln!("warning: layer が null です。背景色の更新をスキップします");
+            } else {
+                let (r, g, b, a) = hud_background_rgba(new_settings.hud_background_color);
+                let bg: *mut AnyObject =
+                    msg_send![class!(NSColor), colorWithCalibratedRed: r green: g blue: b alpha: a];
+                let cg_color: *mut std::ffi::c_void = msg_send![bg, CGColor];
+                let () = msg_send![layer, setBackgroundColor: cg_color];
+                let (border_white, border_alpha) =
+                    hud_border_white_alpha(new_settings.hud_background_color);
+                let border_obj: *mut AnyObject =
+                    msg_send![class!(NSColor), colorWithCalibratedWhite: border_white alpha: border_alpha];
+                let border_cg: *mut std::ffi::c_void = msg_send![border_obj, CGColor];
+                let () = msg_send![layer, setBorderColor: border_cg];
+            }
+        }
     }
 
     let poll_changed =

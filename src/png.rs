@@ -100,22 +100,28 @@ pub fn generate_diff_png(
                 "failed to load baseline PNG: {baseline_path}"
             )));
         }
+        // imageRepWithContentsOfFile: は autoreleased を返すため、明示的に retain して所有権を確保
+        let _: *mut AnyObject = msg_send![baseline_rep, retain];
 
         let current_path_ns = nsstring_from_str(current_path);
         let current_rep: *mut AnyObject =
             msg_send![class!(NSBitmapImageRep), imageRepWithContentsOfFile: current_path_ns];
         let () = msg_send![current_path_ns, release];
         if current_rep.is_null() {
+            let () = msg_send![baseline_rep, release];
             return Err(AppError::RenderFailed(format!(
                 "failed to load current PNG: {current_path}"
             )));
         }
+        let _: *mut AnyObject = msg_send![current_rep, retain];
 
         let baseline_width: isize = msg_send![baseline_rep, pixelsWide];
         let baseline_height: isize = msg_send![baseline_rep, pixelsHigh];
         let current_width: isize = msg_send![current_rep, pixelsWide];
         let current_height: isize = msg_send![current_rep, pixelsHigh];
         if baseline_width != current_width || baseline_height != current_height {
+            let () = msg_send![baseline_rep, release];
+            let () = msg_send![current_rep, release];
             return Err(AppError::RenderFailed(format!(
                 "image size mismatch: baseline={}x{}, current={}x{}",
                 baseline_width, baseline_height, current_width, current_height
@@ -124,6 +130,8 @@ pub fn generate_diff_png(
 
         let diff_rep: *mut AnyObject = msg_send![current_rep, copy];
         if diff_rep.is_null() {
+            let () = msg_send![baseline_rep, release];
+            let () = msg_send![current_rep, release];
             return Err(AppError::RenderFailed(
                 "failed to create diff image".to_string(),
             ));
@@ -141,6 +149,8 @@ pub fn generate_diff_png(
         let bytes_per_row_diff: isize = msg_send![diff_rep, bytesPerRow];
 
         if bytes_per_row_baseline <= 0 || bytes_per_row_current <= 0 || bytes_per_row_diff <= 0 {
+            let () = msg_send![baseline_rep, release];
+            let () = msg_send![current_rep, release];
             let () = msg_send![diff_rep, release];
             return Err(AppError::RenderFailed(
                 "bitmap bytesPerRow must be positive".to_string(),
@@ -149,6 +159,19 @@ pub fn generate_diff_png(
         let bytes_per_row_baseline = bytes_per_row_baseline as usize;
         let bytes_per_row_current = bytes_per_row_current as usize;
         let bytes_per_row_diff = bytes_per_row_diff as usize;
+
+        let min_bytes = baseline_width as usize * 4;
+        if bytes_per_row_baseline < min_bytes
+            || bytes_per_row_current < min_bytes
+            || bytes_per_row_diff < min_bytes
+        {
+            let () = msg_send![baseline_rep, release];
+            let () = msg_send![current_rep, release];
+            let () = msg_send![diff_rep, release];
+            return Err(AppError::RenderFailed(
+                "bitmap data layout mismatch: bytes_per_row too small".to_string(),
+            ));
+        }
 
         if baseline_data.is_null() || current_data.is_null() || diff_data.is_null() {
             // bitmapData が取れない場合は ObjC API にフォールバック
@@ -162,7 +185,10 @@ pub fn generate_diff_png(
                     let Some((cr, cg, cb, ca)) = color_components(current_color) else {
                         continue;
                     };
-                    let same = pixel_is_same(br, bg, bb, ba, cr, cg, cb, ca);
+                    let same = pixel_is_same(
+                        PixelColor { r: br, g: bg, b: bb, a: ba },
+                        PixelColor { r: cr, g: cg, b: cb, a: ca },
+                    );
                     let color: *mut AnyObject = if same {
                         let gray = ((cr + cg + cb) / 3.0).clamp(0.0, 1.0);
                         msg_send![class!(NSColor), colorWithCalibratedRed: gray green: gray blue: gray alpha: 0.08f64]
@@ -225,6 +251,8 @@ pub fn generate_diff_png(
             properties: properties
         ];
         if data.is_null() {
+            let () = msg_send![baseline_rep, release];
+            let () = msg_send![current_rep, release];
             let () = msg_send![diff_rep, release];
             return Err(AppError::RenderFailed(
                 "failed to encode diff PNG".to_string(),
@@ -234,6 +262,8 @@ pub fn generate_diff_png(
         let output_path_ns = nsstring_from_str(output_path);
         let success: bool = msg_send![data, writeToFile: output_path_ns atomically: true];
         let () = msg_send![output_path_ns, release];
+        let () = msg_send![baseline_rep, release];
+        let () = msg_send![current_rep, release];
         let () = msg_send![diff_rep, release];
 
         if !success {
@@ -272,11 +302,19 @@ fn to_u8(component: f64) -> u8 {
     (component.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
-fn pixel_is_same(br: f64, bg: f64, bb: f64, ba: f64, cr: f64, cg: f64, cb: f64, ca: f64) -> bool {
-    to_u8(br).abs_diff(to_u8(cr)) <= PIXEL_CHANNEL_TOLERANCE
-        && to_u8(bg).abs_diff(to_u8(cg)) <= PIXEL_CHANNEL_TOLERANCE
-        && to_u8(bb).abs_diff(to_u8(cb)) <= PIXEL_CHANNEL_TOLERANCE
-        && to_u8(ba).abs_diff(to_u8(ca)) <= PIXEL_CHANNEL_TOLERANCE
+#[derive(Clone, Copy)]
+struct PixelColor {
+    r: f64,
+    g: f64,
+    b: f64,
+    a: f64,
+}
+
+fn pixel_is_same(baseline: PixelColor, current: PixelColor) -> bool {
+    to_u8(baseline.r).abs_diff(to_u8(current.r)) <= PIXEL_CHANNEL_TOLERANCE
+        && to_u8(baseline.g).abs_diff(to_u8(current.g)) <= PIXEL_CHANNEL_TOLERANCE
+        && to_u8(baseline.b).abs_diff(to_u8(current.b)) <= PIXEL_CHANNEL_TOLERANCE
+        && to_u8(baseline.a).abs_diff(to_u8(current.a)) <= PIXEL_CHANNEL_TOLERANCE
 }
 
 pub fn create_bitmap_rep_for_bounds(bounds: NSRect) -> Result<*mut AnyObject, AppError> {
