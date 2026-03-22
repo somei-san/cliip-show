@@ -151,43 +151,59 @@ pub fn display_settings() -> DisplaySettings {
 pub fn apply_config_file(base: DisplaySettings, config: &AppConfigFile) -> DisplaySettings {
     let mut settings = base;
     if let Some(value) = config.display.poll_interval_secs {
-        settings.poll_interval_secs = parse_f64_value(
+        settings.poll_interval_secs = parse_f64_config_value(
             value,
             settings.poll_interval_secs,
             MIN_POLL_INTERVAL_SECS,
             MAX_POLL_INTERVAL_SECS,
+            "poll_interval_secs",
         );
     }
     if let Some(value) = config.display.hud_duration_secs {
-        settings.hud_duration_secs = parse_f64_value(
+        settings.hud_duration_secs = parse_f64_config_value(
             value,
             settings.hud_duration_secs,
             MIN_HUD_DURATION_SECS,
             MAX_HUD_DURATION_SECS,
+            "hud_duration_secs",
         );
     }
     if let Some(value) = config.display.hud_fade_duration_secs {
-        settings.hud_fade_duration_secs = parse_f64_value(
+        settings.hud_fade_duration_secs = parse_f64_config_value(
             value,
             settings.hud_fade_duration_secs,
             MIN_HUD_FADE_DURATION_SECS,
             MAX_HUD_FADE_DURATION_SECS,
+            "hud_fade_duration_secs",
         );
     }
     if let Some(value) = config.display.max_chars_per_line {
-        settings.truncate_max_width =
-            parse_usize_value(value, MIN_TRUNCATE_MAX_WIDTH, MAX_TRUNCATE_MAX_WIDTH);
+        settings.truncate_max_width = parse_usize_config_value(
+            value,
+            MIN_TRUNCATE_MAX_WIDTH,
+            MAX_TRUNCATE_MAX_WIDTH,
+            "max_chars_per_line",
+        );
     }
     if let Some(value) = config.display.max_lines {
-        settings.truncate_max_lines =
-            parse_usize_value(value, MIN_TRUNCATE_MAX_LINES, MAX_TRUNCATE_MAX_LINES);
+        settings.truncate_max_lines = parse_usize_config_value(
+            value,
+            MIN_TRUNCATE_MAX_LINES,
+            MAX_TRUNCATE_MAX_LINES,
+            "max_lines",
+        );
     }
     if let Some(value) = config.display.hud_position {
         settings.hud_position = value;
     }
     if let Some(value) = config.display.hud_scale {
-        settings.hud_scale =
-            parse_f64_value(value, settings.hud_scale, MIN_HUD_SCALE, MAX_HUD_SCALE);
+        settings.hud_scale = parse_f64_config_value(
+            value,
+            settings.hud_scale,
+            MIN_HUD_SCALE,
+            MAX_HUD_SCALE,
+            "hud_scale",
+        );
     }
     if let Some(value) = config.display.hud_background_color {
         settings.hud_background_color = value;
@@ -315,6 +331,30 @@ pub fn parse_f64_value(value: f64, default: f64, min: f64, max: f64) -> f64 {
 
 pub fn parse_usize_value(value: usize, min: usize, max: usize) -> usize {
     value.clamp(min, max)
+}
+
+fn parse_f64_config_value(value: f64, default: f64, min: f64, max: f64, key: &str) -> f64 {
+    if !value.is_finite() {
+        eprintln!("warning: {key}: value must be finite, got {value}; using default {default}");
+        return default;
+    }
+    let clamped = value.clamp(min, max);
+    if clamped != value {
+        eprintln!(
+            "warning: {key} was clamped from {value} to {clamped} (allowed range: {min}..={max})"
+        );
+    }
+    clamped
+}
+
+fn parse_usize_config_value(value: usize, min: usize, max: usize, key: &str) -> usize {
+    let clamped = value.clamp(min, max);
+    if clamped != value {
+        eprintln!(
+            "warning: {key} was clamped from {value} to {clamped} (allowed range: {min}..={max})"
+        );
+    }
+    clamped
 }
 
 pub fn config_file_path() -> Result<PathBuf, AppError> {
@@ -760,8 +800,11 @@ pub fn parse_usize_setting(raw: &str, default: usize, min: usize, max: usize) ->
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_config_key, parse_f64_setting, parse_usize_setting, set_config_value, AppConfigFile,
-        ConfigKey, HudBackgroundColor, HudPosition,
+        apply_config_file, default_display_settings, parse_config_key, parse_f64_setting,
+        parse_f64_value, parse_hud_background_color, parse_hud_emoji, parse_hud_position,
+        parse_usize_setting, set_config_value, AppConfigFile, ConfigKey, DisplayConfigFile,
+        HudBackgroundColor, HudPosition, HUD_DURATION_SECS, MAX_HUD_DURATION_SECS,
+        MAX_TRUNCATE_MAX_WIDTH, MIN_HUD_SCALE, MIN_POLL_INTERVAL_SECS, POLL_INTERVAL_SECS,
     };
 
     #[test]
@@ -874,5 +917,83 @@ mod tests {
         assert!(color_err.to_string().contains("hud_background_color"));
         assert_eq!(config.display.hud_position, None);
         assert_eq!(config.display.hud_background_color, None);
+    }
+
+    #[test]
+    fn parse_f64_value_clamps_and_fallbacks_for_non_finite() {
+        assert_eq!(parse_f64_value(0.01, 1.0, 0.1, 5.0), 0.1);
+        assert_eq!(parse_f64_value(8.0, 1.0, 0.1, 5.0), 5.0);
+        assert_eq!(parse_f64_value(1.5, 1.0, 0.1, 5.0), 1.5);
+        assert_eq!(parse_f64_value(f64::NAN, 1.0, 0.1, 5.0), 1.0);
+        assert_eq!(parse_f64_value(f64::INFINITY, 1.0, 0.1, 5.0), 1.0);
+    }
+
+    #[test]
+    fn parse_hud_position_accepts_valid_values() {
+        assert_eq!(parse_hud_position("top"), Some(HudPosition::Top));
+        assert_eq!(parse_hud_position("center"), Some(HudPosition::Center));
+        assert_eq!(parse_hud_position("bottom"), Some(HudPosition::Bottom));
+        assert_eq!(parse_hud_position("  Top  "), Some(HudPosition::Top));
+        assert_eq!(parse_hud_position("CENTER"), Some(HudPosition::Center));
+        assert_eq!(parse_hud_position("invalid"), None);
+    }
+
+    #[test]
+    fn parse_hud_background_color_accepts_valid_values() {
+        assert_eq!(
+            parse_hud_background_color("default"),
+            Some(HudBackgroundColor::Default)
+        );
+        assert_eq!(
+            parse_hud_background_color("yellow"),
+            Some(HudBackgroundColor::Yellow)
+        );
+        assert_eq!(
+            parse_hud_background_color("  Green  "),
+            Some(HudBackgroundColor::Green)
+        );
+        assert_eq!(parse_hud_background_color("invalid"), None);
+    }
+
+    #[test]
+    fn parse_hud_emoji_trims_and_rejects_empty() {
+        assert!(parse_hud_emoji("🥜").is_some());
+        assert_eq!(parse_hud_emoji("  🎯  ").unwrap(), "🎯");
+        assert!(parse_hud_emoji("").is_none());
+        assert!(parse_hud_emoji("   ").is_none());
+    }
+
+    #[test]
+    fn apply_config_file_clamps_out_of_range_values() {
+        let base = default_display_settings();
+        let config = AppConfigFile {
+            display: DisplayConfigFile {
+                poll_interval_secs: Some(0.001), // below MIN_POLL_INTERVAL_SECS
+                hud_duration_secs: Some(100.0),  // above MAX_HUD_DURATION_SECS
+                hud_scale: Some(0.1),            // below MIN_HUD_SCALE
+                max_chars_per_line: Some(1000),  // above MAX_TRUNCATE_MAX_WIDTH
+                ..Default::default()
+            },
+        };
+        let settings = apply_config_file(base, &config);
+        assert_eq!(settings.poll_interval_secs, MIN_POLL_INTERVAL_SECS);
+        assert_eq!(settings.hud_duration_secs, MAX_HUD_DURATION_SECS);
+        assert_eq!(settings.hud_scale, MIN_HUD_SCALE);
+        assert_eq!(settings.truncate_max_width, MAX_TRUNCATE_MAX_WIDTH);
+    }
+
+    #[test]
+    fn apply_config_file_uses_default_for_non_finite() {
+        let base = default_display_settings();
+        let config = AppConfigFile {
+            display: DisplayConfigFile {
+                poll_interval_secs: Some(f64::NAN),
+                hud_duration_secs: Some(f64::INFINITY),
+                ..Default::default()
+            },
+        };
+        let settings = apply_config_file(base, &config);
+        assert_eq!(settings.poll_interval_secs, POLL_INTERVAL_SECS);
+        assert_eq!(settings.hud_duration_secs, HUD_DURATION_SECS);
     }
 }
