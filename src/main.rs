@@ -1,14 +1,5 @@
-mod app;
-mod cli;
-mod config;
-mod error;
-mod hud;
-mod objc_helpers;
-mod png;
-mod text;
-
 fn main() {
-    if cli::handle_cli_flags() {
+    if cliip_show::cli::handle_cli_flags() {
         return;
     }
 
@@ -23,7 +14,7 @@ fn main() {
         }
         let _: bool = msg_send![app, setActivationPolicy: 1isize];
 
-        let delegate_class = app::get_delegate_class();
+        let delegate_class = cliip_show::app::get_delegate_class();
         let delegate: *mut AnyObject = msg_send![delegate_class, new];
         let () = msg_send![app, setDelegate: delegate];
         let () = msg_send![app, run];
