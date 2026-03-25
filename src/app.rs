@@ -73,7 +73,7 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
         let pasteboard: *mut AnyObject = msg_send![class!(NSPasteboard), generalPasteboard];
         let last_change_count: isize = msg_send![pasteboard, changeCount];
 
-        let (window, icon_label, label) = create_hud_window(settings);
+        let (window, icon_label, label) = create_hud_window(settings.clone());
         if window.is_null() {
             eprintln!("fatal: HUD ウィンドウの作成に失敗しました");
             std::process::exit(1);
@@ -85,6 +85,8 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
             .as_ref()
             .and_then(|p| std::fs::metadata(p).ok())
             .and_then(|m| m.modified().ok());
+
+        let poll_interval = settings.poll_interval_secs;
 
         // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
         *APP_STATE.lock().expect("APP_STATE lock poisoned") = Some(AppState {
@@ -105,7 +107,7 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
 
         let _: *mut AnyObject = msg_send![
             class!(NSTimer),
-            scheduledTimerWithTimeInterval: settings.poll_interval_secs
+            scheduledTimerWithTimeInterval: poll_interval
             target: this
             selector: sel!(pollPasteboard:)
             userInfo: ptr::null_mut::<AnyObject>()
@@ -145,7 +147,7 @@ unsafe fn reload_config_if_changed(state: &mut AppState) {
 
     // hud_emoji が変わったらアイコンラベルを即時更新
     if new_settings.hud_emoji != state.settings.hud_emoji {
-        let emoji = nsstring_from_str(new_settings.hud_emoji);
+        let emoji = nsstring_from_str(&new_settings.hud_emoji);
         let () = msg_send![state.icon_label, setStringValue: emoji];
         let () = msg_send![emoji, release];
     }
@@ -219,7 +221,7 @@ extern "C" fn poll_pasteboard(this: &AnyObject, _: Sel, _: *mut AnyObject) {
         let () = msg_send![state.label, setStringValue: message];
         let () = msg_send![message, release];
 
-        layout_hud(state.window, state.icon_label, state.label, state.settings);
+        layout_hud(state.window, state.icon_label, state.label, state.settings.clone());
 
         // フェード中なら止めてアルファを戻す
         if !state.fade_timer.is_null() {

@@ -1,3 +1,5 @@
+use unicode_segmentation::UnicodeSegmentation;
+
 pub fn truncate_text(text: &str, max_width: usize, max_lines: usize) -> String {
     let mut lines: Vec<String> = split_non_trailing_lines(text)
         .into_iter()
@@ -15,16 +17,16 @@ pub fn truncate_text(text: &str, max_width: usize, max_lines: usize) -> String {
 }
 
 fn truncate_line(line: &str, max_width: usize) -> String {
-    let count = line.chars().count();
+    let count = line.graphemes(true).count();
     if count <= max_width {
         return line.to_string();
     }
 
     if max_width <= 3 {
-        return "...".chars().take(max_width).collect();
+        return "...".graphemes(true).take(max_width).collect();
     }
 
-    let kept: String = line.chars().take(max_width - 3).collect();
+    let kept: String = line.graphemes(true).take(max_width - 3).collect();
     format!("{kept}...")
 }
 
@@ -34,15 +36,15 @@ fn append_ellipsis(line: &str, max_width: usize) -> String {
     }
 
     if max_width <= 3 {
-        return "...".chars().take(max_width).collect();
+        return "...".graphemes(true).take(max_width).collect();
     }
 
-    let current_len = line.chars().count();
+    let current_len = line.graphemes(true).count();
     if current_len + 3 <= max_width {
         return format!("{line}...");
     }
 
-    let kept: String = line.chars().take(max_width - 3).collect();
+    let kept: String = line.graphemes(true).take(max_width - 3).collect();
     format!("{kept}...")
 }
 
@@ -94,5 +96,31 @@ mod tests {
     fn handles_utf8_by_char_count() {
         let input = "あいうえおかきくけこ";
         assert_eq!(truncate_text(input, 6, 5), "あいう...");
+    }
+
+    #[test]
+    fn handles_grapheme_clusters() {
+        // 結合絵文字: 👨‍👩‍👧‍👦 は7 chars だが1書記素クラスタ
+        let family = "👨\u{200D}👩\u{200D}👧\u{200D}👦";
+        assert_eq!(truncate_text(family, 1, 5), family.to_string());
+
+        // 5つの結合絵文字を max_width=3 で切り詰め
+        let five_families = format!("{family}{family}{family}{family}{family}");
+        let result = truncate_text(&five_families, 3, 5);
+        // 書記素クラスタ単位なので先頭0個 + "..." = "..."
+        assert_eq!(result, "...");
+
+        // max_width=4 なら先頭1クラスタ + "..."
+        let result = truncate_text(&five_families, 4, 5);
+        assert_eq!(result, format!("{family}..."));
+    }
+
+    #[test]
+    fn handles_flag_emoji_graphemes() {
+        // 国旗絵文字: 🇯🇵 は2 chars だが1書記素クラスタ
+        let flags = "🇯🇵🇺🇸🇬🇧🇫🇷🇩🇪";
+        // 5クラスタ, max_width=4 → 先頭1 + "..."
+        let result = truncate_text(flags, 4, 5);
+        assert_eq!(result, "🇯🇵...");
     }
 }

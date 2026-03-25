@@ -202,7 +202,7 @@ pub unsafe fn create_hud_window(
         let () = msg_send![icon_label, setFont: system_font];
     }
 
-    let emoji = nsstring_from_str(settings.hud_emoji);
+    let emoji = nsstring_from_str(&settings.hud_emoji);
     let () = msg_send![icon_label, setStringValue: emoji];
     let () = msg_send![emoji, release];
 

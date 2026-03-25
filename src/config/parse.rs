@@ -46,14 +46,12 @@ pub fn parse_hud_background_color(raw: &str) -> Option<HudBackgroundColor> {
     }
 }
 
-pub fn parse_hud_emoji(raw: &str) -> Option<&'static str> {
+pub fn parse_hud_emoji(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return None;
     }
-    // DisplaySettings が hud_emoji: &'static str を要求するため、Box::leak で 'static ライフタイムを生成する。
-    // ホットリロード時に呼ばれるが、リークするのは最大でも数十バイト程度（設定ファイル変更のたびに1個）であり許容範囲内。
-    Some(Box::leak(trimmed.to_string().into_boxed_str()))
+    Some(trimmed.to_string())
 }
 
 pub fn parse_f64_setting(raw: &str, default: f64, min: f64, max: f64) -> f64 {

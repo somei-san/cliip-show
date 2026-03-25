@@ -21,7 +21,7 @@ pub fn render_hud_png(text: &str, output_path: &str) -> Result<(), AppError> {
     unsafe {
         let _app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
         let settings = display_settings();
-        let (window, icon_label, label) = create_hud_window(settings);
+        let (window, icon_label, label) = create_hud_window(settings.clone());
         if window.is_null() {
             return Err(AppError::RenderFailed(
                 "failed to create HUD window".to_string(),

@@ -44,7 +44,7 @@ impl HudBackgroundColor {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct DisplaySettings {
     pub poll_interval_secs: f64,
     pub hud_duration_secs: f64,
@@ -54,7 +54,7 @@ pub struct DisplaySettings {
     pub hud_position: HudPosition,
     pub hud_scale: f64,
     pub hud_background_color: HudBackgroundColor,
-    pub hud_emoji: &'static str,
+    pub hud_emoji: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

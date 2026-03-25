@@ -23,7 +23,7 @@ pub fn default_display_settings() -> DisplaySettings {
         hud_position: HudPosition::Top,
         hud_scale: DEFAULT_HUD_SCALE,
         hud_background_color: HudBackgroundColor::default(),
-        hud_emoji: "📋",
+        hud_emoji: "📋".to_string(),
     }
 }
 
@@ -199,7 +199,7 @@ pub fn settings_to_config_file(settings: DisplaySettings) -> AppConfigFile {
             hud_position: Some(settings.hud_position),
             hud_scale: Some(settings.hud_scale),
             hud_background_color: Some(settings.hud_background_color),
-            hud_emoji: Some(settings.hud_emoji.to_string()),
+            hud_emoji: Some(settings.hud_emoji.clone()),
         },
     }
 }
