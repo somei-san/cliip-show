@@ -221,7 +221,12 @@ extern "C" fn poll_pasteboard(this: &AnyObject, _: Sel, _: *mut AnyObject) {
         let () = msg_send![state.label, setStringValue: message];
         let () = msg_send![message, release];
 
-        layout_hud(state.window, state.icon_label, state.label, state.settings.clone());
+        layout_hud(
+            state.window,
+            state.icon_label,
+            state.label,
+            state.settings.clone(),
+        );
 
         // フェード中なら止めてアルファを戻す
         if !state.fade_timer.is_null() {

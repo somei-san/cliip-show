@@ -1,8 +1,6 @@
 use crate::error::AppError;
 
-use super::types::{
-    AppConfigFile, ConfigKey, HudBackgroundColor, HudPosition,
-};
+use super::types::{AppConfigFile, ConfigKey, HudBackgroundColor, HudPosition};
 use super::{
     MAX_HUD_DURATION_SECS, MAX_HUD_FADE_DURATION_SECS, MAX_HUD_SCALE, MAX_POLL_INTERVAL_SECS,
     MAX_TRUNCATE_MAX_LINES, MAX_TRUNCATE_MAX_WIDTH, MIN_HUD_DURATION_SECS,
@@ -75,9 +73,7 @@ pub fn parse_config_key(raw: &str) -> Option<ConfigKey> {
     match raw {
         "poll_interval_secs" | "poll-interval-secs" => Some(ConfigKey::PollIntervalSecs),
         "hud_duration_secs" | "hud-duration-secs" => Some(ConfigKey::HudDurationSecs),
-        "hud_fade_duration_secs" | "hud-fade-duration-secs" => {
-            Some(ConfigKey::HudFadeDurationSecs)
-        }
+        "hud_fade_duration_secs" | "hud-fade-duration-secs" => Some(ConfigKey::HudFadeDurationSecs),
         "max_chars_per_line" | "max-chars-per-line" => Some(ConfigKey::MaxCharsPerLine),
         "max_lines" | "max-lines" => Some(ConfigKey::MaxLines),
         "hud_position" | "hud-position" => Some(ConfigKey::HudPosition),
@@ -138,12 +134,7 @@ pub(crate) fn parse_f64_config_value(
     clamped
 }
 
-pub(crate) fn parse_usize_config_value(
-    value: usize,
-    min: usize,
-    max: usize,
-    key: &str,
-) -> usize {
+pub(crate) fn parse_usize_config_value(value: usize, min: usize, max: usize, key: &str) -> usize {
     let clamped = value.clamp(min, max);
     if clamped != value {
         eprintln!(
@@ -212,8 +203,7 @@ pub fn set_config_value(
                 key: "max_chars_per_line",
                 message: format!("invalid integer: {raw}"),
             })?;
-            let clamped =
-                parse_usize_value(parsed, MIN_TRUNCATE_MAX_WIDTH, MAX_TRUNCATE_MAX_WIDTH);
+            let clamped = parse_usize_value(parsed, MIN_TRUNCATE_MAX_WIDTH, MAX_TRUNCATE_MAX_WIDTH);
             config.display.max_chars_per_line = Some(clamped);
             if !(MIN_TRUNCATE_MAX_WIDTH..=MAX_TRUNCATE_MAX_WIDTH).contains(&parsed) {
                 return Ok(Some(format!(
@@ -227,8 +217,7 @@ pub fn set_config_value(
                 key: "max_lines",
                 message: format!("invalid integer: {raw}"),
             })?;
-            let clamped =
-                parse_usize_value(parsed, MIN_TRUNCATE_MAX_LINES, MAX_TRUNCATE_MAX_LINES);
+            let clamped = parse_usize_value(parsed, MIN_TRUNCATE_MAX_LINES, MAX_TRUNCATE_MAX_LINES);
             config.display.max_lines = Some(clamped);
             if !(MIN_TRUNCATE_MAX_LINES..=MAX_TRUNCATE_MAX_LINES).contains(&parsed) {
                 return Ok(Some(format!(
@@ -254,11 +243,10 @@ pub fn set_config_value(
         }
         ConfigKey::HudBackgroundColor => {
             let raw = value.trim();
-            let parsed =
-                parse_hud_background_color(raw).ok_or_else(|| AppError::InvalidValue {
-                    key: "hud_background_color",
-                    message: format!("{raw} (allowed: default, yellow, blue, green, red, purple)"),
-                })?;
+            let parsed = parse_hud_background_color(raw).ok_or_else(|| AppError::InvalidValue {
+                key: "hud_background_color",
+                message: format!("{raw} (allowed: default, yellow, blue, green, red, purple)"),
+            })?;
             config.display.hud_background_color = Some(parsed);
         }
         ConfigKey::HudEmoji => {
@@ -277,14 +265,14 @@ pub fn set_config_value(
 
 #[cfg(test)]
 mod tests {
+    use super::super::settings::apply_config_file;
+    use super::super::settings::default_display_settings;
+    use super::super::types::DisplayConfigFile;
     use super::*;
     use crate::config::{
         HUD_DURATION_SECS, MAX_HUD_DURATION_SECS, MAX_TRUNCATE_MAX_WIDTH, MIN_HUD_SCALE,
         MIN_POLL_INTERVAL_SECS, POLL_INTERVAL_SECS,
     };
-    use super::super::settings::apply_config_file;
-    use super::super::settings::default_display_settings;
-    use super::super::types::DisplayConfigFile;
 
     #[test]
     fn parse_f64_setting_clamps_and_fallbacks() {

@@ -3,6 +3,7 @@ use super::parse::{
     parse_f64_config_value, parse_f64_setting, parse_hud_background_color_setting, parse_hud_emoji,
     parse_hud_position_setting, parse_usize_config_value, parse_usize_setting,
 };
+use super::types::HudBackgroundColor;
 use super::types::{AppConfigFile, DisplayConfigFile, DisplaySettings, HudPosition};
 use super::{
     DEFAULT_HUD_FADE_DURATION_SECS, DEFAULT_HUD_SCALE, DEFAULT_TRUNCATE_MAX_LINES,
@@ -11,7 +12,6 @@ use super::{
     MAX_TRUNCATE_MAX_WIDTH, MIN_HUD_DURATION_SECS, MIN_HUD_FADE_DURATION_SECS, MIN_HUD_SCALE,
     MIN_POLL_INTERVAL_SECS, MIN_TRUNCATE_MAX_LINES, MIN_TRUNCATE_MAX_WIDTH, POLL_INTERVAL_SECS,
 };
-use super::types::HudBackgroundColor;
 
 pub fn default_display_settings() -> DisplaySettings {
     DisplaySettings {
