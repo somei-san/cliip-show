@@ -10,6 +10,7 @@ pub const HUD_DURATION_SECS: f64 = 1.0;
 pub const DEFAULT_TRUNCATE_MAX_WIDTH: usize = 100;
 pub const DEFAULT_TRUNCATE_MAX_LINES: usize = 5;
 pub const DEFAULT_HUD_SCALE: f64 = 1.1;
+pub const DEFAULT_HUD_IMAGE_MAX_HEIGHT: usize = 160;
 
 pub const MIN_POLL_INTERVAL_SECS: f64 = 0.05;
 pub const MAX_POLL_INTERVAL_SECS: f64 = 5.0;
@@ -24,6 +25,10 @@ pub const MIN_TRUNCATE_MAX_WIDTH: usize = 1;
 pub const MAX_TRUNCATE_MAX_WIDTH: usize = 500;
 pub const MIN_TRUNCATE_MAX_LINES: usize = 1;
 pub const MAX_TRUNCATE_MAX_LINES: usize = 20;
+// 上限 240 は、`DEFAULT_HUD_SCALE` のときに実際に効く高さ上限（HUD_MAX_HEIGHT から縦パディングを引いた値）に合わせている。
+// hud_scale を上げれば実際の上限も上がる。
+pub const MIN_HUD_IMAGE_MAX_HEIGHT: usize = 40;
+pub const MAX_HUD_IMAGE_MAX_HEIGHT: usize = 240;
 
 // Re-exports: 外部モジュールのインポートを一切変更しないようにする
 pub use cli::handle_config_command;

@@ -2,10 +2,10 @@ use crate::error::AppError;
 
 use super::types::{AppConfigFile, ConfigKey, HudBackgroundColor, HudPosition};
 use super::{
-    MAX_HUD_DURATION_SECS, MAX_HUD_FADE_DURATION_SECS, MAX_HUD_SCALE, MAX_POLL_INTERVAL_SECS,
-    MAX_TRUNCATE_MAX_LINES, MAX_TRUNCATE_MAX_WIDTH, MIN_HUD_DURATION_SECS,
-    MIN_HUD_FADE_DURATION_SECS, MIN_HUD_SCALE, MIN_POLL_INTERVAL_SECS, MIN_TRUNCATE_MAX_LINES,
-    MIN_TRUNCATE_MAX_WIDTH,
+    MAX_HUD_DURATION_SECS, MAX_HUD_FADE_DURATION_SECS, MAX_HUD_IMAGE_MAX_HEIGHT, MAX_HUD_SCALE,
+    MAX_POLL_INTERVAL_SECS, MAX_TRUNCATE_MAX_LINES, MAX_TRUNCATE_MAX_WIDTH, MIN_HUD_DURATION_SECS,
+    MIN_HUD_FADE_DURATION_SECS, MIN_HUD_IMAGE_MAX_HEIGHT, MIN_HUD_SCALE, MIN_POLL_INTERVAL_SECS,
+    MIN_TRUNCATE_MAX_LINES, MIN_TRUNCATE_MAX_WIDTH,
 };
 
 pub fn parse_f64_value(value: f64, default: f64, min: f64, max: f64) -> f64 {
@@ -80,6 +80,7 @@ pub fn parse_config_key(raw: &str) -> Option<ConfigKey> {
         "hud_scale" | "hud-scale" => Some(ConfigKey::HudScale),
         "hud_background_color" | "hud-background-color" => Some(ConfigKey::HudBackgroundColor),
         "hud_emoji" | "hud-emoji" => Some(ConfigKey::HudEmoji),
+        "hud_image_max_height" | "hud-image-max-height" => Some(ConfigKey::HudImageMaxHeight),
         _ => None,
     }
 }
@@ -259,6 +260,21 @@ pub fn set_config_value(
             }
             config.display.hud_emoji = Some(raw.to_string());
         }
+        ConfigKey::HudImageMaxHeight => {
+            let raw = value.trim();
+            let parsed = raw.parse::<usize>().map_err(|_| AppError::InvalidValue {
+                key: "hud_image_max_height",
+                message: format!("invalid integer: {raw}"),
+            })?;
+            let clamped =
+                parse_usize_value(parsed, MIN_HUD_IMAGE_MAX_HEIGHT, MAX_HUD_IMAGE_MAX_HEIGHT);
+            config.display.hud_image_max_height = Some(clamped);
+            if !(MIN_HUD_IMAGE_MAX_HEIGHT..=MAX_HUD_IMAGE_MAX_HEIGHT).contains(&parsed) {
+                return Ok(Some(format!(
+                    "hud_image_max_height was clamped from {parsed} to {clamped} (allowed range: {MIN_HUD_IMAGE_MAX_HEIGHT}..={MAX_HUD_IMAGE_MAX_HEIGHT})"
+                )));
+            }
+        }
     }
     Ok(None)
 }
@@ -270,8 +286,8 @@ mod tests {
     use super::super::types::DisplayConfigFile;
     use super::*;
     use crate::config::{
-        HUD_DURATION_SECS, MAX_HUD_DURATION_SECS, MAX_TRUNCATE_MAX_WIDTH, MIN_HUD_SCALE,
-        MIN_POLL_INTERVAL_SECS, POLL_INTERVAL_SECS,
+        HUD_DURATION_SECS, MAX_HUD_DURATION_SECS, MAX_HUD_IMAGE_MAX_HEIGHT, MAX_TRUNCATE_MAX_WIDTH,
+        MIN_HUD_SCALE, MIN_POLL_INTERVAL_SECS, POLL_INTERVAL_SECS,
     };
 
     #[test]
@@ -307,6 +323,14 @@ mod tests {
         assert_eq!(parse_config_key("hud-scale"), Some(ConfigKey::HudScale));
         assert_eq!(parse_config_key("hud_emoji"), Some(ConfigKey::HudEmoji));
         assert_eq!(parse_config_key("hud-emoji"), Some(ConfigKey::HudEmoji));
+        assert_eq!(
+            parse_config_key("hud_image_max_height"),
+            Some(ConfigKey::HudImageMaxHeight)
+        );
+        assert_eq!(
+            parse_config_key("hud-image-max-height"),
+            Some(ConfigKey::HudImageMaxHeight)
+        );
         assert_eq!(parse_config_key("hub_background_color"), None);
         assert_eq!(parse_config_key("hub-background-color"), None);
         assert_eq!(parse_config_key("unknown"), None);
@@ -345,6 +369,27 @@ mod tests {
         assert!(position_warning.is_none());
         assert!(scale_warning.is_some());
         assert!(color_warning.is_none());
+    }
+
+    #[test]
+    fn set_config_value_clamps_hud_image_max_height() {
+        let mut config = AppConfigFile::default();
+        let warning = set_config_value(&mut config, ConfigKey::HudImageMaxHeight, "9999")
+            .expect("set hud image max height");
+        assert_eq!(
+            config.display.hud_image_max_height,
+            Some(MAX_HUD_IMAGE_MAX_HEIGHT)
+        );
+        assert!(warning.is_some());
+
+        let warning = set_config_value(&mut config, ConfigKey::HudImageMaxHeight, "120")
+            .expect("set hud image max height");
+        assert_eq!(config.display.hud_image_max_height, Some(120));
+        assert!(warning.is_none());
+
+        let err = set_config_value(&mut config, ConfigKey::HudImageMaxHeight, "tall")
+            .expect_err("reject non-integer");
+        assert!(err.to_string().contains("hud_image_max_height"));
     }
 
     #[test]

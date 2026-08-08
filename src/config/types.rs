@@ -55,6 +55,7 @@ pub struct DisplaySettings {
     pub hud_scale: f64,
     pub hud_background_color: HudBackgroundColor,
     pub hud_emoji: String,
+    pub hud_image_max_height: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -74,6 +75,7 @@ pub struct DisplayConfigFile {
     pub hud_scale: Option<f64>,
     pub hud_background_color: Option<HudBackgroundColor>,
     pub hud_emoji: Option<String>,
+    pub hud_image_max_height: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,4 +89,5 @@ pub enum ConfigKey {
     HudScale,
     HudBackgroundColor,
     HudEmoji,
+    HudImageMaxHeight,
 }

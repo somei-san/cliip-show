@@ -18,6 +18,8 @@ pub const FLOATING_WINDOW_LEVEL: isize = 3;
 const NS_LINE_BREAK_BY_WORD_WRAPPING: isize = 1;
 // NSTextAlignment
 const NS_TEXT_ALIGNMENT_LEFT: isize = 0;
+// NSImageScaling
+const NS_IMAGE_SCALE_PROPORTIONALLY_UP_OR_DOWN: usize = 3;
 
 const HUD_MIN_WIDTH: f64 = 200.0;
 const HUD_MAX_WIDTH: f64 = 820.0;
@@ -101,16 +103,61 @@ pub fn hud_background_rgba(color: HudBackgroundColor) -> (f64, f64, f64, f64) {
     }
 }
 
-/// HUD ウィンドウと2つのラベル（アイコン・テキスト）を生成して返す。
+/// クリップボードの画像を HUD に収めるときのサムネイル寸法 (幅, 高さ) を返す。
+///
+/// 元画像より大きくは表示しない（ビットマップの引き伸ばしを避けるため）。
+/// `max_height_setting` は `hud_scale` 倍したうえで、HUD 自体の高さ・幅の上限でさらに抑える。
+pub fn fit_thumbnail_size(
+    image_width: f64,
+    image_height: f64,
+    max_height_setting: usize,
+    scale: f64,
+) -> (f64, f64) {
+    use crate::config::parse_f64_value;
+    let clamped_scale = parse_f64_value(scale, DEFAULT_HUD_SCALE, MIN_HUD_SCALE, MAX_HUD_SCALE);
+    let dims = hud_dimensions(clamped_scale);
+
+    let max_height = (max_height_setting as f64 * clamped_scale)
+        .min(dims.max_height - dims.vertical_padding * 2.0)
+        .max(1.0);
+    let max_width =
+        (dims.max_width - (dims.horizontal_padding * 2.0 + dims.icon_width + dims.gap)).max(1.0);
+
+    let has_usable_size = image_width.is_finite()
+        && image_height.is_finite()
+        && image_width > 0.0
+        && image_height > 0.0;
+    if !has_usable_size {
+        // NSImage が寸法を返さない場合でも枠だけは出す
+        return (max_height, max_height);
+    }
+
+    let ratio = (max_width / image_width)
+        .min(max_height / image_height)
+        .min(1.0);
+    (
+        (image_width * ratio).round().max(1.0),
+        (image_height * ratio).round().max(1.0),
+    )
+}
+
+/// HUD ウィンドウと3つのサブビュー（アイコン・テキスト・画像）を生成して返す。
+///
+/// 画像ビューは初期状態では非表示で、画像がコピーされたときだけテキストと入れ替えて見せる。
 ///
 /// # Safety
 /// - AppKit のメインスレッドから呼ぶこと。
 /// - 戻り値は `alloc/init` で確保した生ポインタ。`window` は使用後に
-///   `msg_send![window, close]` で解放すること。`icon_label`・`label` は
+///   `msg_send![window, close]` で解放すること。`icon_label`・`label`・`image_view` は
 ///   ウィンドウの contentView に追加済みのため、ウィンドウのクローズとともに解放される。
 pub unsafe fn create_hud_window(
     settings: DisplaySettings,
-) -> (*mut AnyObject, *mut AnyObject, *mut AnyObject) {
+) -> (
+    *mut AnyObject,
+    *mut AnyObject,
+    *mut AnyObject,
+    *mut AnyObject,
+) {
     use crate::config::parse_f64_value;
     let clamped_scale = parse_f64_value(
         settings.hud_scale,
@@ -253,11 +300,18 @@ pub unsafe fn create_hud_window(
     let () = msg_send![label, setStringValue: default_text];
     let () = msg_send![default_text, release];
 
+    let image_view: *mut AnyObject = msg_send![class!(NSImageView), alloc];
+    let image_view: *mut AnyObject = msg_send![image_view, initWithFrame: label_rect];
+    let () = msg_send![image_view, setImageScaling: NS_IMAGE_SCALE_PROPORTIONALLY_UP_OR_DOWN];
+    let () = msg_send![image_view, setEditable: false];
+    let () = msg_send![image_view, setHidden: true];
+
     let () = msg_send![content_view, addSubview: icon_label];
     let () = msg_send![content_view, addSubview: label];
+    let () = msg_send![content_view, addSubview: image_view];
     let () = msg_send![window, orderOut: ptr::null_mut::<AnyObject>()];
 
-    (window, icon_label, label)
+    (window, icon_label, label, image_view)
 }
 
 /// メインスクリーンの可視領域（Dock・メニューバーを除いた矩形）を返す。
@@ -379,6 +433,56 @@ pub unsafe fn layout_hud(
     position_window(window, metrics.width, metrics.height, settings.hud_position);
 }
 
+/// サムネイル寸法に合わせて HUD のサイズ・位置・画像ビューのフレームを再計算して適用する。
+///
+/// `compute_hud_layout_metrics_with_scale` からはウィンドウの `width`・`height` と `icon_y` だけを使う。
+/// `text_width`・`text_height` はテキスト専用の下限（最小幅・行高）が入っており、
+/// そのまま画像ビューのフレームにすると小さい画像が引き伸ばされたり、
+/// 細い画像がアイコンから離れて中央寄せになる。
+///
+/// # Safety
+/// - `window`・`icon_label`・`image_view` はいずれも有効な ObjC オブジェクトであること。
+/// - AppKit のメインスレッドから呼ぶこと。
+pub unsafe fn layout_hud_image(
+    window: *mut AnyObject,
+    icon_label: *mut AnyObject,
+    image_view: *mut AnyObject,
+    thumbnail_size: (f64, f64),
+    settings: DisplaySettings,
+) {
+    let dims = hud_dimensions(settings.hud_scale);
+    let (thumbnail_width, thumbnail_height) = thumbnail_size;
+    let natural_width =
+        thumbnail_width + dims.horizontal_padding * 2.0 + dims.icon_width + dims.gap;
+    let metrics =
+        compute_hud_layout_metrics_with_scale(natural_width, thumbnail_height, settings.hud_scale);
+
+    let icon_rect = NSRect {
+        origin: NSPoint {
+            x: dims.horizontal_padding,
+            y: metrics.icon_y,
+        },
+        size: NSSize {
+            width: dims.icon_width,
+            height: dims.icon_height,
+        },
+    };
+    let image_rect = NSRect {
+        origin: NSPoint {
+            x: dims.horizontal_padding + dims.icon_width + dims.gap,
+            y: (metrics.height - thumbnail_height) / 2.0,
+        },
+        size: NSSize {
+            width: thumbnail_width,
+            height: thumbnail_height,
+        },
+    };
+
+    let () = msg_send![icon_label, setFrame: icon_rect];
+    let () = msg_send![image_view, setFrame: image_rect];
+    position_window(window, metrics.width, metrics.height, settings.hud_position);
+}
+
 /// NSTextField のテキスト内容を1行で表示したときの自然幅（HUD 全幅）を返す。
 ///
 /// # Safety
@@ -488,9 +592,56 @@ pub(crate) fn hud_width_for_text_with_scale(text: &str, scale: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{compute_hud_layout_metrics, hud_origin_for_frame, hud_width_for_text};
-    use crate::config::HudPosition;
+    use super::{
+        compute_hud_layout_metrics, fit_thumbnail_size, hud_origin_for_frame, hud_width_for_text,
+    };
+    use crate::config::{HudPosition, DEFAULT_HUD_IMAGE_MAX_HEIGHT, DEFAULT_HUD_SCALE};
     use objc2_foundation::{NSPoint, NSRect, NSSize};
+
+    #[test]
+    fn fit_thumbnail_size_keeps_aspect_ratio_when_shrinking() {
+        let (width, height) = fit_thumbnail_size(320.0, 180.0, 100, 1.0);
+        assert_eq!(height, 100.0);
+        assert_eq!(width, (320.0 * (100.0 / 180.0) as f64).round());
+    }
+
+    #[test]
+    fn fit_thumbnail_size_does_not_upscale_small_images() {
+        let (width, height) = fit_thumbnail_size(16.0, 16.0, DEFAULT_HUD_IMAGE_MAX_HEIGHT, 2.0);
+        assert_eq!((width, height), (16.0, 16.0));
+    }
+
+    #[test]
+    fn fit_thumbnail_size_limits_wide_images_by_hud_width() {
+        // 極端な横長は高さ上限ではなく HUD の幅上限で決まる
+        let (width, height) = fit_thumbnail_size(8000.0, 200.0, DEFAULT_HUD_IMAGE_MAX_HEIGHT, 1.0);
+        assert!(width <= 820.0 - (16.0 * 2.0 + 22.0 + 8.0));
+        assert!(height < 200.0);
+    }
+
+    #[test]
+    fn fit_thumbnail_size_scales_max_height_with_hud_scale() {
+        let (_, small) = fit_thumbnail_size(1000.0, 1000.0, 100, 1.0);
+        let (_, large) = fit_thumbnail_size(1000.0, 1000.0, 100, 2.0);
+        assert_eq!(small, 100.0);
+        assert_eq!(large, 200.0);
+    }
+
+    #[test]
+    fn fit_thumbnail_size_caps_max_height_at_hud_height() {
+        // 設定上限に hud_scale を掛けた値ではなく、HUD 自体の高さ上限から縦パディングを引いた値で抑えられる
+        let (_, height) = fit_thumbnail_size(1000.0, 1000.0, 240, DEFAULT_HUD_SCALE);
+        assert!(height <= 280.0 * DEFAULT_HUD_SCALE - 10.0 * DEFAULT_HUD_SCALE * 2.0);
+    }
+
+    #[test]
+    fn fit_thumbnail_size_falls_back_for_unusable_sizes() {
+        let expected = (100.0, 100.0);
+        assert_eq!(fit_thumbnail_size(0.0, 0.0, 100, 1.0), expected);
+        assert_eq!(fit_thumbnail_size(-10.0, 20.0, 100, 1.0), expected);
+        assert_eq!(fit_thumbnail_size(f64::NAN, 20.0, 100, 1.0), expected);
+        assert_eq!(fit_thumbnail_size(20.0, f64::INFINITY, 100, 1.0), expected);
+    }
 
     #[test]
     fn hud_width_regression_snapshot() {

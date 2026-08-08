@@ -6,11 +6,12 @@ use super::parse::{
 use super::types::HudBackgroundColor;
 use super::types::{AppConfigFile, DisplayConfigFile, DisplaySettings, HudPosition};
 use super::{
-    DEFAULT_HUD_FADE_DURATION_SECS, DEFAULT_HUD_SCALE, DEFAULT_TRUNCATE_MAX_LINES,
-    DEFAULT_TRUNCATE_MAX_WIDTH, HUD_DURATION_SECS, MAX_HUD_DURATION_SECS,
-    MAX_HUD_FADE_DURATION_SECS, MAX_HUD_SCALE, MAX_POLL_INTERVAL_SECS, MAX_TRUNCATE_MAX_LINES,
-    MAX_TRUNCATE_MAX_WIDTH, MIN_HUD_DURATION_SECS, MIN_HUD_FADE_DURATION_SECS, MIN_HUD_SCALE,
-    MIN_POLL_INTERVAL_SECS, MIN_TRUNCATE_MAX_LINES, MIN_TRUNCATE_MAX_WIDTH, POLL_INTERVAL_SECS,
+    DEFAULT_HUD_FADE_DURATION_SECS, DEFAULT_HUD_IMAGE_MAX_HEIGHT, DEFAULT_HUD_SCALE,
+    DEFAULT_TRUNCATE_MAX_LINES, DEFAULT_TRUNCATE_MAX_WIDTH, HUD_DURATION_SECS,
+    MAX_HUD_DURATION_SECS, MAX_HUD_FADE_DURATION_SECS, MAX_HUD_IMAGE_MAX_HEIGHT, MAX_HUD_SCALE,
+    MAX_POLL_INTERVAL_SECS, MAX_TRUNCATE_MAX_LINES, MAX_TRUNCATE_MAX_WIDTH, MIN_HUD_DURATION_SECS,
+    MIN_HUD_FADE_DURATION_SECS, MIN_HUD_IMAGE_MAX_HEIGHT, MIN_HUD_SCALE, MIN_POLL_INTERVAL_SECS,
+    MIN_TRUNCATE_MAX_LINES, MIN_TRUNCATE_MAX_WIDTH, POLL_INTERVAL_SECS,
 };
 
 pub fn default_display_settings() -> DisplaySettings {
@@ -24,6 +25,7 @@ pub fn default_display_settings() -> DisplaySettings {
         hud_scale: DEFAULT_HUD_SCALE,
         hud_background_color: HudBackgroundColor::default(),
         hud_emoji: "📋".to_string(),
+        hud_image_max_height: DEFAULT_HUD_IMAGE_MAX_HEIGHT,
     }
 }
 
@@ -108,6 +110,14 @@ pub fn apply_config_file(base: DisplaySettings, config: &AppConfigFile) -> Displ
     if let Some(value) = &config.display.hud_emoji {
         settings.hud_emoji = parse_hud_emoji(value).unwrap_or(settings.hud_emoji);
     }
+    if let Some(value) = config.display.hud_image_max_height {
+        settings.hud_image_max_height = parse_usize_config_value(
+            value,
+            MIN_HUD_IMAGE_MAX_HEIGHT,
+            MAX_HUD_IMAGE_MAX_HEIGHT,
+            "hud_image_max_height",
+        );
+    }
     settings
 }
 
@@ -167,6 +177,14 @@ pub fn apply_env_overrides(base: DisplaySettings) -> DisplaySettings {
     if let Some(value) = read_env_option("CLIIP_SHOW_HUD_EMOJI") {
         settings.hud_emoji = parse_hud_emoji(&value).unwrap_or(settings.hud_emoji);
     }
+    if let Some(value) = read_env_option("CLIIP_SHOW_HUD_IMAGE_MAX_HEIGHT") {
+        settings.hud_image_max_height = parse_usize_setting(
+            &value,
+            settings.hud_image_max_height,
+            MIN_HUD_IMAGE_MAX_HEIGHT,
+            MAX_HUD_IMAGE_MAX_HEIGHT,
+        );
+    }
     settings
 }
 
@@ -186,6 +204,7 @@ pub fn print_effective_settings(settings: DisplaySettings) {
         settings.hud_background_color.as_str()
     );
     println!("hud_emoji = {}", settings.hud_emoji);
+    println!("hud_image_max_height = {}", settings.hud_image_max_height);
 }
 
 pub fn settings_to_config_file(settings: DisplaySettings) -> AppConfigFile {
@@ -200,6 +219,7 @@ pub fn settings_to_config_file(settings: DisplaySettings) -> AppConfigFile {
             hud_scale: Some(settings.hud_scale),
             hud_background_color: Some(settings.hud_background_color),
             hud_emoji: Some(settings.hud_emoji.clone()),
+            hud_image_max_height: Some(settings.hud_image_max_height),
         },
     }
 }

@@ -1,15 +1,21 @@
 use objc2::runtime::AnyObject;
 use objc2::{class, msg_send};
-use objc2_foundation::NSRect;
+use objc2_foundation::{NSPoint, NSRect, NSSize};
 
 use crate::config::display_settings;
 use crate::error::AppError;
-use crate::hud::{create_hud_window, layout_hud};
+use crate::hud::{create_hud_window, fit_thumbnail_size, layout_hud, layout_hud_image};
 use crate::objc_helpers::nsstring_from_str;
 use crate::text::truncate_text;
 
 const BITMAP_IMAGE_FILE_TYPE_PNG: usize = 4;
 const PIXEL_CHANNEL_TOLERANCE: u8 = 2;
+/// フィクスチャ画像の市松模様を短辺方向に何分割するか。
+/// ブロックを画像サイズに比例させることで、縮小表示されてもブロック境界以外の色が変わらず、
+/// マシン間で補間結果がぶれてもベースラインが安定する。
+const FIXTURE_BLOCKS_PER_SHORT_SIDE: usize = 4;
+const FIXTURE_COLOR_A: [u8; 4] = [230, 80, 60, 255];
+const FIXTURE_COLOR_B: [u8; 4] = [40, 120, 220, 255];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DiffSummary {
@@ -21,7 +27,7 @@ pub fn render_hud_png(text: &str, output_path: &str) -> Result<(), AppError> {
     unsafe {
         let _app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
         let settings = display_settings();
-        let (window, icon_label, label) = create_hud_window(settings.clone());
+        let (window, icon_label, label, _image_view) = create_hud_window(settings.clone());
         if window.is_null() {
             return Err(AppError::RenderFailed(
                 "failed to create HUD window".to_string(),
@@ -37,49 +43,159 @@ pub fn render_hud_png(text: &str, output_path: &str) -> Result<(), AppError> {
         let () = msg_send![message, release];
         layout_hud(window, icon_label, label, settings);
 
-        let content_view: *mut AnyObject = msg_send![window, contentView];
-        if content_view.is_null() {
-            let () = msg_send![window, close];
+        write_window_png(window, output_path)
+    }
+}
+
+/// 指定サイズのフィクスチャ画像を載せた HUD のスナップショット PNG を書き出す（VRT 用）。
+pub fn render_hud_image_png(
+    image_width: usize,
+    image_height: usize,
+    output_path: &str,
+) -> Result<(), AppError> {
+    unsafe {
+        let _app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        let settings = display_settings();
+        let (window, icon_label, label, image_view) = create_hud_window(settings.clone());
+        if window.is_null() {
             return Err(AppError::RenderFailed(
-                "failed to get contentView".to_string(),
+                "failed to create HUD window".to_string(),
             ));
         }
 
-        let bounds: NSRect = msg_send![content_view, bounds];
-        let bitmap = match create_bitmap_rep_for_bounds(bounds) {
-            Ok(b) => b,
-            Err(e) => {
+        let image = match create_fixture_image(image_width, image_height) {
+            Ok(image) => image,
+            Err(error) => {
                 let () = msg_send![window, close];
-                return Err(e);
+                return Err(error);
             }
         };
+        let thumbnail = fit_thumbnail_size(
+            image_width as f64,
+            image_height as f64,
+            settings.hud_image_max_height,
+            settings.hud_scale,
+        );
 
-        let () = msg_send![content_view, cacheDisplayInRect: bounds toBitmapImageRep: bitmap];
-        let properties: *mut AnyObject = msg_send![class!(NSDictionary), dictionary];
-        let data: *mut AnyObject = msg_send![
-            bitmap,
-            representationUsingType: BITMAP_IMAGE_FILE_TYPE_PNG
-            properties: properties
-        ];
-        if data.is_null() {
-            let () = msg_send![bitmap, release];
-            let () = msg_send![window, close];
-            return Err(AppError::RenderFailed(
-                "failed to encode PNG data".to_string(),
-            ));
+        let () = msg_send![image_view, setImage: image];
+        let () = msg_send![image, release];
+        let () = msg_send![label, setHidden: true];
+        let () = msg_send![image_view, setHidden: false];
+        layout_hud_image(window, icon_label, image_view, thumbnail, settings);
+
+        write_window_png(window, output_path)
+    }
+}
+
+/// VRT 用の決定的な市松模様ビットマップを NSImage として生成する。
+///
+/// 外部の PNG ファイルを読み込ませないのは、色プロファイルやデコーダの差で
+/// ベースラインがマシンごとにぶれるのを避けるため。
+///
+/// # Safety
+/// AppKit のメインスレッドから呼ぶこと。戻り値は所有権 +1 の NSImage。
+unsafe fn create_fixture_image(width: usize, height: usize) -> Result<*mut AnyObject, AppError> {
+    if width == 0 || height == 0 {
+        return Err(AppError::RenderFailed(
+            "fixture image size must be positive".to_string(),
+        ));
+    }
+
+    let size = NSSize {
+        width: width as f64,
+        height: height as f64,
+    };
+    let rep = create_bitmap_rep_for_bounds(NSRect {
+        origin: NSPoint { x: 0.0, y: 0.0 },
+        size,
+    })?;
+
+    let pixels: *mut u8 = msg_send![rep, bitmapData];
+    if pixels.is_null() {
+        let () = msg_send![rep, release];
+        return Err(AppError::RenderFailed(
+            "failed to access fixture bitmap data".to_string(),
+        ));
+    }
+    let bytes_per_row: usize = msg_send![rep, bytesPerRow];
+    let buffer = std::slice::from_raw_parts_mut(pixels, bytes_per_row * height);
+
+    let block_size = (width.min(height) / FIXTURE_BLOCKS_PER_SHORT_SIDE).max(1);
+    for y in 0..height {
+        for x in 0..width {
+            let block_is_a = ((x / block_size) + (y / block_size)).is_multiple_of(2);
+            let color = if block_is_a {
+                FIXTURE_COLOR_A
+            } else {
+                FIXTURE_COLOR_B
+            };
+            let offset = y * bytes_per_row + x * 4;
+            buffer[offset..offset + 4].copy_from_slice(&color);
         }
+    }
 
-        let output_path_ns = nsstring_from_str(output_path);
-        let success: bool = msg_send![data, writeToFile: output_path_ns atomically: true];
-        let () = msg_send![output_path_ns, release];
+    let image: *mut AnyObject = msg_send![class!(NSImage), alloc];
+    let image: *mut AnyObject = msg_send![image, initWithSize: size];
+    if image.is_null() {
+        let () = msg_send![rep, release];
+        return Err(AppError::RenderFailed(
+            "failed to allocate fixture image".to_string(),
+        ));
+    }
+    let () = msg_send![image, addRepresentation: rep];
+    let () = msg_send![rep, release];
+
+    Ok(image)
+}
+
+/// HUD ウィンドウの contentView を PNG にして書き出す。
+///
+/// # Safety
+/// - `window` は有効な NSWindow であること。呼び出し後にクローズされる。
+/// - AppKit のメインスレッドから呼ぶこと。
+unsafe fn write_window_png(window: *mut AnyObject, output_path: &str) -> Result<(), AppError> {
+    let content_view: *mut AnyObject = msg_send![window, contentView];
+    if content_view.is_null() {
+        let () = msg_send![window, close];
+        return Err(AppError::RenderFailed(
+            "failed to get contentView".to_string(),
+        ));
+    }
+
+    let bounds: NSRect = msg_send![content_view, bounds];
+    let bitmap = match create_bitmap_rep_for_bounds(bounds) {
+        Ok(b) => b,
+        Err(e) => {
+            let () = msg_send![window, close];
+            return Err(e);
+        }
+    };
+
+    let () = msg_send![content_view, cacheDisplayInRect: bounds toBitmapImageRep: bitmap];
+    let properties: *mut AnyObject = msg_send![class!(NSDictionary), dictionary];
+    let data: *mut AnyObject = msg_send![
+        bitmap,
+        representationUsingType: BITMAP_IMAGE_FILE_TYPE_PNG
+        properties: properties
+    ];
+    if data.is_null() {
         let () = msg_send![bitmap, release];
         let () = msg_send![window, close];
+        return Err(AppError::RenderFailed(
+            "failed to encode PNG data".to_string(),
+        ));
+    }
 
-        if !success {
-            return Err(AppError::RenderFailed(format!(
-                "failed to write PNG: {output_path}"
-            )));
-        }
+    let output_path_ns = nsstring_from_str(output_path);
+    let success: bool = msg_send![data, writeToFile: output_path_ns atomically: true];
+    let () = msg_send![output_path_ns, release];
+    let () = msg_send![bitmap, release];
+    let () = msg_send![window, close];
+
+    if !success {
+        return Err(AppError::RenderFailed(format!(
+            "failed to write PNG: {output_path}"
+        )));
     }
 
     Ok(())

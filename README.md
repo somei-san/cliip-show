@@ -15,8 +15,11 @@
 ## 概要
 
 - クリップボードの更新を監視し、コピー直後にHUD表示します
+- テキストはそのまま、画像はサムネイルで表示します
 - HUDは数秒で自動的にフェードアウトして消えます
 - アプリはバックグラウンドで常駐して動作します
+
+テキストと画像の両方を含むコピー（ブラウザや表計算アプリからのコピー）ではテキストを表示します。
 
 ### 動作イメージ
 ![cliip-show HUDの表示イメージ](docs/assets/cliip-show-hud.gif)
@@ -54,6 +57,7 @@ cliip-show --config set hud_position top
 cliip-show --config set hud_scale 1.2
 cliip-show --config set hud_background_color blue
 cliip-show --config set hud_emoji 🍣
+cliip-show --config set hud_image_max_height 120
 ```
 
 設定キー:
@@ -66,6 +70,7 @@ cliip-show --config set hud_emoji 🍣
 - `hud_scale`（既定値: `1.1`、`0.5` - `2.0`）
 - `hud_background_color`（既定値: `default`、`default` / `yellow` / `blue` / `green` / `red` / `purple`）
 - `hud_emoji`（既定値: `📋`、任意の文字・絵文字）
+- `hud_image_max_height`（既定値: `160`、`40` - `240`）画像サムネイルの高さ上限（px）。実際の上限は `hud_scale` 倍され、元画像より大きくは表示しません
 
 > **設定の即時反映:** `poll_interval_secs` 以外の変更は、再起動なしで自動的に反映されます。
 
@@ -79,6 +84,7 @@ CLIIP_SHOW_HUD_POSITION=top \
 CLIIP_SHOW_HUD_SCALE=1.2 \
 CLIIP_SHOW_HUD_BACKGROUND_COLOR=blue \
 CLIIP_SHOW_HUD_EMOJI=🍣 \
+CLIIP_SHOW_HUD_IMAGE_MAX_HEIGHT=120 \
 cargo run
 ```
 
