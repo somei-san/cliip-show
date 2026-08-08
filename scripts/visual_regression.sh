@@ -30,10 +30,11 @@ rm -f "$VRT_CONFIG_PATH"
 
 failed=0
 
-run_case() {
+render_and_compare() {
   local id="$1"
-  local text="$2"
-  shift 2
+  local content_flag="$2"
+  local content_value="$3"
+  shift 3
 
   local current="$ARTIFACT_DIR/${id}.current.png"
   local baseline="$BASELINE_DIR/${id}.png"
@@ -49,19 +50,20 @@ run_case() {
     -u CLIIP_SHOW_HUD_POSITION
     -u CLIIP_SHOW_HUD_SCALE
     -u CLIIP_SHOW_HUD_BACKGROUND_COLOR
+    -u CLIIP_SHOW_HUD_IMAGE_MAX_HEIGHT
     "CLIIP_SHOW_CONFIG_PATH=$VRT_CONFIG_PATH"
   )
   if [[ $# -gt 0 ]]; then
     local override
     for override in "$@"; do
       if [[ ! "$override" =~ ^[A-Za-z_][A-Za-z0-9_]*=.*$ ]]; then
-        echo "invalid env override for run_case: $override (expected KEY=VALUE)" >&2
+        echo "invalid env override for $id: $override (expected KEY=VALUE)" >&2
         exit 2
       fi
       cmd+=("$override")
     done
   fi
-  cmd+=("$BIN" --render-hud-png --text "$text" --output "$current")
+  cmd+=("$BIN" --render-hud-png "$content_flag" "$content_value" --output "$current")
   "${cmd[@]}"
 
   if $UPDATE; then
@@ -117,6 +119,21 @@ run_case() {
       failed=1
     fi
   fi
+}
+
+run_case() {
+  local id="$1"
+  local text="$2"
+  shift 2
+  render_and_compare "$id" --text "$text" "$@"
+}
+
+# サイズは <W>x<H>。バイナリ側が決定的な市松模様を生成するのでフィクスチャ画像ファイルは不要
+run_image_case() {
+  local id="$1"
+  local size="$2"
+  shift 2
+  render_and_compare "$id" --image-fixture "$size" "$@"
 }
 
 run_case \
@@ -257,6 +274,32 @@ run_case \
 run_case \
   "mixed_cjk_ascii_multiline" \
   $'Hello 世界\n日本語 text\nこんにちは World'
+
+# Image: landscape thumbnail (height-bound)
+run_image_case \
+  "image_landscape" \
+  "320x180"
+
+# Image: portrait thumbnail (height-bound, HUD width stays at minimum)
+run_image_case \
+  "image_portrait" \
+  "180x320"
+
+# Image: smaller than the thumbnail box (must not be upscaled)
+run_image_case \
+  "image_tiny" \
+  "16x16"
+
+# Image: far larger than the thumbnail box (height clamp)
+run_image_case \
+  "image_over_max_height" \
+  "4000x3000"
+
+# Settings profile: hud_image_max_height=80
+run_image_case \
+  "setting_hud_image_max_height_80" \
+  "320x180" \
+  "CLIIP_SHOW_HUD_IMAGE_MAX_HEIGHT=80"
 
 if $UPDATE; then
   echo "visual regression baseline updated"

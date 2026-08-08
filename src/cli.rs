@@ -1,7 +1,18 @@
 use std::fmt::Write as _;
 
 use crate::config::handle_config_command;
-use crate::png::{generate_diff_png, render_hud_png};
+use crate::png::{generate_diff_png, render_hud_image_png, render_hud_png};
+
+/// `--image-fixture` の `<W>x<H>` をパースする。
+fn parse_image_fixture_size(raw: &str) -> Option<(usize, usize)> {
+    let (width, height) = raw.trim().split_once(['x', 'X'])?;
+    let width = width.trim().parse::<usize>().ok()?;
+    let height = height.trim().parse::<usize>().ok()?;
+    if width == 0 || height == 0 {
+        return None;
+    }
+    Some((width, height))
+}
 
 pub fn handle_cli_flags() -> bool {
     let mut args = std::env::args();
@@ -29,6 +40,10 @@ pub fn handle_cli_flags() -> bool {
             );
             let _ = writeln!(
                 help,
+                "  --render-hud-png --image-fixture <W>x<H> --output <PATH>    Render image HUD snapshot PNG and exit"
+            );
+            let _ = writeln!(
+                help,
                 "  --diff-png --baseline <PATH> --current <PATH> --output <PATH>    Generate visual diff PNG and exit"
             );
             let _ = writeln!(
@@ -46,6 +61,7 @@ pub fn handle_cli_flags() -> bool {
             let _ = writeln!(help, "  cliip-show --config set hud_scale 1.2");
             let _ = writeln!(help, "  cliip-show --config set hud_background_color blue");
             let _ = writeln!(help, "  cliip-show --config set hud_emoji 🍣");
+            let _ = writeln!(help, "  cliip-show --config set hud_image_max_height 120");
             let _ = writeln!(help);
             let _ = writeln!(help, "Config keys:");
             let _ = writeln!(
@@ -68,6 +84,10 @@ pub fn handle_cli_flags() -> bool {
             let _ = writeln!(
                 help,
                 "  hud_emoji               default=📋 (任意の文字・絵文字)"
+            );
+            let _ = writeln!(
+                help,
+                "  hud_image_max_height    default=160 (40 - 240)  ※ 実際の上限は hud_scale 倍される"
             );
             let _ = writeln!(help);
             let _ = writeln!(
@@ -122,12 +142,17 @@ pub fn handle_cli_flags() -> bool {
                 help,
                 "  CLIIP_SHOW_HUD_EMOJI            HUD icon emoji (default: 📋)"
             );
+            let _ = writeln!(
+                help,
+                "  CLIIP_SHOW_HUD_IMAGE_MAX_HEIGHT Max thumbnail height for copied images (40 - 240)"
+            );
             print!("{help}");
             true
         }
         "--config" => handle_config_command(&mut args),
         "--render-hud-png" => {
             let mut text: Option<String> = None;
+            let mut image_fixture: Option<(usize, usize)> = None;
             let mut output_path: Option<String> = None;
 
             while let Some(arg) = args.next() {
@@ -138,6 +163,17 @@ pub fn handle_cli_flags() -> bool {
                             std::process::exit(2);
                         };
                         text = Some(value);
+                    }
+                    "--image-fixture" => {
+                        let Some(value) = args.next() else {
+                            eprintln!("Missing value for --image-fixture");
+                            std::process::exit(2);
+                        };
+                        let Some(size) = parse_image_fixture_size(&value) else {
+                            eprintln!("Invalid value for --image-fixture: {value} (expected <W>x<H>, e.g. 320x180)");
+                            std::process::exit(2);
+                        };
+                        image_fixture = Some(size);
                     }
                     "--output" => {
                         let Some(value) = args.next() else {
@@ -153,13 +189,24 @@ pub fn handle_cli_flags() -> bool {
                 }
             }
 
-            let text = text.unwrap_or_else(|| "Clipboard text".to_string());
+            if text.is_some() && image_fixture.is_some() {
+                eprintln!("--text and --image-fixture are mutually exclusive");
+                std::process::exit(2);
+            }
+
             let Some(output_path) = output_path else {
                 eprintln!("--output is required for --render-hud-png");
                 std::process::exit(2);
             };
 
-            if let Err(error) = render_hud_png(&text, &output_path) {
+            let result = match image_fixture {
+                Some((width, height)) => render_hud_image_png(width, height, &output_path),
+                None => {
+                    let text = text.unwrap_or_else(|| "Clipboard text".to_string());
+                    render_hud_png(&text, &output_path)
+                }
+            };
+            if let Err(error) = result {
                 eprintln!("{error}");
                 std::process::exit(1);
             }
@@ -232,5 +279,26 @@ pub fn handle_cli_flags() -> bool {
             eprintln!("Use --help to see available options.");
             std::process::exit(2);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_image_fixture_size;
+
+    #[test]
+    fn parse_image_fixture_size_accepts_valid_sizes() {
+        assert_eq!(parse_image_fixture_size("320x180"), Some((320, 180)));
+        assert_eq!(parse_image_fixture_size(" 16X16 "), Some((16, 16)));
+    }
+
+    #[test]
+    fn parse_image_fixture_size_rejects_invalid_sizes() {
+        assert_eq!(parse_image_fixture_size("320"), None);
+        assert_eq!(parse_image_fixture_size("320x"), None);
+        assert_eq!(parse_image_fixture_size("0x180"), None);
+        assert_eq!(parse_image_fixture_size("320x0"), None);
+        assert_eq!(parse_image_fixture_size("-1x10"), None);
+        assert_eq!(parse_image_fixture_size("axb"), None);
     }
 }
