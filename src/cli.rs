@@ -64,10 +64,7 @@ pub fn handle_cli_flags() -> bool {
             let _ = writeln!(help, "  cliip-show --config set hud_image_max_height 120");
             let _ = writeln!(help);
             let _ = writeln!(help, "Config keys:");
-            let _ = writeln!(
-                help,
-                "  poll_interval_secs      default=0.3 (0.05 - 5.0)  ※ restart required"
-            );
+            let _ = writeln!(help, "  poll_interval_secs      default=0.3 (0.05 - 5.0)");
             let _ = writeln!(help, "  hud_duration_secs       default=1.0 (0.1 - 10.0)");
             let _ = writeln!(help, "  hud_fade_duration_secs  default=0.3 (0.0 - 2.0)");
             let _ = writeln!(help, "  max_chars_per_line      default=100 (1 - 500)");
@@ -83,7 +80,7 @@ pub fn handle_cli_flags() -> bool {
             );
             let _ = writeln!(
                 help,
-                "  hud_emoji               default=📋 (任意の文字・絵文字)"
+                "  hud_emoji               default=📋 (任意の絵文字。空でアイコンなし)"
             );
             let _ = writeln!(
                 help,
@@ -92,15 +89,8 @@ pub fn handle_cli_flags() -> bool {
             let _ = writeln!(help);
             let _ = writeln!(
                 help,
-                "Note: config changes are hot-reloaded automatically (no restart needed),"
+                "Note: config changes are hot-reloaded automatically (no restart needed)."
             );
-            let _ = writeln!(
-                help,
-                "      except poll_interval_secs which requires a service restart."
-            );
-            let _ = writeln!(help);
-            let _ = writeln!(help, "For Homebrew service:");
-            let _ = writeln!(help, "  brew services restart cliip-show");
             let _ = writeln!(help);
             let _ = writeln!(help, "Persistent config file:");
             let _ = writeln!(

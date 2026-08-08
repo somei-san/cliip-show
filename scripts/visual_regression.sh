@@ -51,6 +51,7 @@ render_and_compare() {
     -u CLIIP_SHOW_HUD_SCALE
     -u CLIIP_SHOW_HUD_BACKGROUND_COLOR
     -u CLIIP_SHOW_HUD_IMAGE_MAX_HEIGHT
+    -u CLIIP_SHOW_HUD_EMOJI
     "CLIIP_SHOW_CONFIG_PATH=$VRT_CONFIG_PATH"
   )
   if [[ $# -gt 0 ]]; then
@@ -300,6 +301,18 @@ run_image_case \
   "setting_hud_image_max_height_80" \
   "320x180" \
   "CLIIP_SHOW_HUD_IMAGE_MAX_HEIGHT=80"
+
+# Settings profile: hud_emoji="" (no icon, text) — icon column and its gap are removed
+run_case \
+  "no_emoji_short_text" \
+  "hello clipboard" \
+  "CLIIP_SHOW_HUD_EMOJI="
+
+# Settings profile: hud_emoji="" (no icon, image) — icon column and its gap are removed
+run_image_case \
+  "no_emoji_image" \
+  "320x180" \
+  "CLIIP_SHOW_HUD_EMOJI="
 
 if $UPDATE; then
   echo "visual regression baseline updated"

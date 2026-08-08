@@ -82,6 +82,16 @@ pub fn hud_dimensions(scale: f64) -> HudDimensions {
     }
 }
 
+/// アイコン表示時に幅計算へ加算する「アイコン幅 + テキストとの隙間」。
+/// アイコンなし（`hud_emoji` が空）のときは 0 を返し、左側の余白を詰める。
+fn icon_reserve(dims: &HudDimensions, has_icon: bool) -> f64 {
+    if has_icon {
+        dims.icon_width + dims.gap
+    } else {
+        0.0
+    }
+}
+
 /// ボーダーカラーの (white, alpha) を返す。
 /// app.rs のホットリロード時にも同じ値を使うため一元管理する。
 pub fn hud_border_white_alpha(color: HudBackgroundColor) -> (f64, f64) {
@@ -112,6 +122,7 @@ pub fn fit_thumbnail_size(
     image_height: f64,
     max_height_setting: usize,
     scale: f64,
+    has_icon: bool,
 ) -> (f64, f64) {
     use crate::config::parse_f64_value;
     let clamped_scale = parse_f64_value(scale, DEFAULT_HUD_SCALE, MIN_HUD_SCALE, MAX_HUD_SCALE);
@@ -121,7 +132,7 @@ pub fn fit_thumbnail_size(
         .min(dims.max_height - dims.vertical_padding * 2.0)
         .max(1.0);
     let max_width =
-        (dims.max_width - (dims.horizontal_padding * 2.0 + dims.icon_width + dims.gap)).max(1.0);
+        (dims.max_width - (dims.horizontal_padding * 2.0 + icon_reserve(&dims, has_icon))).max(1.0);
 
     let has_usable_size = image_width.is_finite()
         && image_height.is_finite()
@@ -166,6 +177,7 @@ pub unsafe fn create_hud_window(
         MAX_HUD_SCALE,
     );
     let dims = hud_dimensions(clamped_scale);
+    let has_icon = !settings.hud_emoji.is_empty();
     let default_width = (600.0 * clamped_scale).clamp(dims.min_width, dims.max_width);
     let default_height = dims.min_height;
     let mut rect = NSRect {
@@ -242,6 +254,7 @@ pub unsafe fn create_hud_window(
     let () = msg_send![icon_label, setEditable: false];
     let () = msg_send![icon_label, setSelectable: false];
     let () = msg_send![icon_label, setDrawsBackground: false];
+    let () = msg_send![icon_label, setHidden: !has_icon];
 
     let icon_font_size = (HUD_ICON_FONT_SIZE * clamped_scale).clamp(10.0, 44.0);
     let system_font: *mut AnyObject = msg_send![class!(NSFont), systemFontOfSize: icon_font_size];
@@ -255,11 +268,11 @@ pub unsafe fn create_hud_window(
 
     let label_rect = NSRect {
         origin: NSPoint {
-            x: dims.horizontal_padding + dims.icon_width + dims.gap,
+            x: dims.horizontal_padding + icon_reserve(&dims, has_icon),
             y: (default_height - dims.line_height_estimate) / 2.0,
         },
         size: NSSize {
-            width: default_width - (dims.horizontal_padding * 2.0 + dims.icon_width + dims.gap),
+            width: default_width - (dims.horizontal_padding * 2.0 + icon_reserve(&dims, has_icon)),
             height: dims.line_height_estimate,
         },
     };
@@ -397,14 +410,17 @@ pub unsafe fn layout_hud(
     settings: DisplaySettings,
 ) {
     let dims = hud_dimensions(settings.hud_scale);
-    let clamped_width =
-        measure_text_natural_width(label, settings.hud_scale).clamp(dims.min_width, dims.max_width);
-    let text_width = clamped_width - (dims.horizontal_padding * 2.0 + dims.icon_width + dims.gap);
+    let has_icon = !settings.hud_emoji.is_empty();
+    let clamped_width = measure_text_natural_width(label, settings.hud_scale, has_icon)
+        .clamp(dims.min_width, dims.max_width);
+    let text_width =
+        clamped_width - (dims.horizontal_padding * 2.0 + icon_reserve(&dims, has_icon));
     let measured_text_height = measure_text_height(label, text_width, settings.hud_scale);
     let metrics = compute_hud_layout_metrics_with_scale(
         clamped_width,
         measured_text_height,
         settings.hud_scale,
+        has_icon,
     );
 
     let icon_rect = NSRect {
@@ -419,7 +435,7 @@ pub unsafe fn layout_hud(
     };
     let label_rect = NSRect {
         origin: NSPoint {
-            x: dims.horizontal_padding + dims.icon_width + dims.gap,
+            x: dims.horizontal_padding + icon_reserve(&dims, has_icon),
             y: metrics.label_y,
         },
         size: NSSize {
@@ -428,6 +444,7 @@ pub unsafe fn layout_hud(
         },
     };
 
+    let () = msg_send![icon_label, setHidden: !has_icon];
     let () = msg_send![icon_label, setFrame: icon_rect];
     let () = msg_send![label, setFrame: label_rect];
     position_window(window, metrics.width, metrics.height, settings.hud_position);
@@ -451,11 +468,16 @@ pub unsafe fn layout_hud_image(
     settings: DisplaySettings,
 ) {
     let dims = hud_dimensions(settings.hud_scale);
+    let has_icon = !settings.hud_emoji.is_empty();
     let (thumbnail_width, thumbnail_height) = thumbnail_size;
     let natural_width =
-        thumbnail_width + dims.horizontal_padding * 2.0 + dims.icon_width + dims.gap;
-    let metrics =
-        compute_hud_layout_metrics_with_scale(natural_width, thumbnail_height, settings.hud_scale);
+        thumbnail_width + dims.horizontal_padding * 2.0 + icon_reserve(&dims, has_icon);
+    let metrics = compute_hud_layout_metrics_with_scale(
+        natural_width,
+        thumbnail_height,
+        settings.hud_scale,
+        has_icon,
+    );
 
     let icon_rect = NSRect {
         origin: NSPoint {
@@ -469,7 +491,7 @@ pub unsafe fn layout_hud_image(
     };
     let image_rect = NSRect {
         origin: NSPoint {
-            x: dims.horizontal_padding + dims.icon_width + dims.gap,
+            x: dims.horizontal_padding + icon_reserve(&dims, has_icon),
             y: (metrics.height - thumbnail_height) / 2.0,
         },
         size: NSSize {
@@ -478,6 +500,7 @@ pub unsafe fn layout_hud_image(
         },
     };
 
+    let () = msg_send![icon_label, setHidden: !has_icon];
     let () = msg_send![icon_label, setFrame: icon_rect];
     let () = msg_send![image_view, setFrame: image_rect];
     position_window(window, metrics.width, metrics.height, settings.hud_position);
@@ -488,7 +511,7 @@ pub unsafe fn layout_hud_image(
 /// # Safety
 /// - `label` は有効な NSTextField インスタンスであること。
 /// - AppKit のメインスレッドから呼ぶこと。
-pub unsafe fn measure_text_natural_width(label: *mut AnyObject, scale: f64) -> f64 {
+pub unsafe fn measure_text_natural_width(label: *mut AnyObject, scale: f64, has_icon: bool) -> f64 {
     let dims = hud_dimensions(scale);
     let cell: *mut AnyObject = msg_send![label, cell];
     if cell.is_null() {
@@ -504,7 +527,7 @@ pub unsafe fn measure_text_natural_width(label: *mut AnyObject, scale: f64) -> f
     };
     let size: NSSize = msg_send![cell, cellSizeForBounds: bounds];
     let text_content_width = size.width.ceil();
-    text_content_width + dims.horizontal_padding * 2.0 + dims.icon_width + dims.gap
+    text_content_width + dims.horizontal_padding * 2.0 + icon_reserve(&dims, has_icon)
 }
 
 /// NSTextField のテキスト内容を `text_width` 幅で折り返したときの高さを返す。
@@ -535,17 +558,18 @@ pub(crate) fn compute_hud_layout_metrics(
     width: f64,
     measured_text_height: f64,
 ) -> HudLayoutMetrics {
-    compute_hud_layout_metrics_with_scale(width, measured_text_height, DEFAULT_HUD_SCALE)
+    compute_hud_layout_metrics_with_scale(width, measured_text_height, DEFAULT_HUD_SCALE, true)
 }
 
 pub fn compute_hud_layout_metrics_with_scale(
     width: f64,
     measured_text_height: f64,
     scale: f64,
+    has_icon: bool,
 ) -> HudLayoutMetrics {
     let dims = hud_dimensions(scale);
     let width = width.clamp(dims.min_width, dims.max_width);
-    let text_width = width - (dims.horizontal_padding * 2.0 + dims.icon_width + dims.gap);
+    let text_width = width - (dims.horizontal_padding * 2.0 + icon_reserve(&dims, has_icon));
     let measured_text_height = measured_text_height
         .min((dims.max_height - dims.vertical_padding * 2.0).max(dims.line_height_estimate));
     let height = (measured_text_height + dims.vertical_padding * 2.0)
@@ -570,11 +594,11 @@ pub fn compute_hud_layout_metrics_with_scale(
 
 #[cfg(test)]
 pub(crate) fn hud_width_for_text(text: &str) -> f64 {
-    hud_width_for_text_with_scale(text, DEFAULT_HUD_SCALE)
+    hud_width_for_text_with_scale(text, DEFAULT_HUD_SCALE, true)
 }
 
 #[cfg(test)]
-pub(crate) fn hud_width_for_text_with_scale(text: &str, scale: f64) -> f64 {
+pub(crate) fn hud_width_for_text_with_scale(text: &str, scale: f64, has_icon: bool) -> f64 {
     use crate::text::split_non_trailing_lines;
     let dims = hud_dimensions(scale);
     let lines = split_non_trailing_lines(text);
@@ -585,9 +609,8 @@ pub(crate) fn hud_width_for_text_with_scale(text: &str, scale: f64) -> f64 {
 
     (max_units * dims.char_width_estimate
         + dims.horizontal_padding * 2.0
-        + dims.icon_width
-        + dims.gap)
-        .clamp(dims.min_width, dims.max_width)
+        + icon_reserve(&dims, has_icon))
+    .clamp(dims.min_width, dims.max_width)
 }
 
 #[cfg(test)]
@@ -600,29 +623,31 @@ mod tests {
 
     #[test]
     fn fit_thumbnail_size_keeps_aspect_ratio_when_shrinking() {
-        let (width, height) = fit_thumbnail_size(320.0, 180.0, 100, 1.0);
+        let (width, height) = fit_thumbnail_size(320.0, 180.0, 100, 1.0, true);
         assert_eq!(height, 100.0);
         assert_eq!(width, (320.0 * (100.0 / 180.0) as f64).round());
     }
 
     #[test]
     fn fit_thumbnail_size_does_not_upscale_small_images() {
-        let (width, height) = fit_thumbnail_size(16.0, 16.0, DEFAULT_HUD_IMAGE_MAX_HEIGHT, 2.0);
+        let (width, height) =
+            fit_thumbnail_size(16.0, 16.0, DEFAULT_HUD_IMAGE_MAX_HEIGHT, 2.0, true);
         assert_eq!((width, height), (16.0, 16.0));
     }
 
     #[test]
     fn fit_thumbnail_size_limits_wide_images_by_hud_width() {
         // 極端な横長は高さ上限ではなく HUD の幅上限で決まる
-        let (width, height) = fit_thumbnail_size(8000.0, 200.0, DEFAULT_HUD_IMAGE_MAX_HEIGHT, 1.0);
+        let (width, height) =
+            fit_thumbnail_size(8000.0, 200.0, DEFAULT_HUD_IMAGE_MAX_HEIGHT, 1.0, true);
         assert!(width <= 820.0 - (16.0 * 2.0 + 22.0 + 8.0));
         assert!(height < 200.0);
     }
 
     #[test]
     fn fit_thumbnail_size_scales_max_height_with_hud_scale() {
-        let (_, small) = fit_thumbnail_size(1000.0, 1000.0, 100, 1.0);
-        let (_, large) = fit_thumbnail_size(1000.0, 1000.0, 100, 2.0);
+        let (_, small) = fit_thumbnail_size(1000.0, 1000.0, 100, 1.0, true);
+        let (_, large) = fit_thumbnail_size(1000.0, 1000.0, 100, 2.0, true);
         assert_eq!(small, 100.0);
         assert_eq!(large, 200.0);
     }
@@ -630,17 +655,30 @@ mod tests {
     #[test]
     fn fit_thumbnail_size_caps_max_height_at_hud_height() {
         // 設定上限に hud_scale を掛けた値ではなく、HUD 自体の高さ上限から縦パディングを引いた値で抑えられる
-        let (_, height) = fit_thumbnail_size(1000.0, 1000.0, 240, DEFAULT_HUD_SCALE);
+        let (_, height) = fit_thumbnail_size(1000.0, 1000.0, 240, DEFAULT_HUD_SCALE, true);
         assert!(height <= 280.0 * DEFAULT_HUD_SCALE - 10.0 * DEFAULT_HUD_SCALE * 2.0);
     }
 
     #[test]
     fn fit_thumbnail_size_falls_back_for_unusable_sizes() {
         let expected = (100.0, 100.0);
-        assert_eq!(fit_thumbnail_size(0.0, 0.0, 100, 1.0), expected);
-        assert_eq!(fit_thumbnail_size(-10.0, 20.0, 100, 1.0), expected);
-        assert_eq!(fit_thumbnail_size(f64::NAN, 20.0, 100, 1.0), expected);
-        assert_eq!(fit_thumbnail_size(20.0, f64::INFINITY, 100, 1.0), expected);
+        assert_eq!(fit_thumbnail_size(0.0, 0.0, 100, 1.0, true), expected);
+        assert_eq!(fit_thumbnail_size(-10.0, 20.0, 100, 1.0, true), expected);
+        assert_eq!(fit_thumbnail_size(f64::NAN, 20.0, 100, 1.0, true), expected);
+        assert_eq!(
+            fit_thumbnail_size(20.0, f64::INFINITY, 100, 1.0, true),
+            expected
+        );
+    }
+
+    #[test]
+    fn fit_thumbnail_size_without_icon_allows_wider_thumbnail() {
+        // アイコン分の幅（22.0 + 8.0 = 30.0）を確保しない分、横長画像がより広く収まる
+        let (with_icon, _) =
+            fit_thumbnail_size(8000.0, 200.0, DEFAULT_HUD_IMAGE_MAX_HEIGHT, 1.0, true);
+        let (without_icon, _) =
+            fit_thumbnail_size(8000.0, 200.0, DEFAULT_HUD_IMAGE_MAX_HEIGHT, 1.0, false);
+        assert_eq!(without_icon - with_icon, 30.0);
     }
 
     #[test]

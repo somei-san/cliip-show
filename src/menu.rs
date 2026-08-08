@@ -36,6 +36,9 @@ pub unsafe fn create_status_item(
     let menu: *mut AnyObject = msg_send![class!(NSMenu), alloc];
     let menu: *mut AnyObject = msg_send![menu, init];
 
+    let settings_item = make_menu_item(delegate, "設定…", sel!(openSettings:));
+    let () = msg_send![menu, addItem: settings_item];
+
     let preview_item = make_menu_item(delegate, "プレビュー表示", sel!(showPreview:));
     let () = msg_send![menu, addItem: preview_item];
 
@@ -105,6 +108,77 @@ unsafe fn set_status_icon(status_item: *mut AnyObject, fallback_emoji: &str) {
 
     let () = msg_send![image, setTemplate: true];
     let () = msg_send![button, setImage: image];
+}
+
+/// 最小構成のメインメニューを組む。このアプリはこれまでメインメニューを持たず、Cmd+V 等の
+/// 標準ショートカットがどのウィンドウでも効かなかった（responder chain に流す先が無いため）。
+///
+/// `create_status_item` が作るメニューバー常駐アイコンのメニューとは別物。
+///
+/// # Safety
+/// AppKit のメインスレッドから呼ぶこと。
+pub unsafe fn install_main_menu() {
+    let main_menu: *mut AnyObject = msg_send![class!(NSMenu), alloc];
+    let main_menu: *mut AnyObject = msg_send![main_menu, init];
+
+    let app_menu_item = make_container_menu_item("cliip-show");
+    let app_menu: *mut AnyObject = msg_send![class!(NSMenu), alloc];
+    let app_menu: *mut AnyObject = msg_send![app_menu, init];
+    let () = msg_send![app_menu_item, setSubmenu: app_menu];
+    let () = msg_send![main_menu, addItem: app_menu_item];
+
+    let edit_menu_item = make_container_menu_item("編集");
+    let edit_menu_title = nsstring_from_str("編集");
+    let edit_menu: *mut AnyObject = msg_send![class!(NSMenu), alloc];
+    let edit_menu: *mut AnyObject = msg_send![edit_menu, initWithTitle: edit_menu_title];
+    let () = msg_send![edit_menu_title, release];
+
+    // cut:/copy:/paste:/selectAll: は responder chain に流す標準アクションのため target は
+    // nil のまま（setTarget を呼ばない）。alloc/init 直後の NSMenuItem は target が既に nil。
+    let cut_item = make_responder_menu_item("切り取り", sel!(cut:), "x");
+    let copy_item = make_responder_menu_item("コピー", sel!(copy:), "c");
+    let paste_item = make_responder_menu_item("ペースト", sel!(paste:), "v");
+    let select_all_item = make_responder_menu_item("すべてを選択", sel!(selectAll:), "a");
+    let () = msg_send![edit_menu, addItem: cut_item];
+    let () = msg_send![edit_menu, addItem: copy_item];
+    let () = msg_send![edit_menu, addItem: paste_item];
+    let () = msg_send![edit_menu, addItem: select_all_item];
+    let () = msg_send![edit_menu_item, setSubmenu: edit_menu];
+    let () = msg_send![main_menu, addItem: edit_menu_item];
+
+    let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+    let () = msg_send![app, setMainMenu: main_menu];
+}
+
+/// サブメニューを持たせるだけの入れ物。`initWithTitle:action:keyEquivalent:` は使わず、
+/// 素の `init` の後に `setTitle:` で名前を付ける（action は不要なため）。
+unsafe fn make_container_menu_item(title: &str) -> *mut AnyObject {
+    let item: *mut AnyObject = msg_send![class!(NSMenuItem), alloc];
+    let item: *mut AnyObject = msg_send![item, init];
+    let title_str = nsstring_from_str(title);
+    let () = msg_send![item, setTitle: title_str];
+    let () = msg_send![title_str, release];
+    item
+}
+
+/// target を設定しない（nil のままにする）以外は `make_menu_item` と同じ組み立て。
+unsafe fn make_responder_menu_item(
+    title: &str,
+    action: Sel,
+    key_equivalent: &str,
+) -> *mut AnyObject {
+    let title_str = nsstring_from_str(title);
+    let key_equivalent_str = nsstring_from_str(key_equivalent);
+    let item: *mut AnyObject = msg_send![class!(NSMenuItem), alloc];
+    let item: *mut AnyObject = msg_send![
+        item,
+        initWithTitle: title_str
+        action: action
+        keyEquivalent: key_equivalent_str
+    ];
+    let () = msg_send![title_str, release];
+    let () = msg_send![key_equivalent_str, release];
+    item
 }
 
 /// 一時停止状態に応じてメニューのチェックマークとアイコンの alpha を更新する。

@@ -4,7 +4,6 @@ use super::settings::{
     apply_config_file, apply_env_overrides, default_display_settings, print_effective_settings,
     settings_to_config_file,
 };
-use super::types::ConfigKey;
 
 pub fn handle_config_command<I: Iterator<Item = String>>(args: &mut I) -> bool {
     let path = match config_file_path() {
@@ -157,13 +156,7 @@ pub fn handle_config_command<I: Iterator<Item = String>>(args: &mut I) -> bool {
                 eprintln!("warning: {warning}");
             }
             println!("updated config: {}", path.display());
-            if key == ConfigKey::PollIntervalSecs {
-                println!(
-                    "hint: poll_interval_secs takes effect after restart: brew services restart cliip-show"
-                );
-            } else {
-                println!("hint: change will be applied automatically (no restart needed)");
-            }
+            println!("hint: change will be applied automatically (no restart needed)");
             println!("[effective]");
             let effective =
                 apply_env_overrides(apply_config_file(default_display_settings(), &config));

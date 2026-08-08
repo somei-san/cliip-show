@@ -1,3 +1,5 @@
+use unicode_segmentation::UnicodeSegmentation;
+
 use crate::error::AppError;
 
 use super::types::{AppConfigFile, ConfigKey, HudBackgroundColor, HudPosition};
@@ -44,12 +46,47 @@ pub fn parse_hud_background_color(raw: &str) -> Option<HudBackgroundColor> {
     }
 }
 
-pub fn parse_hud_emoji(raw: &str) -> Option<String> {
+/// 絵文字を含むコードポイント範囲（Unicode Emoji Data の主要ブロック + 異体字セレクタ・ZWJ・
+/// キーキャップ）。絵文字クラスタの判定にのみ使う。
+/// 国旗の地域指示記号（U+1F1E6..=U+1F1FF）は U+1F000..=U+1FAFF に包含されるため別枠で持たない。
+fn is_emoji_codepoint(c: char) -> bool {
+    matches!(c as u32,
+        0x00A9 | 0x00AE | 0x203C | 0x2049 | 0x2122 | 0x2139
+        | 0x2194..=0x21AA | 0x231A..=0x231B | 0x2328 | 0x23CF | 0x23E9..=0x23FA
+        | 0x24C2 | 0x25AA..=0x25FE | 0x2600..=0x27BF | 0x2934..=0x2935
+        | 0x2B00..=0x2BFF | 0x3030 | 0x303D | 0x3297 | 0x3299
+        | 0x1F000..=0x1FAFF
+        | 0xFE0F | 0x20E3 | 0x200D
+    )
+}
+
+/// `hud_emoji` の入力値を判定し、妥当なら `None`、不正なら理由の文字列を返す。
+/// 空文字（trim 後）は「アイコンなし」として妥当扱いする。
+pub fn hud_emoji_validation_error(raw: &str) -> Option<&'static str> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return None;
     }
-    Some(trimmed.to_string())
+    let mut graphemes = trimmed.graphemes(true);
+    let first = graphemes.next().expect("trimmed is non-empty");
+    if graphemes.next().is_some() {
+        return Some("絵文字1文字だけ入力できます");
+    }
+    if first.chars().any(is_emoji_codepoint) {
+        None
+    } else {
+        Some("絵文字を入力してください")
+    }
+}
+
+/// trim 後が空、または単一の絵文字書記素クラスタのときだけ `Some` を返す。
+/// 空文字は「アイコンなし」を表す `Some(String::new())`。複数文字・非絵文字は `None`。
+pub fn parse_hud_emoji(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    match hud_emoji_validation_error(raw) {
+        None => Some(trimmed.to_string()),
+        Some(_) => None,
+    }
 }
 
 pub fn parse_f64_setting(raw: &str, default: f64, min: f64, max: f64) -> f64 {
@@ -251,14 +288,14 @@ pub fn set_config_value(
             config.display.hud_background_color = Some(parsed);
         }
         ConfigKey::HudEmoji => {
-            let raw = value.trim();
-            if raw.is_empty() {
+            let Some(emoji) = parse_hud_emoji(value) else {
+                let reason = hud_emoji_validation_error(value).unwrap_or("must be a single emoji");
                 return Err(AppError::InvalidValue {
                     key: "hud_emoji",
-                    message: "must not be empty".to_string(),
+                    message: format!("{reason}, got: {}", value.trim()),
                 });
-            }
-            config.display.hud_emoji = Some(raw.to_string());
+            };
+            config.display.hud_emoji = Some(emoji);
         }
         ConfigKey::HudImageMaxHeight => {
             let raw = value.trim();
@@ -412,8 +449,12 @@ mod tests {
         set_config_value(&mut config, ConfigKey::HudEmoji, "🍺").expect("set hud emoji");
         assert_eq!(config.display.hud_emoji, Some("🍺".to_string()));
 
-        let err = set_config_value(&mut config, ConfigKey::HudEmoji, "  ")
-            .expect_err("reject empty emoji");
+        // 空欄は「アイコンなし」として妥当
+        set_config_value(&mut config, ConfigKey::HudEmoji, "  ").expect("set empty hud emoji");
+        assert_eq!(config.display.hud_emoji, Some(String::new()));
+
+        let err = set_config_value(&mut config, ConfigKey::HudEmoji, "📋🍣")
+            .expect_err("reject multiple graphemes");
         assert!(err.to_string().contains("hud_emoji"));
     }
 
@@ -468,11 +509,53 @@ mod tests {
     }
 
     #[test]
-    fn parse_hud_emoji_trims_and_rejects_empty() {
-        assert!(parse_hud_emoji("🥜").is_some());
+    fn parse_hud_emoji_trims_and_accepts_empty_as_no_icon() {
+        assert_eq!(parse_hud_emoji("📋").unwrap(), "📋");
+        assert_eq!(parse_hud_emoji("🍣").unwrap(), "🍣");
         assert_eq!(parse_hud_emoji("  🎯  ").unwrap(), "🎯");
-        assert!(parse_hud_emoji("").is_none());
-        assert!(parse_hud_emoji("   ").is_none());
+        assert_eq!(parse_hud_emoji("").unwrap(), "");
+        assert_eq!(parse_hud_emoji("   ").unwrap(), "");
+        assert!(parse_hud_emoji("📋🍣").is_none());
+        assert!(parse_hud_emoji("a").is_none());
+        assert!(parse_hud_emoji("あ").is_none());
+        assert!(parse_hud_emoji("1").is_none());
+        assert_eq!(parse_hud_emoji("🇯🇵").unwrap(), "🇯🇵");
+        assert_eq!(parse_hud_emoji("1️⃣").unwrap(), "1️⃣");
+    }
+
+    #[test]
+    fn hud_emoji_validation_error_reports_reason() {
+        assert_eq!(hud_emoji_validation_error(""), None);
+        assert_eq!(hud_emoji_validation_error("   "), None);
+        assert_eq!(hud_emoji_validation_error("📋"), None);
+        assert_eq!(hud_emoji_validation_error("🇯🇵"), None);
+        assert_eq!(hud_emoji_validation_error("1️⃣"), None);
+        assert_eq!(
+            hud_emoji_validation_error("📋🍣"),
+            Some("絵文字1文字だけ入力できます")
+        );
+        assert_eq!(
+            hud_emoji_validation_error("a"),
+            Some("絵文字を入力してください")
+        );
+        assert_eq!(
+            hud_emoji_validation_error("あ"),
+            Some("絵文字を入力してください")
+        );
+    }
+
+    #[test]
+    fn apply_config_file_treats_empty_hud_emoji_as_no_icon() {
+        let base = default_display_settings();
+        assert_ne!(base.hud_emoji, "");
+        let config = AppConfigFile {
+            display: DisplayConfigFile {
+                hud_emoji: Some(String::new()),
+                ..Default::default()
+            },
+        };
+        let settings = apply_config_file(base, &config);
+        assert_eq!(settings.hud_emoji, "");
     }
 
     #[test]
