@@ -73,7 +73,6 @@ pub fn get_delegate_class() -> &'static AnyClass {
         );
         builder.add_method(sel!(hideHud:), hide_hud as extern "C" fn(_, _, _));
         builder.add_method(sel!(fadeTick:), fade_tick as extern "C" fn(_, _, _));
-        builder.add_method(sel!(showPreview:), show_preview as extern "C" fn(_, _, _));
         builder.add_method(sel!(togglePause:), toggle_pause as extern "C" fn(_, _, _));
         builder.add_method(sel!(quitApp:), quit_app as extern "C" fn(_, _, _));
         builder.add_method(sel!(openSettings:), open_settings as extern "C" fn(_, _, _));
@@ -122,8 +121,7 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
             std::process::exit(1);
         }
 
-        let (status_item, pause_menu_item) =
-            crate::menu::create_status_item(this, &settings.hud_emoji);
+        let (status_item, pause_menu_item) = crate::menu::create_status_item(this);
 
         // パスが解決できない場合もパスだけは保持し、後でファイルが作成されても検知できるようにする
         let config_path = crate::config::config_file_path().ok();
@@ -414,20 +412,6 @@ extern "C" fn poll_pasteboard(this: &AnyObject, _: Sel, _: *mut AnyObject) {
             return;
         }
 
-        present_pasteboard_content(this, state);
-    }
-}
-
-extern "C" fn show_preview(this: &AnyObject, _: Sel, _: *mut AnyObject) {
-    unsafe {
-        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
-        let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
-        let Some(state) = guard.as_mut() else {
-            return;
-        };
-
-        // last_change_count は更新しない: プレビュー後に同じ内容を改めてコピーしても
-        // HUD が出なくなるのを防ぐため。一時停止中でもプレビューは表示する。
         present_pasteboard_content(this, state);
     }
 }

@@ -6,8 +6,7 @@ class CliipShow < Formula
   license "MIT"
   head "https://github.com/somei-san/cliip-show.git", branch: "main"
 
-  # メニューバーのアイコンに SF Symbols を使うため Big Sur 以上
-  depends_on macos: :big_sur
+  depends_on :macos
   depends_on "rust" => :build
 
   def install

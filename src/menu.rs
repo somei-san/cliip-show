@@ -1,11 +1,32 @@
-use std::ptr;
-
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{class, msg_send, sel};
+use objc2_foundation::{NSPoint, NSSize};
 
 use crate::objc_helpers::nsstring_from_str;
 
 const NS_VARIABLE_STATUS_ITEM_LENGTH: f64 = -1.0;
+
+/// アイコンの元データは `assets/peanut-template.svg`。SVG を読む依存を足さずに済むよう、
+/// パス（`M` と 8 本の `Q`）をここに書き起こしている。SVG を差し替えたらここも更新すること。
+const PEANUT_VIEWBOX: f64 = 22.0;
+const PEANUT_START: NSPoint = NSPoint {
+    x: 9.42962691275,
+    y: 8.89807183979,
+};
+/// 各要素は `(制御点x, 制御点y, 終点x, 終点y)`。
+const PEANUT_SEGMENTS: [(f64, f64, f64, f64); 8] = [
+    (8.46815309688, 6.27427144382, 9.84488270293, 4.53354131168),
+    (12.2606207307, 1.13005012634, 16.4433682323, 2.29871736419),
+    (19.3273552068, 5.54583591854, 17.3273074423, 9.20907920931),
+    (16.3662680996, 11.2095614469, 13.5865295458, 11.495592894),
+    (14.0804061246, 14.4052075006, 12.7297386237, 17.0292251331),
+    (10.0542484905, 20.8484065817, 5.5337798045, 19.7577084228),
+    (2.57182375107, 16.1728686841, 4.83162362094, 12.09393513),
+    (6.59798138514, 9.72966960294, 9.42962691275, 8.89807183979),
+];
+
+/// メニューバーに描くアイコンの一辺（pt）。
+const STATUS_ICON_SIZE: f64 = 18.0;
 // NSControlStateValue
 const NS_CONTROL_STATE_VALUE_OFF: isize = 0;
 const NS_CONTROL_STATE_VALUE_ON: isize = 1;
@@ -18,12 +39,9 @@ const STATUS_ICON_ALPHA_PAUSED: f64 = 0.4;
 /// 返すポインタは `apply_paused_state` で状態を切り替えるため、呼び出し側が生存期間中保持すること。
 ///
 /// # Safety
-/// - `delegate` は `showPreview:` / `togglePause:` / `quitApp:` セレクタを実装していること。
+/// - `delegate` は `openSettings:` / `togglePause:` / `quitApp:` セレクタを実装していること。
 /// - AppKit のメインスレッドから呼ぶこと。
-pub unsafe fn create_status_item(
-    delegate: &AnyObject,
-    fallback_emoji: &str,
-) -> (*mut AnyObject, *mut AnyObject) {
+pub unsafe fn create_status_item(delegate: &AnyObject) -> (*mut AnyObject, *mut AnyObject) {
     let status_bar: *mut AnyObject = msg_send![class!(NSStatusBar), systemStatusBar];
     let status_item: *mut AnyObject =
         msg_send![status_bar, statusItemWithLength: NS_VARIABLE_STATUS_ITEM_LENGTH];
@@ -31,16 +49,13 @@ pub unsafe fn create_status_item(
     // 解放時に解放され、アイコンがメニューバーから消える。
     let status_item: *mut AnyObject = msg_send![status_item, retain];
 
-    set_status_icon(status_item, fallback_emoji);
+    set_status_icon(status_item);
 
     let menu: *mut AnyObject = msg_send![class!(NSMenu), alloc];
     let menu: *mut AnyObject = msg_send![menu, init];
 
     let settings_item = make_menu_item(delegate, "設定…", sel!(openSettings:));
     let () = msg_send![menu, addItem: settings_item];
-
-    let preview_item = make_menu_item(delegate, "プレビュー表示", sel!(showPreview:));
-    let () = msg_send![menu, addItem: preview_item];
 
     let pause_item = make_menu_item(delegate, "一時停止", sel!(togglePause:));
     let () = msg_send![pause_item, setState: NS_CONTROL_STATE_VALUE_OFF];
@@ -73,41 +88,66 @@ unsafe fn make_menu_item(delegate: &AnyObject, title: &str, action: Sel) -> *mut
     item
 }
 
-/// status item の button に SF Symbols アイコンを設定する。
+/// status item の button にピーナッツのアイコンを設定する。
 ///
-/// `setTemplate: true` により、ライト/ダーク・メニューバーの濃淡に自動追従する。
-/// `imageWithSystemSymbolName:` は Big Sur で追加されたため、セレクタの有無を確かめてから
-/// 呼ぶ。持たない OS では未知セレクタで例外になり、`fallback_emoji` に到達できない。
-unsafe fn set_status_icon(status_item: *mut AnyObject, fallback_emoji: &str) {
+/// `setTemplate: true` にすると描画色は無視され、アルファだけがマスクとして使われる。
+/// macOS がメニューバーの濃淡に応じて白黒を決めるので、ライト/ダークに自動追従する。
+unsafe fn set_status_icon(status_item: *mut AnyObject) {
     let button: *mut AnyObject = msg_send![status_item, button];
     if button.is_null() {
         return;
     }
 
-    let symbol_selector = sel!(imageWithSystemSymbolName:accessibilityDescription:);
-    let supports_symbols: bool = msg_send![class!(NSImage), respondsToSelector: symbol_selector];
-    let image: *mut AnyObject = if supports_symbols {
-        let symbol_name = nsstring_from_str("doc.on.clipboard");
-        let image: *mut AnyObject = msg_send![
-            class!(NSImage),
-            imageWithSystemSymbolName: symbol_name
-            accessibilityDescription: ptr::null_mut::<AnyObject>()
-        ];
-        let () = msg_send![symbol_name, release];
-        image
-    } else {
-        ptr::null_mut()
+    let size = NSSize {
+        width: STATUS_ICON_SIZE,
+        height: STATUS_ICON_SIZE,
     };
+    let image: *mut AnyObject = msg_send![class!(NSImage), alloc];
+    let image: *mut AnyObject = msg_send![image, initWithSize: size];
 
-    if image.is_null() {
-        let title = nsstring_from_str(fallback_emoji);
-        let () = msg_send![button, setTitle: title];
-        let () = msg_send![title, release];
-        return;
-    }
+    let () = msg_send![image, lockFocus];
+    let black: *mut AnyObject = msg_send![class!(NSColor), blackColor];
+    let () = msg_send![black, set];
+    let path = peanut_path(STATUS_ICON_SIZE / PEANUT_VIEWBOX);
+    let () = msg_send![path, fill];
+    let () = msg_send![image, unlockFocus];
 
     let () = msg_send![image, setTemplate: true];
     let () = msg_send![button, setImage: image];
+    let () = msg_send![image, release];
+}
+
+/// `PEANUT_SEGMENTS` から `NSBezierPath` を組む。
+///
+/// SVG は y 軸が下向きなので上下を反転する。二次ベジェは
+/// `c1 = p0 + 2/3 (q - p0)`, `c2 = p1 + 2/3 (q - p1)` で三次ベジェに変換する。
+unsafe fn peanut_path(scale: f64) -> *mut AnyObject {
+    let to_view = |x: f64, y: f64| NSPoint {
+        x: x * scale,
+        y: (PEANUT_VIEWBOX - y) * scale,
+    };
+
+    let path: *mut AnyObject = msg_send![class!(NSBezierPath), bezierPath];
+    let mut current = to_view(PEANUT_START.x, PEANUT_START.y);
+    let () = msg_send![path, moveToPoint: current];
+
+    for (qx, qy, ex, ey) in PEANUT_SEGMENTS {
+        let q = to_view(qx, qy);
+        let end = to_view(ex, ey);
+        let c1 = NSPoint {
+            x: current.x + 2.0 / 3.0 * (q.x - current.x),
+            y: current.y + 2.0 / 3.0 * (q.y - current.y),
+        };
+        let c2 = NSPoint {
+            x: end.x + 2.0 / 3.0 * (q.x - end.x),
+            y: end.y + 2.0 / 3.0 * (q.y - end.y),
+        };
+        let () = msg_send![path, curveToPoint: end controlPoint1: c1 controlPoint2: c2];
+        current = end;
+    }
+
+    let () = msg_send![path, closePath];
+    path
 }
 
 /// 最小構成のメインメニューを組む。このアプリはこれまでメインメニューを持たず、Cmd+V 等の
