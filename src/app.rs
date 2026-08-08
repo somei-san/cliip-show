@@ -36,6 +36,9 @@ pub struct AppState {
     pub config_path: Option<PathBuf>,
     pub config_mtime: Option<SystemTime>,
     pub config_check_counter: u32,
+    pub paused: bool,
+    pub status_item: *mut AnyObject,
+    pub pause_menu_item: *mut AnyObject,
 }
 
 // SAFETY: AppState は APP_STATE の Mutex で排他制御されており、
@@ -64,6 +67,9 @@ pub fn get_delegate_class() -> &'static AnyClass {
         );
         builder.add_method(sel!(hideHud:), hide_hud as extern "C" fn(_, _, _));
         builder.add_method(sel!(fadeTick:), fade_tick as extern "C" fn(_, _, _));
+        builder.add_method(sel!(showPreview:), show_preview as extern "C" fn(_, _, _));
+        builder.add_method(sel!(togglePause:), toggle_pause as extern "C" fn(_, _, _));
+        builder.add_method(sel!(quitApp:), quit_app as extern "C" fn(_, _, _));
 
         let class = builder.register();
         CLASS = class as *const AnyClass;
@@ -83,6 +89,9 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
             eprintln!("fatal: HUD ウィンドウの作成に失敗しました");
             std::process::exit(1);
         }
+
+        let (status_item, pause_menu_item) =
+            crate::menu::create_status_item(this, &settings.hud_emoji);
 
         // パスが解決できない場合もパスだけは保持し、後でファイルが作成されても検知できるようにする
         let config_path = crate::config::config_file_path().ok();
@@ -109,6 +118,9 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
             config_path,
             config_mtime,
             config_check_counter: 0,
+            paused: false,
+            status_item,
+            pause_menu_item,
         });
 
         let _: *mut AnyObject = msg_send![
@@ -260,6 +272,48 @@ unsafe fn show_image_content(state: &mut AppState) -> bool {
     true
 }
 
+/// 現在のペーストボード内容を HUD に表示し、フェード/自動非表示タイマーを再設定する。
+/// 表示できる内容（テキストまたは画像）が無ければ何もせず `false` を返す。
+unsafe fn present_pasteboard_content(this: &AnyObject, state: &mut AppState) -> bool {
+    let text_type = nsstring_from_str("public.utf8-plain-text");
+    let raw_text: *mut AnyObject = msg_send![state.pasteboard, stringForType: text_type];
+    let () = msg_send![text_type, release];
+
+    // ブラウザや表計算からのコピーは画像とテキストの両方を載せるため、テキストを先に見る
+    match crate::objc_helpers::nsstring_to_string(raw_text) {
+        Some(text) => show_text_content(state, &text),
+        None => {
+            if !show_image_content(state) {
+                return false;
+            }
+        }
+    }
+
+    // フェード中なら止めてアルファを戻す
+    if !state.fade_timer.is_null() {
+        let () = msg_send![state.fade_timer, invalidate];
+        state.fade_timer = ptr::null_mut();
+    }
+    let () = msg_send![state.window, setAlphaValue: 1.0f64];
+
+    let () = msg_send![state.window, orderFrontRegardless];
+
+    if !state.hide_timer.is_null() {
+        let () = msg_send![state.hide_timer, invalidate];
+    }
+
+    let hide_timer: *mut AnyObject = msg_send![
+        class!(NSTimer),
+        scheduledTimerWithTimeInterval: state.settings.hud_duration_secs
+        target: this
+        selector: sel!(hideHud:)
+        userInfo: ptr::null_mut::<AnyObject>()
+        repeats: false
+    ];
+    state.hide_timer = hide_timer;
+    true
+}
+
 extern "C" fn poll_pasteboard(this: &AnyObject, _: Sel, _: *mut AnyObject) {
     unsafe {
         // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
@@ -276,42 +330,47 @@ extern "C" fn poll_pasteboard(this: &AnyObject, _: Sel, _: *mut AnyObject) {
         }
         state.last_change_count = change_count;
 
-        let text_type = nsstring_from_str("public.utf8-plain-text");
-        let raw_text: *mut AnyObject = msg_send![state.pasteboard, stringForType: text_type];
-        let () = msg_send![text_type, release];
-
-        // ブラウザや表計算からのコピーは画像とテキストの両方を載せるため、テキストを先に見る
-        match crate::objc_helpers::nsstring_to_string(raw_text) {
-            Some(text) => show_text_content(state, &text),
-            None => {
-                if !show_image_content(state) {
-                    return;
-                }
-            }
+        // 一時停止中も changeCount の追随だけは続ける。再開直後に古いコピー内容が
+        // 表示されてしまうのを防ぐため。
+        if state.paused {
+            return;
         }
 
-        // フェード中なら止めてアルファを戻す
-        if !state.fade_timer.is_null() {
-            let () = msg_send![state.fade_timer, invalidate];
-            state.fade_timer = ptr::null_mut();
-        }
-        let () = msg_send![state.window, setAlphaValue: 1.0f64];
+        present_pasteboard_content(this, state);
+    }
+}
 
-        let () = msg_send![state.window, orderFrontRegardless];
+extern "C" fn show_preview(this: &AnyObject, _: Sel, _: *mut AnyObject) {
+    unsafe {
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+        let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+        let Some(state) = guard.as_mut() else {
+            return;
+        };
 
-        if !state.hide_timer.is_null() {
-            let () = msg_send![state.hide_timer, invalidate];
-        }
+        // last_change_count は更新しない: プレビュー後に同じ内容を改めてコピーしても
+        // HUD が出なくなるのを防ぐため。一時停止中でもプレビューは表示する。
+        present_pasteboard_content(this, state);
+    }
+}
 
-        let hide_timer: *mut AnyObject = msg_send![
-            class!(NSTimer),
-            scheduledTimerWithTimeInterval: state.settings.hud_duration_secs
-            target: this
-            selector: sel!(hideHud:)
-            userInfo: ptr::null_mut::<AnyObject>()
-            repeats: false
-        ];
-        state.hide_timer = hide_timer;
+extern "C" fn toggle_pause(_: &AnyObject, _: Sel, _: *mut AnyObject) {
+    unsafe {
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+        let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+        let Some(state) = guard.as_mut() else {
+            return;
+        };
+
+        state.paused = !state.paused;
+        crate::menu::apply_paused_state(state.status_item, state.pause_menu_item, state.paused);
+    }
+}
+
+extern "C" fn quit_app(_: &AnyObject, _: Sel, _: *mut AnyObject) {
+    unsafe {
+        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        let () = msg_send![app, terminate: ptr::null_mut::<AnyObject>()];
     }
 }
 
