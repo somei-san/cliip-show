@@ -90,6 +90,10 @@ pub fn get_delegate_class() -> &'static AnyClass {
         );
         builder.add_method(sel!(saveSettings:), save_settings as extern "C" fn(_, _, _));
         builder.add_method(
+            sel!(toggleLoginItem:),
+            toggle_login_item as extern "C" fn(_, _, _),
+        );
+        builder.add_method(
             sel!(windowWillClose:),
             window_will_close as extern "C" fn(_, _, _),
         );
@@ -132,6 +136,14 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
 
         let poll_timer = schedule_poll_timer(this, settings.poll_interval_secs);
 
+        // Homebrew の LaunchAgent が残っていると、アプリ自身が管理する LaunchAgent と
+        // 二重起動する。他者が置いたものを勝手に消さず、停止を促すだけに留める。
+        if crate::login_item::homebrew_agent_path().is_some_and(|p| p.exists()) {
+            eprintln!(
+                "warning: Homebrew の自動起動設定が残っています。二重起動を避けるため `brew services stop cliip-show` を実行してください"
+            );
+        }
+
         // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
         *APP_STATE.lock().expect("APP_STATE lock poisoned") = Some(AppState {
             last_change_count,
@@ -155,6 +167,77 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
             poll_timer,
             delegate: this as *const AnyObject as *mut AnyObject,
         });
+
+        // runModal は実行ループを止めるため、他の経路がロック待ちで固まらないよう
+        // APP_STATE のロックを手放した後（上の代入文で既に解放済み）に呼ぶ。
+        prompt_login_item_if_needed();
+    }
+}
+
+/// 自動起動が OFF なら、起動のたびに有効化を促すダイアログを出す。
+///
+/// 常駐が前提のアプリで自動起動が切れている状態は設定が未完了なので、断られても促し続ける。
+/// 抑止チェックボックスを入れて閉じたときだけ `mark_prompted` を記録し、以後は出さない。
+unsafe fn prompt_login_item_if_needed() {
+    if crate::login_item::is_enabled() || crate::login_item::has_prompted() {
+        return;
+    }
+
+    // accessory アプリ（setActivationPolicy: 1）はこれを呼ばないとダイアログが前面に来ない
+    let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+    let () = msg_send![app, activateIgnoringOtherApps: true];
+
+    let alert: *mut AnyObject = msg_send![class!(NSAlert), alloc];
+    let alert: *mut AnyObject = msg_send![alert, init];
+
+    let message = nsstring_from_str("ログイン時に cliip-show を自動起動しますか？");
+    let () = msg_send![alert, setMessageText: message];
+    let () = msg_send![message, release];
+
+    let informative =
+        nsstring_from_str("設定ウィンドウの「ログイン時に自動起動」からいつでも変更できます。");
+    let () = msg_send![alert, setInformativeText: informative];
+    let () = msg_send![informative, release];
+
+    // 最初に追加したボタンが既定（Enterで発火）になる
+    let enable_title = nsstring_from_str("有効にする");
+    let _: *mut AnyObject = msg_send![alert, addButtonWithTitle: enable_title];
+    let () = msg_send![enable_title, release];
+
+    let later_title = nsstring_from_str("あとで");
+    let _: *mut AnyObject = msg_send![alert, addButtonWithTitle: later_title];
+    let () = msg_send![later_title, release];
+
+    let () = msg_send![alert, setShowsSuppressionButton: true];
+    let suppression_button: *mut AnyObject = msg_send![alert, suppressionButton];
+    if !suppression_button.is_null() {
+        let title = nsstring_from_str("今後表示しない");
+        let () = msg_send![suppression_button, setTitle: title];
+        let () = msg_send![title, release];
+    }
+
+    const NS_ALERT_FIRST_BUTTON_RETURN: isize = 1000;
+    const NS_CONTROL_STATE_VALUE_ON: isize = 1;
+    let response: isize = msg_send![alert, runModal];
+
+    let suppressed = if suppression_button.is_null() {
+        false
+    } else {
+        let state: isize = msg_send![suppression_button, state];
+        state == NS_CONTROL_STATE_VALUE_ON
+    };
+    let () = msg_send![alert, release];
+
+    if suppressed {
+        if let Err(error) = crate::login_item::mark_prompted() {
+            eprintln!("warning: {error}");
+        }
+    }
+
+    if response == NS_ALERT_FIRST_BUTTON_RETURN {
+        if let Err(error) = crate::login_item::enable() {
+            eprintln!("warning: {error}");
+        }
     }
 }
 
@@ -434,6 +517,8 @@ extern "C" fn open_settings(this: &AnyObject, _: Sel, _: *mut AnyObject) {
             &state.settings_controls,
             &state.settings,
         );
+        // ログイン項目は設定ファイルではなく OS 側の状態なので、下書きとは別に毎回同期する。
+        crate::settings_window::sync_login_item_checkbox(&state.settings_controls);
 
         // accessory アプリはウィンドウを前面に出すだけではキー入力を受け取れない
         let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
@@ -454,6 +539,31 @@ extern "C" fn setting_changed(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
         };
 
         crate::settings_window::apply_setting_change(state, sender);
+    }
+}
+
+/// ログイン項目チェックボックスの `toggleLoginItem:`。他の設定と違い下書きを経由せず、
+/// チェックした瞬間に `login_item::enable`/`disable` を実行して OS の状態を変える。
+extern "C" fn toggle_login_item(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
+    unsafe {
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+        let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+        let Some(state) = guard.as_mut() else {
+            return;
+        };
+
+        let checked: isize = msg_send![sender, state];
+        let result = if checked != 0 {
+            crate::login_item::enable()
+        } else {
+            crate::login_item::disable()
+        };
+
+        if let Err(error) = result {
+            eprintln!("warning: {error}");
+            // 失敗したのにチェックだけ付いた状態を避け、実際の状態に表示を戻す。
+            crate::settings_window::sync_login_item_checkbox(&state.settings_controls);
+        }
     }
 }
 

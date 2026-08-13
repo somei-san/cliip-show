@@ -3,6 +3,7 @@ pub mod cli;
 pub mod config;
 pub mod error;
 pub mod hud;
+pub mod login_item;
 pub mod menu;
 pub mod objc_helpers;
 pub mod png;

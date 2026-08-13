@@ -44,6 +44,11 @@ const SETTINGS_STYLE_MASK: usize = 1 | 2;
 const SETTINGS_WINDOW_WIDTH: f64 = 520.0;
 const SETTINGS_ROW_HEIGHT: f64 = 34.0;
 const SETTINGS_ROW_COUNT: usize = 10;
+// 設定ファイルに乗る行（上記10行）とは別に、区切り行とログイン項目の行を末尾に足す。
+// ログイン項目は下書き→保存のモデルに乗らず、チェックした瞬間に OS へ反映するため。
+const SETTINGS_DIVIDER_ROW_INDEX: usize = SETTINGS_ROW_COUNT;
+const SETTINGS_LOGIN_ITEM_ROW_INDEX: usize = SETTINGS_ROW_COUNT + 1;
+const SETTINGS_TOTAL_ROW_COUNT: usize = SETTINGS_ROW_COUNT + 2;
 const SETTINGS_TOP_MARGIN: f64 = 20.0;
 const SETTINGS_BOTTOM_MARGIN: f64 = 20.0;
 // ウィンドウ下部、行の並びとは別に「デフォルトに戻す」「お試し表示」「保存」ボタンを置くための領域
@@ -53,7 +58,7 @@ const SETTINGS_BUTTON_HEIGHT: f64 = 24.0;
 const SETTINGS_BUTTON_GAP: f64 = 12.0;
 const SETTINGS_BUTTON_RIGHT_MARGIN: f64 = 20.0;
 const SETTINGS_WINDOW_HEIGHT: f64 = SETTINGS_TOP_MARGIN
-    + SETTINGS_ROW_HEIGHT * SETTINGS_ROW_COUNT as f64
+    + SETTINGS_ROW_HEIGHT * SETTINGS_TOTAL_ROW_COUNT as f64
     + SETTINGS_EMOJI_MESSAGE_HEIGHT
     + SETTINGS_BUTTON_AREA_HEIGHT
     + SETTINGS_BOTTOM_MARGIN;
@@ -97,6 +102,9 @@ pub struct SettingsControls {
     pub hud_emoji_field: *mut AnyObject,
     /// 絵文字フィールドの入力中バリデーションメッセージ。妥当なときは空文字。
     pub hud_emoji_message_label: *mut AnyObject,
+    /// ログイン時の自動起動チェックボックス。下書き→保存のモデルには乗らず、
+    /// チェックした瞬間に `login_item::enable`/`disable` を呼ぶ（`toggleLoginItem:`）。
+    pub login_item_checkbox: *mut AnyObject,
     /// ウィンドウ内で編集中の下書き。「保存」（`saveSettings:`）を押すまで設定ファイルには
     /// 反映しない。`settingChanged:` はこの下書きだけを更新する。
     pub draft: DisplaySettings,
@@ -126,6 +134,7 @@ impl Default for SettingsControls {
             hud_background_color_popup: ptr::null_mut(),
             hud_emoji_field: ptr::null_mut(),
             hud_emoji_message_label: ptr::null_mut(),
+            login_item_checkbox: ptr::null_mut(),
             draft: default_display_settings(),
             preview_sample_index: 0,
         }
@@ -470,6 +479,67 @@ unsafe fn add_field_row(
     (field, message_label)
 }
 
+// NSButtonType: Switch（チェックボックス）
+const NS_BUTTON_TYPE_SWITCH: usize = 3;
+// NSControlStateValue
+const NS_CONTROL_STATE_VALUE_OFF: isize = 0;
+const NS_CONTROL_STATE_VALUE_ON: isize = 1;
+
+/// 他の設定行（下書き→保存モデル）とログイン項目（OS へ即時反映）を見た目で区切るための
+/// 区切り線。新規の ObjC API を増やさないよう、罫線文字のラベルで表現する。
+unsafe fn add_divider_row(content_view: *mut AnyObject, index: usize) {
+    let row_bottom = row_bottom_y(index);
+    let rect = centered_rect(
+        SETTINGS_LABEL_X,
+        SETTINGS_WINDOW_WIDTH - SETTINGS_LABEL_X - SETTINGS_BUTTON_RIGHT_MARGIN,
+        SETTINGS_LABEL_HEIGHT,
+        row_bottom,
+    );
+    let divider = make_label("────────────────────────────────────────────────────", rect);
+    let gray: *mut AnyObject = msg_send![class!(NSColor), separatorColor];
+    let () = msg_send![divider, setTextColor: gray];
+    let () = msg_send![content_view, addSubview: divider];
+}
+
+/// ログイン時の自動起動チェックボックスの行。`state` は表示専用の初期値で、
+/// 実際の値はウィンドウを開くたびに `sync_login_item_checkbox` が上書きする。
+unsafe fn add_login_item_row(
+    content_view: *mut AnyObject,
+    delegate: &AnyObject,
+    index: usize,
+    enabled: bool,
+) -> *mut AnyObject {
+    let row_bottom = row_bottom_y(index);
+    let rect = centered_rect(
+        SETTINGS_LABEL_X,
+        SETTINGS_WINDOW_WIDTH - SETTINGS_LABEL_X - SETTINGS_BUTTON_RIGHT_MARGIN,
+        SETTINGS_CONTROL_HEIGHT,
+        row_bottom,
+    );
+
+    let checkbox: *mut AnyObject = msg_send![class!(NSButton), alloc];
+    let checkbox: *mut AnyObject = msg_send![checkbox, initWithFrame: rect];
+    let () = msg_send![checkbox, setButtonType: NS_BUTTON_TYPE_SWITCH];
+    let title = nsstring_from_str("ログイン時に自動起動");
+    let () = msg_send![checkbox, setTitle: title];
+    let () = msg_send![title, release];
+    let state = login_item_control_state(enabled);
+    let () = msg_send![checkbox, setState: state];
+    let () = msg_send![checkbox, setTarget: delegate];
+    let () = msg_send![checkbox, setAction: sel!(toggleLoginItem:)];
+
+    let () = msg_send![content_view, addSubview: checkbox];
+    checkbox
+}
+
+fn login_item_control_state(enabled: bool) -> isize {
+    if enabled {
+        NS_CONTROL_STATE_VALUE_ON
+    } else {
+        NS_CONTROL_STATE_VALUE_OFF
+    }
+}
+
 /// 設定ウィンドウとすべてのコントロールを生成する。呼び出し側（`openSettings:`）が
 /// 初回のみ呼び、以後は返り値の `SettingsControls` を使い回すこと。
 ///
@@ -605,6 +675,14 @@ pub unsafe fn build_settings_window(delegate: &AnyObject) -> SettingsControls {
         &placeholder.hud_emoji,
     );
 
+    add_divider_row(content_view, SETTINGS_DIVIDER_ROW_INDEX);
+    let login_item_checkbox = add_login_item_row(
+        content_view,
+        delegate,
+        SETTINGS_LOGIN_ITEM_ROW_INDEX,
+        crate::login_item::is_enabled(),
+    );
+
     add_button_row(content_view, delegate);
 
     SettingsControls {
@@ -627,6 +705,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject) -> SettingsControls {
         hud_background_color_popup,
         hud_emoji_field,
         hud_emoji_message_label,
+        login_item_checkbox,
         draft: placeholder,
         preview_sample_index: 0,
     }
@@ -767,6 +846,17 @@ pub unsafe fn sync_controls_from_settings(controls: &SettingsControls, settings:
     // controlTextDidChange: 側の再入防止（try_lock）に任せると、ロック保持中の呼び出しでは
     // 通知が黙って捨てられメッセージが古いまま残りうるため、ここで確実にクリアする。
     set_string_value(controls.hud_emoji_message_label, "");
+}
+
+/// ログイン項目チェックボックスの表示を実際の LaunchAgent の状態に合わせる。
+/// ウィンドウを開くたびに呼び、ファイル外（Finder 等）での変更との食い違いを防ぐ。
+/// `toggleLoginItem:` が `enable`/`disable` に失敗したときの巻き戻しにも使う。
+///
+/// # Safety
+/// AppKit のメインスレッドから呼ぶこと。
+pub unsafe fn sync_login_item_checkbox(controls: &SettingsControls) {
+    let state = login_item_control_state(crate::login_item::is_enabled());
+    let () = msg_send![controls.login_item_checkbox, setState: state];
 }
 
 /// `controlTextDidChange:` から呼ぶ。絵文字フィールドの現在の入力値を判定し、
