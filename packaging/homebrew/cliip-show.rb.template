@@ -28,7 +28,7 @@ class CliipShow < Formula
 
   service do
     run [opt_bin/"cliip-show"]
-    keep_alive true
+    keep_alive successful_exit: false
     run_at_load true
     process_type :interactive
     log_path var/"log/cliip-show.log"

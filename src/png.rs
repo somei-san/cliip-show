@@ -17,6 +17,18 @@ const FIXTURE_BLOCKS_PER_SHORT_SIDE: usize = 4;
 const FIXTURE_COLOR_A: [u8; 4] = [230, 80, 60, 255];
 const FIXTURE_COLOR_B: [u8; 4] = [40, 120, 220, 255];
 
+const PREVIEW_SAMPLE_IMAGE_WIDTH: usize = 320;
+const PREVIEW_SAMPLE_IMAGE_HEIGHT: usize = 180;
+const PREVIEW_SAMPLE_LABEL_FONT_SIZE: f64 = 28.0;
+
+// AppKit の NSAttributedString 属性キー定数（NSAttributedString.h）。
+// objc2-app-kit を新たに使わず、他の呼び出しと同じ手動 FFI のまま参照する。
+extern "C" {
+    static NSFontAttributeName: *mut AnyObject;
+    static NSForegroundColorAttributeName: *mut AnyObject;
+    static NSShadowAttributeName: *mut AnyObject;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DiffSummary {
     pub diff_pixels: usize,
@@ -75,6 +87,7 @@ pub fn render_hud_image_png(
             image_height as f64,
             settings.hud_image_max_height,
             settings.hud_scale,
+            !settings.hud_emoji.is_empty(),
         );
 
         let () = msg_send![image_view, setImage: image];
@@ -94,7 +107,10 @@ pub fn render_hud_image_png(
 ///
 /// # Safety
 /// AppKit のメインスレッドから呼ぶこと。戻り値は所有権 +1 の NSImage。
-unsafe fn create_fixture_image(width: usize, height: usize) -> Result<*mut AnyObject, AppError> {
+pub(crate) unsafe fn create_fixture_image(
+    width: usize,
+    height: usize,
+) -> Result<*mut AnyObject, AppError> {
     if width == 0 || height == 0 {
         return Err(AppError::RenderFailed(
             "fixture image size must be positive".to_string(),
@@ -146,6 +162,61 @@ unsafe fn create_fixture_image(width: usize, height: usize) -> Result<*mut AnyOb
     let () = msg_send![rep, release];
 
     Ok(image)
+}
+
+/// お試し表示の画像サンプルを生成する。`create_fixture_image` と同じ市松模様の上に
+/// "Sample" の文字を重ねる。VRT が使う `create_fixture_image` の出力（ベースライン依存）は
+/// 変えず、別関数として重ね書きする。
+///
+/// # Safety
+/// AppKit のメインスレッドから呼ぶこと。戻り値は所有権 +1 の NSImage。
+pub(crate) unsafe fn create_preview_sample_image() -> Result<*mut AnyObject, AppError> {
+    let image = create_fixture_image(PREVIEW_SAMPLE_IMAGE_WIDTH, PREVIEW_SAMPLE_IMAGE_HEIGHT)?;
+
+    let () = msg_send![image, lockFocus];
+    draw_preview_sample_label(
+        PREVIEW_SAMPLE_IMAGE_WIDTH as f64,
+        PREVIEW_SAMPLE_IMAGE_HEIGHT as f64,
+    );
+    let () = msg_send![image, unlockFocus];
+
+    Ok(image)
+}
+
+/// 現在の描画コンテキスト（`create_preview_sample_image` の `lockFocus` 中）に
+/// 中央寄せ・白ボールド・影付きで "Sample" を描く。市松模様の上でも視認できるようにするため。
+unsafe fn draw_preview_sample_label(canvas_width: f64, canvas_height: f64) {
+    let text = nsstring_from_str("Sample");
+
+    let shadow: *mut AnyObject = msg_send![class!(NSShadow), alloc];
+    let shadow: *mut AnyObject = msg_send![shadow, init];
+    let shadow_color: *mut AnyObject =
+        msg_send![class!(NSColor), colorWithCalibratedWhite: 0.0f64 alpha: 0.85f64];
+    let () = msg_send![shadow, setShadowColor: shadow_color];
+    let () = msg_send![shadow, setShadowOffset: NSSize { width: 0.0, height: -1.0 }];
+    let () = msg_send![shadow, setShadowBlurRadius: 3.0f64];
+
+    let font: *mut AnyObject =
+        msg_send![class!(NSFont), boldSystemFontOfSize: PREVIEW_SAMPLE_LABEL_FONT_SIZE];
+    let white: *mut AnyObject = msg_send![class!(NSColor), whiteColor];
+
+    let attributes: *mut AnyObject = msg_send![class!(NSMutableDictionary), dictionary];
+    let () = msg_send![attributes, setObject: font forKey: NSFontAttributeName];
+    let () = msg_send![attributes, setObject: white forKey: NSForegroundColorAttributeName];
+    let () = msg_send![attributes, setObject: shadow forKey: NSShadowAttributeName];
+
+    let text_size: NSSize = msg_send![text, sizeWithAttributes: attributes];
+    let text_rect = NSRect {
+        origin: NSPoint {
+            x: ((canvas_width - text_size.width) / 2.0).max(0.0),
+            y: ((canvas_height - text_size.height) / 2.0).max(0.0),
+        },
+        size: text_size,
+    };
+    let () = msg_send![text, drawInRect: text_rect withAttributes: attributes];
+
+    let () = msg_send![text, release];
+    let () = msg_send![shadow, release];
 }
 
 /// HUD ウィンドウの contentView を PNG にして書き出す。
