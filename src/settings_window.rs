@@ -1,6 +1,8 @@
 use std::ptr;
+use std::sync::Once;
 
-use objc2::runtime::{AnyObject, Sel};
+use objc2::declare::ClassBuilder;
+use objc2::runtime::{AnyClass, AnyObject, Sel};
 use objc2::{class, msg_send, sel};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 
@@ -170,6 +172,38 @@ pub fn tag_to_config_key(tag: isize) -> Option<ConfigKey> {
         8 => Some(ConfigKey::HudEmoji),
         9 => Some(ConfigKey::HudImageMaxHeight),
         _ => None,
+    }
+}
+
+/// 背景をクリックしたときに編集中のテキストフィールドを確定させるためのビュー。
+///
+/// AppKit の既定では、コントロールの無い場所をクリックしても first responder は外れず、
+/// フィールドが編集中のまま残る。`mouseDown:` を受けて明示的に手放す。
+fn background_view_class() -> &'static AnyClass {
+    static ONCE: Once = Once::new();
+    static mut CLASS: *const AnyClass = ptr::null();
+
+    ONCE.call_once(|| unsafe {
+        let mut builder = ClassBuilder::new("CliipShowSettingsBackgroundView", class!(NSView))
+            .expect("settings background view class creation failed");
+        builder.add_method(
+            sel!(mouseDown:),
+            background_mouse_down as extern "C" fn(_, _, _),
+        );
+        CLASS = builder.register() as *const AnyClass;
+    });
+
+    unsafe { &*CLASS }
+}
+
+extern "C" fn background_mouse_down(this: &AnyObject, _: Sel, _: *mut AnyObject) {
+    unsafe {
+        let window: *mut AnyObject = msg_send![this, window];
+        if window.is_null() {
+            return;
+        }
+        // 確定に伴い settingChanged: が飛ぶが、ロックは取っていないので再入の心配はない
+        let _: bool = msg_send![window, makeFirstResponder: ptr::null_mut::<AnyObject>()];
     }
 }
 
@@ -575,6 +609,11 @@ pub unsafe fn build_settings_window(delegate: &AnyObject) -> SettingsControls {
     let () = msg_send![window, center];
     // 保存せずに閉じたときに設定ファイルの内容へ戻すため windowWillClose: を受け取る
     let () = msg_send![window, setDelegate: delegate];
+
+    let background: *mut AnyObject = msg_send![background_view_class(), alloc];
+    let background: *mut AnyObject = msg_send![background, initWithFrame: rect];
+    let () = msg_send![window, setContentView: background];
+    let () = msg_send![background, release];
 
     let content_view: *mut AnyObject = msg_send![window, contentView];
 
