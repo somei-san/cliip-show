@@ -21,6 +21,10 @@ pub enum AppError {
         message: String,
     },
     RenderFailed(String),
+    CommandFailed {
+        command: String,
+        message: String,
+    },
 }
 
 impl fmt::Display for AppError {
@@ -39,6 +43,9 @@ impl fmt::Display for AppError {
             Self::ConfigEncode(msg) => write!(f, "failed to encode config: {msg}"),
             Self::InvalidValue { key, message } => write!(f, "invalid value for {key}: {message}"),
             Self::RenderFailed(msg) => write!(f, "{msg}"),
+            Self::CommandFailed { command, message } => {
+                write!(f, "command `{command}` failed: {message}")
+            }
         }
     }
 }

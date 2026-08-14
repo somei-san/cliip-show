@@ -15,21 +15,12 @@ class CliipShow < Formula
 
   def caveats
     <<~EOS
-      To launch cliip-show now and restart at login:
-        brew services start cliip-show
+      cliip-show manages its own auto-start. Launch it once:
+        #{opt_bin}/cliip-show
 
-      To stop:
-        brew services stop cliip-show
+      Then open the menu bar icon > Settings... and check
+      "Automatically start at login" to enable auto-start.
     EOS
-  end
-
-  service do
-    run [opt_bin/"cliip-show"]
-    keep_alive successful_exit: false
-    run_at_load true
-    process_type :interactive
-    log_path var/"log/cliip-show.log"
-    error_log_path var/"log/cliip-show.log"
   end
 
   test do
