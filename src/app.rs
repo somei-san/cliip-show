@@ -418,30 +418,35 @@ extern "C" fn poll_pasteboard(this: &AnyObject, _: Sel, _: *mut AnyObject) {
 
 extern "C" fn open_settings(this: &AnyObject, _: Sel, _: *mut AnyObject) {
     unsafe {
-        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
-        let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
-        let Some(state) = guard.as_mut() else {
-            return;
-        };
+        let window = {
+            // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+            let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+            let Some(state) = guard.as_mut() else {
+                return;
+            };
 
-        if state.settings_controls.window.is_null() {
-            state.settings_controls = crate::settings_window::build_settings_window(this);
-        }
-        // 下書きは開くたびに現在の実効設定へ合わせる。ファイル監視の再読み込み等で
-        // state.settings が外部から変わっていても、開き直せば食い違わない。
-        state.settings_controls.draft = state.settings.clone();
-        crate::settings_window::sync_controls_from_settings(
-            &state.settings_controls,
-            &state.settings,
-        );
+            if state.settings_controls.window.is_null() {
+                state.settings_controls = crate::settings_window::build_settings_window(this);
+            }
+            // 下書きは開くたびに現在の実効設定へ合わせる。ファイル監視の再読み込み等で
+            // state.settings が外部から変わっていても、開き直せば食い違わない。
+            state.settings_controls.draft = state.settings.clone();
+            crate::settings_window::sync_controls_from_settings(
+                &state.settings_controls,
+                &state.settings,
+            );
+            state.settings_controls.window
+        };
 
         // accessory アプリはウィンドウを前面に出すだけではキー入力を受け取れない
         let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
         let () = msg_send![app, activateIgnoringOtherApps: true];
-        let () = msg_send![
-            state.settings_controls.window,
-            makeKeyAndOrderFront: ptr::null_mut::<AnyObject>()
-        ];
+        let () = msg_send![window, makeKeyAndOrderFront: ptr::null_mut::<AnyObject>()];
+
+        // AppKit は key view loop の先頭のテキストフィールドを自動で first responder に
+        // するため、開いた直後に特定の入力欄が選択された状態になる。これを外す。
+        // 確定に伴い settingChanged: が飛びうるので、ロックを手放してから呼ぶ。
+        let _: bool = msg_send![window, makeFirstResponder: ptr::null_mut::<AnyObject>()];
     }
 }
 
