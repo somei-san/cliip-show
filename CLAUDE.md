@@ -1,5 +1,8 @@
 # cliip-show 開発ガイド
 
+macOS 専用（objc2 / AppKit 依存で `cargo test` も macOS でのみ通る）。
+開発起動・`.app` 化・メニューアイコン生成・VRT の生成物と判定ルール・Homebrew 公開手順は `docs/development.md` にある。
+
 ## テスト
 
 コードを変更したあとは **UT と VRT と lint** を必ず確認すること。いずれも CI のゲートになっている。
@@ -16,12 +19,16 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 ```
 
+HUD を実機で見るなら `./scripts/local_check.sh`（オプションは `docs/development.md`）。
+
 ### 運用ルール
 - 通常の変更: 上記3つがすべて通ることを確認してからPRを出す
 - 意図したUI変更（HUD外観の変更など）: VRTのベースラインを更新する
   ```bash
   ./scripts/visual_regression.sh --update
   ```
+- VRT が撮るのは HUD の contentView だけ。設定ウィンドウとメニューバーは対象外
+- VRT のケースは `CLIIP_SHOW_*` 環境変数で設定を上書きして作る（`scripts/visual_regression.sh` の `run_case`）
 - `Cargo.toml` の `edition` を変えたら `.claude/settings.json` の rustfmt フック（`--edition` を直書き）も同期する。ズレるとフックの整形結果を CI の `cargo fmt --check` が拒否する
 
 ## モジュール構成
@@ -44,6 +51,6 @@ cargo clippy --all-targets -- -D warnings
 
 ## リリース
 
-`v*` タグの push で `release.yml` が GitHub Release の作成と [somei-san/homebrew-tap](https://github.com/somei-san/homebrew-tap) の Formula 更新まで行う。
+`./scripts/release.sh <version>` でバージョン更新から `v*` タグの push までを行う。タグを起点に `release.yml` が GitHub Release の作成と [somei-san/homebrew-tap](https://github.com/somei-san/homebrew-tap) の Formula 更新まで実行する。
 
 Formula は `packaging/homebrew/cliip-show.rb.template` から自動生成されるが、tap の README は手書きなので追随しない。起動方法・設定コマンド・スクリーンショットを変えたら tap の README も更新すること。
