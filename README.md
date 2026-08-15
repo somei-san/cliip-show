@@ -2,6 +2,8 @@
 
 [日本語](README.ja.md)
 
+![cliip-show HUD demo](docs/assets/cliip-show-hud.gif)
+
 You thought you copied it, but you didn't 😡
 
 You pasted, and it was not what you copied 😡 😡
@@ -25,9 +27,6 @@ The menu bar icon gives you:
 - Settings…: opens the settings window (see [Settings](#settings))
 - Pause: stops the HUD. Anything copied while paused stays unshown after you resume
 - Quit cliip-show
-
-### Demo
-![cliip-show HUD demo](docs/assets/cliip-show-hud.gif)
 
 ## Requirements
 

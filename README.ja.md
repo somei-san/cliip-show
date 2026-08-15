@@ -2,6 +2,8 @@
 
 [English](README.md)
 
+![cliip-show HUDの表示イメージ](docs/assets/cliip-show-hud.gif)
+
 コピーしたと思ったのにできてなかった 😡
 
 ペーストしたら意図したコピー内容と違った 😡 😡
@@ -27,9 +29,6 @@
 - 設定…: 設定ウィンドウを開く（詳細は下記「表示設定」参照）
 - 一時停止: HUDの表示を止める（チェックで状態表示）。一時停止中にコピーした内容は再開後も表示しません
 - cliip-show を終了
-
-### 動作イメージ
-![cliip-show HUDの表示イメージ](docs/assets/cliip-show-hud.gif)
 
 ## 動作環境
 
