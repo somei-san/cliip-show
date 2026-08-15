@@ -106,6 +106,12 @@ cargo run
 - [開発ガイド](docs/development.md)
 - [Homebrew Tap リポジトリ](https://github.com/somei-san/homebrew-tap)
 
+## 支援
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/somei)
+
+同じリンクはメニューバーの「ビールを奢る…」からも開けます。
+
 ## 解説
 
 アプリ名は[Creepy Nutsのアルバム](https://ja.wikipedia.org/wiki/%E3%82%AF%E3%83%AA%E3%83%BC%E3%83%97%E3%83%BB%E3%82%B7%E3%83%A7%E3%83%BC)のもじりです

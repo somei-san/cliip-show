@@ -104,6 +104,12 @@ Config file:
 - [Development guide](docs/development.md)
 - [Homebrew tap repository](https://github.com/somei-san/homebrew-tap)
 
+## Support
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/somei)
+
+The same link is in the menu bar under "Buy me a beer…".
+
 ## About the name
 
 The name plays on [an album by Creepy Nuts](https://en.wikipedia.org/wiki/Creepy_Nuts).
