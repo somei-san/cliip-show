@@ -113,3 +113,36 @@ pub enum ConfigKey {
     HudImageMaxHeight,
     Language,
 }
+
+impl ConfigKey {
+    /// 設定ファイルに並ぶ順。キーを網羅して回りたい箇所はここを使う。
+    pub const ALL: [ConfigKey; 11] = [
+        ConfigKey::PollIntervalSecs,
+        ConfigKey::HudDurationSecs,
+        ConfigKey::HudFadeDurationSecs,
+        ConfigKey::MaxCharsPerLine,
+        ConfigKey::MaxLines,
+        ConfigKey::HudPosition,
+        ConfigKey::HudScale,
+        ConfigKey::HudBackgroundColor,
+        ConfigKey::HudEmoji,
+        ConfigKey::HudImageMaxHeight,
+        ConfigKey::Language,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ConfigKey::PollIntervalSecs => "poll_interval_secs",
+            ConfigKey::HudDurationSecs => "hud_duration_secs",
+            ConfigKey::HudFadeDurationSecs => "hud_fade_duration_secs",
+            ConfigKey::MaxCharsPerLine => "max_chars_per_line",
+            ConfigKey::MaxLines => "max_lines",
+            ConfigKey::HudPosition => "hud_position",
+            ConfigKey::HudScale => "hud_scale",
+            ConfigKey::HudBackgroundColor => "hud_background_color",
+            ConfigKey::HudEmoji => "hud_emoji",
+            ConfigKey::HudImageMaxHeight => "hud_image_max_height",
+            ConfigKey::Language => "language",
+        }
+    }
+}

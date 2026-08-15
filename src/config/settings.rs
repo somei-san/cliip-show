@@ -6,7 +6,7 @@ use super::parse::{
 };
 use super::types::HudBackgroundColor;
 use super::types::{
-    AppConfigFile, DisplayConfigFile, DisplaySettings, HudPosition, LanguageSetting,
+    AppConfigFile, ConfigKey, DisplayConfigFile, DisplaySettings, HudPosition, LanguageSetting,
 };
 use super::{
     DEFAULT_HUD_FADE_DURATION_SECS, DEFAULT_HUD_IMAGE_MAX_HEIGHT, DEFAULT_HUD_SCALE,
@@ -198,6 +198,35 @@ pub fn apply_env_overrides(base: DisplaySettings) -> DisplaySettings {
     settings
 }
 
+/// 設定ファイルに保存済みの値だけを出力する。キーごとの分岐を `ConfigKey` の網羅 match に
+/// 寄せているので、キーを足したときの追随漏れはコンパイルエラーになる。
+pub fn print_saved_settings(config: &AppConfigFile) {
+    for key in ConfigKey::ALL {
+        if let Some(value) = saved_value(config, key) {
+            println!("{} = {}", key.as_str(), value);
+        }
+    }
+}
+
+fn saved_value(config: &AppConfigFile, key: ConfigKey) -> Option<String> {
+    let display = &config.display;
+    match key {
+        ConfigKey::PollIntervalSecs => display.poll_interval_secs.map(|v| v.to_string()),
+        ConfigKey::HudDurationSecs => display.hud_duration_secs.map(|v| v.to_string()),
+        ConfigKey::HudFadeDurationSecs => display.hud_fade_duration_secs.map(|v| v.to_string()),
+        ConfigKey::MaxCharsPerLine => display.max_chars_per_line.map(|v| v.to_string()),
+        ConfigKey::MaxLines => display.max_lines.map(|v| v.to_string()),
+        ConfigKey::HudPosition => display.hud_position.map(|v| v.as_str().to_string()),
+        ConfigKey::HudScale => display.hud_scale.map(|v| v.to_string()),
+        ConfigKey::HudBackgroundColor => {
+            display.hud_background_color.map(|v| v.as_str().to_string())
+        }
+        ConfigKey::HudEmoji => display.hud_emoji.clone(),
+        ConfigKey::HudImageMaxHeight => display.hud_image_max_height.map(|v| v.to_string()),
+        ConfigKey::Language => display.language.map(|v| v.as_str().to_string()),
+    }
+}
+
 pub fn print_effective_settings(settings: DisplaySettings) {
     println!("poll_interval_secs = {}", settings.poll_interval_secs);
     println!("hud_duration_secs = {}", settings.hud_duration_secs);
@@ -241,4 +270,37 @@ fn read_env_option(name: &str) -> Option<String> {
         return None;
     };
     Some(raw.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{default_display_settings, saved_value, settings_to_config_file};
+    use crate::config::ConfigKey;
+
+    /// キーを足したときに `[saved]` の出力から漏れないことを守る。
+    #[test]
+    fn saved_value_covers_every_config_key() {
+        let config = settings_to_config_file(default_display_settings());
+        for key in ConfigKey::ALL {
+            assert!(
+                saved_value(&config, key).is_some(),
+                "{} が [saved] に出ない",
+                key.as_str()
+            );
+        }
+    }
+
+    /// `as_str` が設定ファイルのキー名からずれると、`[saved]` が設定ファイルに無い名前を出す。
+    #[test]
+    fn config_key_names_match_the_config_file() {
+        let config = settings_to_config_file(default_display_settings());
+        let serialized = toml::to_string_pretty(&config).expect("serialize config");
+        for key in ConfigKey::ALL {
+            assert!(
+                serialized.contains(&format!("{} = ", key.as_str())),
+                "{} が設定ファイルのキー名と一致しない",
+                key.as_str()
+            );
+        }
+    }
 }

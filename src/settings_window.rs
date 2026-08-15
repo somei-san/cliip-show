@@ -1619,23 +1619,9 @@ mod tests {
     use super::{config_key_to_tag, tag_to_config_key};
     use crate::config::ConfigKey;
 
-    const ALL_KEYS: [ConfigKey; 11] = [
-        ConfigKey::PollIntervalSecs,
-        ConfigKey::HudDurationSecs,
-        ConfigKey::HudFadeDurationSecs,
-        ConfigKey::MaxCharsPerLine,
-        ConfigKey::MaxLines,
-        ConfigKey::HudPosition,
-        ConfigKey::HudScale,
-        ConfigKey::HudBackgroundColor,
-        ConfigKey::HudEmoji,
-        ConfigKey::HudImageMaxHeight,
-        ConfigKey::Language,
-    ];
-
     #[test]
     fn tag_round_trips_for_all_config_keys() {
-        for key in ALL_KEYS {
+        for key in ConfigKey::ALL {
             let tag = config_key_to_tag(key);
             assert_eq!(tag_to_config_key(tag), Some(key));
         }
