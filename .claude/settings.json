@@ -1,5 +1,19 @@
 {
   "allowedPaths": [
     ".dojo/"
-  ]
+  ],
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath' | { read -r f; case \"$f\" in *.rs) rustfmt --edition 2021 \"$f\";; esac; } || true",
+            "statusMessage": "rustfmt"
+          }
+        ]
+      }
+    ]
+  }
 }
