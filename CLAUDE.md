@@ -41,3 +41,9 @@ cargo clippy --all-targets -- -D warnings
 | `src/png.rs` | PNG生成・差分計算（VRT用） |
 | `src/objc_helpers.rs` | NSString変換ユーティリティ |
 | `src/error.rs` | `AppError` 型定義 |
+
+## リリース
+
+`v*` タグの push で `release.yml` が GitHub Release の作成と [somei-san/homebrew-tap](https://github.com/somei-san/homebrew-tap) の Formula 更新まで行う。
+
+Formula は `packaging/homebrew/cliip-show.rb.template` から自動生成されるが、tap の README は手書きなので追随しない。起動方法・設定コマンド・スクリーンショットを変えたら tap の README も更新すること。
