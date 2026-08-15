@@ -1,73 +1,73 @@
 # 🥜 cliip-show
 
-コピーしたと思ったのにできてなかった 😡
+[日本語](README.ja.md)
 
-ペーストしたら意図したコピー内容と違った 😡 😡
+You thought you copied it, but you didn't 😡
 
-そんなことありませんか？
+You pasted, and it was not what you copied 😡 😡
 
-ありますよねぇ〜 🤓
+Sound familiar?
 
-てなわけで、
+Of course it does 🤓
 
-コピーされたプレーンテキストを画面中央に表示する、macOS向けの常駐アプリ`cliip-show`です 🥜
+So here it is: `cliip-show`, a macOS menu bar app that shows what you just copied 🥜
 
-## 概要
+## What it does
 
-- クリップボードの更新を監視し、コピー直後にHUD表示します
-- テキストはそのまま、画像はサムネイルで表示します
-- HUDは数秒で自動的にフェードアウトして消えます
-- アプリはバックグラウンドで常駐して動作します
+- Watches the clipboard and shows a HUD right after you copy
+- Text is shown as-is, images as a thumbnail
+- The HUD fades out on its own after a few seconds
+- Runs in the background as a menu bar app
 
-テキストと画像の両方を含むコピー（ブラウザや表計算アプリからのコピー）ではテキストを表示します。
+When a copy carries both text and an image (browsers and spreadsheets usually do), the text is shown.
 
-メニューバーのアイコンから以下の操作ができます。
-- 設定…: 設定ウィンドウを開く（詳細は下記「表示設定」参照）
-- 一時停止: HUDの表示を止める（チェックで状態表示）。一時停止中にコピーした内容は再開後も表示しません
-- cliip-show を終了
+The menu bar icon gives you:
+- Settings…: opens the settings window (see [Settings](#settings))
+- Pause: stops the HUD. Anything copied while paused stays unshown after you resume
+- Quit cliip-show
 
-### 動作イメージ
-![cliip-show HUDの表示イメージ](docs/assets/cliip-show-hud.gif)
+### Demo
+![cliip-show HUD demo](docs/assets/cliip-show-hud.gif)
 
-## 動作環境
+## Requirements
 
-- macOS（AppKitを使用）
-- Homebrew（通常利用時のインストール手段）
+- macOS (built on AppKit)
+- Homebrew (how you normally install it)
 
-## インストール手順 （Homebrew経由）
+## Install (Homebrew)
 
 ```bash
 brew install somei-san/tap/cliip-show
 cliip-show
 ```
 
-`cliip-show` はターミナルを占有したまま起動します。これは初回だけの一時的な起動で、ターミナルを閉じるとアプリも終了します。起動すると自動起動の確認ダイアログが出るので、有効にすると次回ログインから自動で起動するようになります。
+`cliip-show` holds the terminal while it runs. That is a one-off launch, and the app quits when you close the terminal. On startup it asks whether to start at login; enable it and the app comes up on its own from the next login.
 
-ログイン時の自動起動は設定ウィンドウの「ログイン時に自動起動」からいつでも切り替えられます（下記「表示設定」参照）。
+You can switch that on and off any time from "Start at login" in the settings window (see [Settings](#settings)).
 
-## 表示設定
+## Settings
 
-メニューバーの「設定…」から設定ウィンドウを開いて変更できます。CLIの`--config set`と同じ設定ファイルを読み書きします。
+Open the settings window from "Settings…" in the menu bar. It reads and writes the same file as `--config set`.
 
-設定ウィンドウでの変更はその場では保存されず、下部のボタンで確定します。
-- 保存: 変更をファイルに書き込み、HUDにも反映します（Enterキーでも実行できます）
-- お試し表示: ファイルには保存せず、変更後の見た目をHUDで確認します。クリップボードの内容は使わず、押すたびに短文・長文・画像の固定サンプルを順に切り替えて表示します
-- デフォルトに戻す: すべての項目を既定値に戻します。ファイルには保存しません
+Changes are not saved as you make them. The buttons at the bottom decide what happens:
+- Save: writes the changes to the file and applies them to the HUD (Enter does the same)
+- Preview: applies the changes to the HUD without saving. It ignores the clipboard and cycles through fixed samples — short text, long text, image — one per press
+- Restore Defaults: puts every item back to its default. Nothing is saved
 
-保存せずにウィンドウを閉じると、ファイルに保存済みの内容に戻ります。
+Closing the window without saving goes back to what is in the file.
 
-「ログイン時に自動起動」だけは上記の下書き・保存モデルに乗らず、チェックした瞬間にOSのログイン項目へ反映します（設定ファイルには保存しません）。
+"Language" and "Start at login" work differently: both take effect the moment you change them, and neither is touched by "Restore Defaults". "Start at login" is an OS-level setting and is not written to the config file.
 
-CLIとしての通常運用では、設定ファイルに保存して管理します。
+### From the command line
 
-初期化と確認:
+Initialize and inspect:
 
 ```bash
 cliip-show --config init
 cliip-show --config show
 ```
 
-設定値を保存:
+Set a value:
 
 ```bash
 cliip-show --config set hud_duration_secs 2.5
@@ -80,22 +80,22 @@ cliip-show --config set hud_emoji 🍣
 cliip-show --config set hud_image_max_height 120
 ```
 
-設定キー:
-- `poll_interval_secs`（既定値: `0.3`、`0.05` - `5.0`）
-- `hud_duration_secs`（既定値: `1.0`、`0.1` - `10.0`）
-- `hud_fade_duration_secs`（既定値: `0.3`、`0.0` - `2.0`、`0.0` でフェードなし）
-- `max_chars_per_line`（既定値: `100`、`1` - `500`）
-- `max_lines`（既定値: `5`、`1` - `20`）
-- `hud_position`（既定値: `top`、`top` / `center` / `bottom`）
-- `hud_scale`（既定値: `1.1`、`0.5` - `2.0`）
-- `hud_background_color`（既定値: `default`、`default` / `yellow` / `blue` / `green` / `red` / `purple`）
-- `hud_emoji`（既定値: `📋`、任意の絵文字。空でアイコンなし）
-- `hud_image_max_height`（既定値: `160`、`40` - `240`）画像サムネイルの高さ上限（px）。実際の上限は `hud_scale` 倍され、元画像より大きくは表示しません
-- `language`（既定値: `auto`、`auto` / `ja` / `en`）メニューバーと設定ウィンドウの表示言語。`auto` は macOS の優先言語に従います
+Keys:
+- `poll_interval_secs` (default `0.3`, `0.05` - `5.0`)
+- `hud_duration_secs` (default `1.0`, `0.1` - `10.0`)
+- `hud_fade_duration_secs` (default `0.3`, `0.0` - `2.0`; `0.0` disables the fade)
+- `max_chars_per_line` (default `100`, `1` - `500`)
+- `max_lines` (default `5`, `1` - `20`)
+- `hud_position` (default `top`; `top` / `center` / `bottom`)
+- `hud_scale` (default `1.1`, `0.5` - `2.0`)
+- `hud_background_color` (default `default`; `default` / `yellow` / `blue` / `green` / `red` / `purple`)
+- `hud_emoji` (default `📋`; any single emoji, empty for no icon)
+- `hud_image_max_height` (default `160`, `40` - `240`) Max height of an image thumbnail in px. The effective cap is multiplied by `hud_scale`, and images are never scaled above their original size
+- `language` (default `auto`; `auto` / `ja` / `en`) Language of the menu bar and the settings window. `auto` follows the macOS preferred language
 
-> **設定の即時反映:** 変更は再起動なしで自動的に反映されます。
+> **Applied immediately:** changes take effect without a restart.
 
-環境変数でも上書き可能です（設定ファイルより優先）。
+Environment variables override the config file.
 
 ```bash
 CLIIP_SHOW_HUD_DURATION_SECS=2.5 \
@@ -110,15 +110,15 @@ CLIIP_SHOW_LANGUAGE=en \
 cargo run
 ```
 
-設定ファイル:
-- 既定パス: `~/Library/Application Support/cliip-show/config.toml`
-- パス変更: `CLIIP_SHOW_CONFIG_PATH=/path/to/config.toml`
+Config file:
+- Default path: `~/Library/Application Support/cliip-show/config.toml`
+- Override: `CLIIP_SHOW_CONFIG_PATH=/path/to/config.toml`
 
-### リンク
+### Links
 
-- [開発ガイド](docs/DEVELOPMENT.md)
-- [Homebrew Tap リポジトリ](https://github.com/somei-san/homebrew-tap)
+- [Development guide](docs/development.md)
+- [Homebrew tap repository](https://github.com/somei-san/homebrew-tap)
 
-## 解説
+## About the name
 
-アプリ名は[Creepy Nutsのアルバム](https://ja.wikipedia.org/wiki/%E3%82%AF%E3%83%AA%E3%83%BC%E3%83%97%E3%83%BB%E3%82%B7%E3%83%A7%E3%83%BC)のもじりです
+The name plays on [an album by Creepy Nuts](https://en.wikipedia.org/wiki/Creepy_Nuts).
