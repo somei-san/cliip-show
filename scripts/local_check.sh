@@ -202,21 +202,23 @@ if [[ ! -x "$BIN" ]]; then
 fi
 
 echo "[local_check] config path: $CONFIG_PATH"
-rm -f "$CONFIG_PATH"
-CLIIP_SHOW_CONFIG_PATH="$CONFIG_PATH" "$BIN" --config init >/dev/null
+# 上書きは環境変数ではなく設定ファイルに書く。環境変数は設定ファイルより優先されるため、
+# 設定ウィンドウで保存してもウィンドウを閉じた時点で環境変数の値に戻り、ウィンドウの
+# 動作確認ができなくなる。書かなかった項目はアプリの既定値になる。
+printf '[display]\n' > "$CONFIG_PATH"
 if $POSITION_EXPLICIT; then
-  CLIIP_SHOW_CONFIG_PATH="$CONFIG_PATH" "$BIN" --config set hud_position "$POSITION" >/dev/null
+  printf 'hud_position = "%s"\n' "$POSITION" >> "$CONFIG_PATH"
 fi
 if $SCALE_EXPLICIT; then
-  CLIIP_SHOW_CONFIG_PATH="$CONFIG_PATH" "$BIN" --config set hud_scale "$SCALE" >/dev/null
+  printf 'hud_scale = %s\n' "$SCALE" >> "$CONFIG_PATH"
 fi
 if $COLOR_EXPLICIT; then
-  CLIIP_SHOW_CONFIG_PATH="$CONFIG_PATH" "$BIN" --config set hud_background_color "$COLOR" >/dev/null
+  printf 'hud_background_color = "%s"\n' "$COLOR" >> "$CONFIG_PATH"
 fi
 if ! $POSITION_EXPLICIT && ! $SCALE_EXPLICIT && ! $COLOR_EXPLICIT; then
   echo "[local_check] using app default display settings (no overrides)"
 fi
-CLIIP_SHOW_CONFIG_PATH="$CONFIG_PATH" "$BIN" --config show
+CLIIP_SHOW_CONFIG_PATH="$CONFIG_PATH" "$BIN" --config-show
 
 APP_PID=""
 # trap は TERM で発火したあと EXIT でも発火するため、復帰処理が二度走らないよう塞ぐ。

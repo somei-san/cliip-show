@@ -46,7 +46,7 @@ You can switch that on and off any time from "Start at login" in the settings wi
 
 ## Settings
 
-Open the settings window from "Settings…" in the menu bar. It reads and writes the same file as `--config set`.
+Open the settings window from "Settings…" in the menu bar. It is the only way to change settings.
 
 Changes are not saved as you make them. The buttons at the bottom decide what happens:
 - Save: writes the changes to the file and applies them to the HUD (Enter does the same)
@@ -57,26 +57,12 @@ Closing the window without saving goes back to what is in the file.
 
 "Language" and "Start at login" work differently: both take effect the moment you change them, and neither is touched by "Restore Defaults". "Start at login" is an OS-level setting and is not written to the config file.
 
-### From the command line
+### Config file and environment variables
 
-Initialize and inspect:
-
-```bash
-cliip-show --config init
-cliip-show --config show
-```
-
-Set a value:
+Print what is currently in effect:
 
 ```bash
-cliip-show --config set hud_duration_secs 2.5
-cliip-show --config set hud_fade_duration_secs 0.5
-cliip-show --config set max_lines 3
-cliip-show --config set hud_position top
-cliip-show --config set hud_scale 1.2
-cliip-show --config set hud_background_color blue
-cliip-show --config set hud_emoji 🍣
-cliip-show --config set hud_image_max_height 120
+cliip-show --config-show
 ```
 
 Keys:

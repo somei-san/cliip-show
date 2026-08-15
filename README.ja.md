@@ -48,7 +48,7 @@ cliip-show
 
 ## 表示設定
 
-メニューバーの「設定…」から設定ウィンドウを開いて変更できます。`--config set`と同じ設定ファイルを読み書きします。
+メニューバーの「設定…」から設定ウィンドウを開いて変更します。設定を変更する手段はこれだけです。
 
 設定ウィンドウでの変更はその場では保存されず、下部のボタンで確定します。
 - 保存: 変更をファイルに書き込み、HUDにも反映します（Enterキーでも実行できます）
@@ -59,26 +59,12 @@ cliip-show
 
 「言語」と「ログイン時に自動起動」だけは上記の下書き・保存モデルに乗らず、変更した瞬間に反映します。「デフォルトに戻す」の対象外なのもこの2つだけです。「ログイン時に自動起動」はOSのログイン項目の設定なので、設定ファイルには保存しません。
 
-### コマンドラインから
+### 設定ファイルと環境変数
 
-初期化と確認:
-
-```bash
-cliip-show --config init
-cliip-show --config show
-```
-
-設定値を保存:
+現在の設定値を表示する:
 
 ```bash
-cliip-show --config set hud_duration_secs 2.5
-cliip-show --config set hud_fade_duration_secs 0.5
-cliip-show --config set max_lines 3
-cliip-show --config set hud_position top
-cliip-show --config set hud_scale 1.2
-cliip-show --config set hud_background_color blue
-cliip-show --config set hud_emoji 🍣
-cliip-show --config set hud_image_max_height 120
+cliip-show --config-show
 ```
 
 設定キー:

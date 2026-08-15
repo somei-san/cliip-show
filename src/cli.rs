@@ -1,6 +1,6 @@
 use std::fmt::Write as _;
 
-use crate::config::handle_config_command;
+use crate::config::show_config;
 use crate::png::{generate_diff_png, render_hud_image_png, render_hud_png};
 
 /// `--image-fixture` の `<W>x<H>` をパースする。
@@ -48,49 +48,16 @@ pub fn handle_cli_flags() -> bool {
             );
             let _ = writeln!(
                 help,
-                "  --config <path|show|init|set ...>    Manage persistent settings file"
+                "  --config-show    Print the current settings and exit"
             );
             let _ = writeln!(help);
-            let _ = writeln!(help, "Config commands (persistent settings):");
-            let _ = writeln!(help, "  cliip-show --config init");
-            let _ = writeln!(help, "  cliip-show --config init --force");
-            let _ = writeln!(help, "  cliip-show --config show");
-            let _ = writeln!(help, "  cliip-show --config set hud_duration_secs 2.5");
-            let _ = writeln!(help, "  cliip-show --config set max_lines 3");
-            let _ = writeln!(help, "  cliip-show --config set hud_position top");
-            let _ = writeln!(help, "  cliip-show --config set hud_scale 1.2");
-            let _ = writeln!(help, "  cliip-show --config set hud_background_color blue");
-            let _ = writeln!(help, "  cliip-show --config set hud_emoji 🍣");
-            let _ = writeln!(help, "  cliip-show --config set hud_image_max_height 120");
-            let _ = writeln!(help);
-            let _ = writeln!(help, "Config keys:");
-            let _ = writeln!(help, "  poll_interval_secs      default=0.3 (0.05 - 5.0)");
-            let _ = writeln!(help, "  hud_duration_secs       default=1.0 (0.1 - 10.0)");
-            let _ = writeln!(help, "  hud_fade_duration_secs  default=0.3 (0.0 - 2.0)");
-            let _ = writeln!(help, "  max_chars_per_line      default=100 (1 - 500)");
-            let _ = writeln!(help, "  max_lines               default=5 (1 - 20)");
             let _ = writeln!(
                 help,
-                "  hud_position            default=top (top|center|bottom)"
-            );
-            let _ = writeln!(help, "  hud_scale               default=1.1 (0.5 - 2.0)");
-            let _ = writeln!(
-                help,
-                "  hud_background_color    default=default (default|yellow|blue|green|red|purple)"
+                "Settings are edited in the settings window (\"Settings…\" in the menu bar)."
             );
             let _ = writeln!(
                 help,
-                "  hud_emoji               default=📋 (any single emoji; empty for no icon)"
-            );
-            let _ = writeln!(
-                help,
-                "  hud_image_max_height    default=160 (40 - 240)  note: scaled by hud_scale"
-            );
-            let _ = writeln!(help, "  language                default=auto (auto|ja|en)");
-            let _ = writeln!(help);
-            let _ = writeln!(
-                help,
-                "Note: config changes are hot-reloaded automatically (no restart needed)."
+                "Changes are hot-reloaded automatically (no restart needed)."
             );
             let _ = writeln!(help);
             let _ = writeln!(help, "Persistent config file:");
@@ -108,6 +75,10 @@ pub fn handle_cli_flags() -> bool {
             let _ = writeln!(
                 help,
                 "  CLIIP_SHOW_HUD_DURATION_SECS    HUD visible seconds (0.1 - 10.0)"
+            );
+            let _ = writeln!(
+                help,
+                "  CLIIP_SHOW_HUD_FADE_DURATION_SECS  HUD fade seconds (0.0 - 2.0; 0.0 disables)"
             );
             let _ = writeln!(
                 help,
@@ -144,7 +115,7 @@ pub fn handle_cli_flags() -> bool {
             print!("{help}");
             true
         }
-        "--config" => handle_config_command(&mut args),
+        "--config-show" => show_config(&mut args),
         "--render-hud-png" => {
             let mut text: Option<String> = None;
             let mut image_fixture: Option<(usize, usize)> = None;

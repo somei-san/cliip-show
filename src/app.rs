@@ -352,8 +352,8 @@ pub(crate) unsafe fn apply_settings_now(state: &mut AppState, new_settings: Disp
     state.settings = new_settings;
 
     // language が変わったら設定ウィンドウとメニューの文言を即時更新。
-    // ファイル監視の再読み込み・`--config set language`・設定ウィンドウの言語ポップアップの
-    // いずれの経路もここを通るため、更新箇所は一箇所で済む。
+    // ファイル監視の再読み込みと設定ウィンドウの言語ポップアップのどちらの経路もここを
+    // 通るため、更新箇所は一箇所で済む。
     //
     // ここで触るのは非編集ラベルと NSButton/NSMenuItem/NSMenu/NSWindow のタイトルだけで
     // action もテキスト編集のデリゲート通知も発火しないため、APP_STATE のロックを
