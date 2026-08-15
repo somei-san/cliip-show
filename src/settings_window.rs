@@ -1243,7 +1243,7 @@ unsafe fn raw_value_for_control(
 /// 設定ウィンドウのコントロール変更を下書き（`SettingsControls::draft`）に反映するだけで、
 /// ファイル保存も HUD への適用もしない。確定させるには「保存」（`saveSettings:`）を押す。
 ///
-/// クランプ・バリデーションは既存の `set_config_value`（CLI の `--config set` と共通）に委ねる。
+/// クランプ・バリデーションは `set_config_value` に委ねる。
 ///
 /// # Safety
 /// - `APP_STATE` をロックしないこと（呼び出し側が既にロックを保持している）。
@@ -1302,8 +1302,8 @@ pub unsafe fn apply_setting_change(state: &mut AppState, sender: *mut AnyObject)
 }
 
 /// 言語ポップアップの `settingChanged:` から呼ぶ。他の設定と違い下書きを経由せず、選択した
-/// 瞬間に `--config set` と同じ経路（読み込み→検証→保存）でファイルへ書き、`apply_settings_now`
-/// で HUD・設定ウィンドウ・メニューへ即時反映する。
+/// 瞬間に読み込み→検証→保存でファイルへ書き、`apply_settings_now` で HUD・設定ウィンドウ・
+/// メニューへ即時反映する。
 ///
 /// `apply_settings_now` の言語差分側で `draft.language` も一緒に同期する。ここで揃えておかないと
 /// 「保存」ボタンが `draft`（開いた時点のスナップショット）を丸ごと書き戻す際に、今しがた

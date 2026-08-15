@@ -117,23 +117,6 @@ pub fn parse_usize_setting(raw: &str, default: usize, min: usize, max: usize) ->
     value.clamp(min, max)
 }
 
-pub fn parse_config_key(raw: &str) -> Option<ConfigKey> {
-    match raw {
-        "poll_interval_secs" | "poll-interval-secs" => Some(ConfigKey::PollIntervalSecs),
-        "hud_duration_secs" | "hud-duration-secs" => Some(ConfigKey::HudDurationSecs),
-        "hud_fade_duration_secs" | "hud-fade-duration-secs" => Some(ConfigKey::HudFadeDurationSecs),
-        "max_chars_per_line" | "max-chars-per-line" => Some(ConfigKey::MaxCharsPerLine),
-        "max_lines" | "max-lines" => Some(ConfigKey::MaxLines),
-        "hud_position" | "hud-position" => Some(ConfigKey::HudPosition),
-        "hud_scale" | "hud-scale" => Some(ConfigKey::HudScale),
-        "hud_background_color" | "hud-background-color" => Some(ConfigKey::HudBackgroundColor),
-        "hud_emoji" | "hud-emoji" => Some(ConfigKey::HudEmoji),
-        "hud_image_max_height" | "hud-image-max-height" => Some(ConfigKey::HudImageMaxHeight),
-        "language" => Some(ConfigKey::Language),
-        _ => None,
-    }
-}
-
 /// `set_config_value` 内で f64 フィールドをパース・バリデーション・クランプする共通処理。
 /// 成功時は `(clamped_value, clamp_warning_message)` を返す。
 fn parse_and_clamp_f64(
@@ -368,36 +351,6 @@ mod tests {
         assert_eq!(parse_usize_setting("100", 10, 1, 20), 20);
         assert_eq!(parse_usize_setting("5", 10, 1, 20), 5);
         assert_eq!(parse_usize_setting("abc", 10, 1, 20), 10);
-    }
-
-    #[test]
-    fn parse_config_key_accepts_aliases() {
-        assert_eq!(
-            parse_config_key("poll_interval_secs"),
-            Some(ConfigKey::PollIntervalSecs)
-        );
-        assert_eq!(
-            parse_config_key("poll-interval-secs"),
-            Some(ConfigKey::PollIntervalSecs)
-        );
-        assert_eq!(
-            parse_config_key("hud_position"),
-            Some(ConfigKey::HudPosition)
-        );
-        assert_eq!(parse_config_key("hud-scale"), Some(ConfigKey::HudScale));
-        assert_eq!(parse_config_key("hud_emoji"), Some(ConfigKey::HudEmoji));
-        assert_eq!(parse_config_key("hud-emoji"), Some(ConfigKey::HudEmoji));
-        assert_eq!(
-            parse_config_key("hud_image_max_height"),
-            Some(ConfigKey::HudImageMaxHeight)
-        );
-        assert_eq!(
-            parse_config_key("hud-image-max-height"),
-            Some(ConfigKey::HudImageMaxHeight)
-        );
-        assert_eq!(parse_config_key("hub_background_color"), None);
-        assert_eq!(parse_config_key("hub-background-color"), None);
-        assert_eq!(parse_config_key("unknown"), None);
     }
 
     #[test]

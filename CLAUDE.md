@@ -43,8 +43,8 @@ UI 文言を README に書くときは `src/i18n.rs` の文言テーブルと一
 |---|---|
 | `src/main.rs` | エントリポイント（`fn main` のみ） |
 | `src/lib.rs` | モジュール宣言 |
-| `src/cli.rs` | CLIフラグの処理（`--help`, `--config`, `--render-hud-png` など） |
-| `src/config/` | 設定（`types.rs` 型 / `parse.rs` パース / `io.rs` 読み書き / `settings.rs` 項目定義 / `cli.rs` `--config` サブコマンド） |
+| `src/cli.rs` | CLIフラグの処理（`--help`, `--config-show`, `--render-hud-png` など） |
+| `src/config/` | 設定（`types.rs` 型 / `parse.rs` パース / `io.rs` 読み書き / `settings.rs` 項目定義 / `cli.rs` `--config-show` の出力） |
 | `src/hud.rs` | HUDウィンドウ生成・レイアウト計算・描画 |
 | `src/app.rs` | AppDelegate・クリップボード監視・フェードアニメーション |
 | `src/menu.rs` | メニューバー常駐アイコンとメインメニューの構築 |
