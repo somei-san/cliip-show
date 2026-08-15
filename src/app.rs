@@ -17,6 +17,8 @@ use crate::hud::{
     create_hud_window, fit_thumbnail_size, hud_background_rgba, hud_border_white_alpha, layout_hud,
     layout_hud_image,
 };
+use crate::i18n::{self, Lang, Msg};
+use crate::menu::MenuHandles;
 use crate::objc_helpers::nsstring_from_str;
 use crate::settings_window::SettingsControls;
 use crate::text::truncate_text;
@@ -39,8 +41,7 @@ pub struct AppState {
     pub config_mtime: Option<SystemTime>,
     pub config_check_counter: u32,
     pub paused: bool,
-    pub status_item: *mut AnyObject,
-    pub pause_menu_item: *mut AnyObject,
+    pub menu_handles: MenuHandles,
     pub settings_controls: SettingsControls,
     pub poll_timer: *mut AnyObject,
     /// タイマーの張り替えに使う AppDelegate。アプリの生存期間中有効。
@@ -111,21 +112,28 @@ pub fn get_delegate_class() -> &'static AnyClass {
 
 extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut AnyObject) {
     unsafe {
+        let settings = display_settings();
+        // メインメニュー・メニューバーの初期表示言語は、起動時点の設定ファイルの言語設定から決める
+        let lang = i18n::resolve(settings.language);
+
         // メインメニューを持たないと、設定ウィンドウ等のテキストフィールドで Cmd+V 等の
         // 標準ショートカットが responder chain に届かない
-        crate::menu::install_main_menu();
+        let edit_handles = crate::menu::install_main_menu(lang);
 
-        let settings = display_settings();
         let pasteboard: *mut AnyObject = msg_send![class!(NSPasteboard), generalPasteboard];
         let last_change_count: isize = msg_send![pasteboard, changeCount];
 
         let (window, icon_label, label, image_view) = create_hud_window(settings.clone());
         if window.is_null() {
-            eprintln!("fatal: HUD ウィンドウの作成に失敗しました");
+            eprintln!("fatal: failed to create HUD window");
             std::process::exit(1);
         }
 
-        let (status_item, pause_menu_item) = crate::menu::create_status_item(this);
+        let status_handles = crate::menu::create_status_item(this, lang);
+        let menu_handles = MenuHandles {
+            status: status_handles,
+            edit: edit_handles,
+        };
 
         // パスが解決できない場合もパスだけは保持し、後でファイルが作成されても検知できるようにする
         let config_path = crate::config::config_file_path().ok();
@@ -140,7 +148,7 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
         // 二重起動する。他者が置いたものを勝手に消さず、停止を促すだけに留める。
         if crate::login_item::homebrew_agent_path().is_some_and(|p| p.exists()) {
             eprintln!(
-                "warning: Homebrew の自動起動設定が残っています。二重起動を避けるため `brew services stop cliip-show` を実行してください"
+                "warning: Homebrew login item settings remain. Run `brew services stop cliip-show` to avoid running twice."
             );
         }
 
@@ -161,8 +169,7 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
             config_mtime,
             config_check_counter: 0,
             paused: false,
-            status_item,
-            pause_menu_item,
+            menu_handles,
             settings_controls: SettingsControls::default(),
             poll_timer,
             delegate: this as *const AnyObject as *mut AnyObject,
@@ -170,7 +177,7 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
 
         // runModal は実行ループを止めるため、他の経路がロック待ちで固まらないよう
         // APP_STATE のロックを手放した後（上の代入文で既に解放済み）に呼ぶ。
-        prompt_login_item_if_needed();
+        prompt_login_item_if_needed(lang);
     }
 }
 
@@ -178,7 +185,7 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
 ///
 /// 常駐が前提のアプリで自動起動が切れている状態は設定が未完了なので、断られても促し続ける。
 /// 抑止チェックボックスを入れて閉じたときだけ `mark_prompted` を記録し、以後は出さない。
-unsafe fn prompt_login_item_if_needed() {
+unsafe fn prompt_login_item_if_needed(lang: Lang) {
     if crate::login_item::is_enabled() || crate::login_item::has_prompted() {
         return;
     }
@@ -190,28 +197,27 @@ unsafe fn prompt_login_item_if_needed() {
     let alert: *mut AnyObject = msg_send![class!(NSAlert), alloc];
     let alert: *mut AnyObject = msg_send![alert, init];
 
-    let message = nsstring_from_str("ログイン時に cliip-show を自動起動しますか？");
+    let message = nsstring_from_str(i18n::text(lang, Msg::LoginPromptMessage));
     let () = msg_send![alert, setMessageText: message];
     let () = msg_send![message, release];
 
-    let informative =
-        nsstring_from_str("設定ウィンドウの「ログイン時に自動起動」からいつでも変更できます。");
+    let informative = nsstring_from_str(i18n::text(lang, Msg::LoginPromptDetail));
     let () = msg_send![alert, setInformativeText: informative];
     let () = msg_send![informative, release];
 
     // 最初に追加したボタンが既定（Enterで発火）になる
-    let enable_title = nsstring_from_str("有効にする");
+    let enable_title = nsstring_from_str(i18n::text(lang, Msg::LoginPromptEnable));
     let _: *mut AnyObject = msg_send![alert, addButtonWithTitle: enable_title];
     let () = msg_send![enable_title, release];
 
-    let later_title = nsstring_from_str("あとで");
+    let later_title = nsstring_from_str(i18n::text(lang, Msg::LoginPromptLater));
     let _: *mut AnyObject = msg_send![alert, addButtonWithTitle: later_title];
     let () = msg_send![later_title, release];
 
     let () = msg_send![alert, setShowsSuppressionButton: true];
     let suppression_button: *mut AnyObject = msg_send![alert, suppressionButton];
     if !suppression_button.is_null() {
-        let title = nsstring_from_str("今後表示しない");
+        let title = nsstring_from_str(i18n::text(lang, Msg::LoginPromptSuppress));
         let () = msg_send![suppression_button, setTitle: title];
         let () = msg_send![title, release];
     }
@@ -263,7 +269,7 @@ const CONFIG_CHECK_EVERY_N_POLLS: u32 = 10;
 /// 設定ファイルを読み込み、既定値・環境変数オーバーライドを適用した `DisplaySettings` を返す。
 /// ファイル監視の再読み込み（`reload_config_if_changed`）とウィンドウを閉じたときの
 /// 再読み込み（`window_will_close`）の両方から使う。
-fn display_settings_from_file(path: &Path) -> Result<DisplaySettings, AppError> {
+pub(crate) fn display_settings_from_file(path: &Path) -> Result<DisplaySettings, AppError> {
     let (config, _) = load_config_file(path)?;
     let base = default_display_settings();
     Ok(apply_env_overrides(apply_config_file(base, &config)))
@@ -312,11 +318,11 @@ pub(crate) unsafe fn apply_settings_now(state: &mut AppState, new_settings: Disp
     if new_settings.hud_background_color != state.settings.hud_background_color {
         let content_view: *mut AnyObject = msg_send![state.window, contentView];
         if content_view.is_null() {
-            eprintln!("warning: contentView が null です。背景色の更新をスキップします");
+            eprintln!("warning: contentView is null; skipping background color update");
         } else {
             let layer: *mut AnyObject = msg_send![content_view, layer];
             if layer.is_null() {
-                eprintln!("warning: layer が null です。背景色の更新をスキップします");
+                eprintln!("warning: layer is null; skipping background color update");
             } else {
                 let (r, g, b, a) = hud_background_rgba(new_settings.hud_background_color);
                 let bg: *mut AnyObject =
@@ -342,7 +348,27 @@ pub(crate) unsafe fn apply_settings_now(state: &mut AppState, new_settings: Disp
         state.poll_timer = schedule_poll_timer(state.delegate, new_settings.poll_interval_secs);
     }
 
+    let language_changed = new_settings.language != state.settings.language;
     state.settings = new_settings;
+
+    // language が変わったら設定ウィンドウとメニューの文言を即時更新。
+    // ファイル監視の再読み込み・`--config set language`・設定ウィンドウの言語ポップアップの
+    // いずれの経路もここを通るため、更新箇所は一箇所で済む。
+    //
+    // ここで触るのは非編集ラベルと NSButton/NSMenuItem/NSMenu/NSWindow のタイトルだけで
+    // action もテキスト編集のデリゲート通知も発火しないため、APP_STATE のロックを
+    // 保持したまま呼んでも再入は起きない。
+    if language_changed {
+        let lang = i18n::resolve(state.settings.language);
+        crate::settings_window::apply_language(&state.settings_controls, lang);
+        crate::menu::apply_language(&state.menu_handles, lang);
+        // 絵文字の検証メッセージは内容が動的で `localized` に載せられないため、個別に描き直す。
+        if !state.settings_controls.hud_emoji_field.is_null() {
+            crate::settings_window::update_emoji_validation_message(state);
+        }
+        // draft は「保存」で丸ごと書き戻されるため、古い言語で上書きしないようここでも揃える。
+        state.settings_controls.draft.language = state.settings.language;
+    }
 }
 
 pub(crate) unsafe fn show_text_content(state: &mut AppState, text: &str) {
@@ -509,7 +535,8 @@ extern "C" fn open_settings(this: &AnyObject, _: Sel, _: *mut AnyObject) {
             };
 
             if state.settings_controls.window.is_null() {
-                state.settings_controls = crate::settings_window::build_settings_window(this);
+                let lang = i18n::resolve(state.settings.language);
+                state.settings_controls = crate::settings_window::build_settings_window(this, lang);
             }
             // 下書きは開くたびに現在の実効設定へ合わせる。ファイル監視の再読み込み等で
             // state.settings が外部から変わっていても、開き直せば食い違わない。
@@ -519,7 +546,7 @@ extern "C" fn open_settings(this: &AnyObject, _: Sel, _: *mut AnyObject) {
                 &state.settings,
             );
             // ログイン項目は設定ファイルではなく OS 側の状態なので、下書きとは別に毎回同期する。
-            crate::settings_window::sync_login_item_checkbox(&state.settings_controls);
+            crate::settings_window::sync_login_item_toggle(&state.settings_controls);
             state.settings_controls.window
         };
 
@@ -547,7 +574,7 @@ extern "C" fn setting_changed(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
     }
 }
 
-/// ログイン項目チェックボックスの `toggleLoginItem:`。他の設定と違い下書きを経由せず、
+/// ログイン項目トグルの `toggleLoginItem:`。他の設定と違い下書きを経由せず、
 /// チェックした瞬間に `login_item::enable`/`disable` を実行して OS の状態を変える。
 extern "C" fn toggle_login_item(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
     unsafe {
@@ -567,7 +594,7 @@ extern "C" fn toggle_login_item(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
         if let Err(error) = result {
             eprintln!("warning: {error}");
             // 失敗したのにチェックだけ付いた状態を避け、実際の状態に表示を戻す。
-            crate::settings_window::sync_login_item_checkbox(&state.settings_controls);
+            crate::settings_window::sync_login_item_toggle(&state.settings_controls);
         }
     }
 }
@@ -710,7 +737,11 @@ extern "C" fn toggle_pause(_: &AnyObject, _: Sel, _: *mut AnyObject) {
         };
 
         state.paused = !state.paused;
-        crate::menu::apply_paused_state(state.status_item, state.pause_menu_item, state.paused);
+        crate::menu::apply_paused_state(
+            state.menu_handles.status.status_item,
+            state.menu_handles.status.pause_item,
+            state.paused,
+        );
     }
 }
 

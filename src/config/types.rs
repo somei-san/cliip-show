@@ -21,6 +21,25 @@ impl HudPosition {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
+pub enum LanguageSetting {
+    #[default]
+    Auto,
+    Ja,
+    En,
+}
+
+impl LanguageSetting {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Ja => "ja",
+            Self::En => "en",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum HudBackgroundColor {
     #[default]
     Default,
@@ -56,6 +75,7 @@ pub struct DisplaySettings {
     pub hud_background_color: HudBackgroundColor,
     pub hud_emoji: String,
     pub hud_image_max_height: usize,
+    pub language: LanguageSetting,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -76,6 +96,7 @@ pub struct DisplayConfigFile {
     pub hud_background_color: Option<HudBackgroundColor>,
     pub hud_emoji: Option<String>,
     pub hud_image_max_height: Option<usize>,
+    pub language: Option<LanguageSetting>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,4 +111,5 @@ pub enum ConfigKey {
     HudBackgroundColor,
     HudEmoji,
     HudImageMaxHeight,
+    Language,
 }

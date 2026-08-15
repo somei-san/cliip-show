@@ -1,8 +1,9 @@
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::error::AppError;
+use crate::i18n::{self, Lang, Msg};
 
-use super::types::{AppConfigFile, ConfigKey, HudBackgroundColor, HudPosition};
+use super::types::{AppConfigFile, ConfigKey, HudBackgroundColor, HudPosition, LanguageSetting};
 use super::{
     MAX_HUD_DURATION_SECS, MAX_HUD_FADE_DURATION_SECS, MAX_HUD_IMAGE_MAX_HEIGHT, MAX_HUD_SCALE,
     MAX_POLL_INTERVAL_SECS, MAX_TRUNCATE_MAX_LINES, MAX_TRUNCATE_MAX_WIDTH, MIN_HUD_DURATION_SECS,
@@ -46,6 +47,16 @@ pub fn parse_hud_background_color(raw: &str) -> Option<HudBackgroundColor> {
     }
 }
 
+pub fn parse_language(raw: &str) -> Option<LanguageSetting> {
+    let normalized = raw.trim().to_ascii_lowercase().replace('-', "_");
+    match normalized.as_str() {
+        "auto" => Some(LanguageSetting::Auto),
+        "ja" => Some(LanguageSetting::Ja),
+        "en" => Some(LanguageSetting::En),
+        _ => None,
+    }
+}
+
 /// 絵文字を含むコードポイント範囲（Unicode Emoji Data の主要ブロック + 異体字セレクタ・ZWJ・
 /// キーキャップ）。絵文字クラスタの判定にのみ使う。
 /// 国旗の地域指示記号（U+1F1E6..=U+1F1FF）は U+1F000..=U+1FAFF に包含されるため別枠で持たない。
@@ -60,9 +71,9 @@ fn is_emoji_codepoint(c: char) -> bool {
     )
 }
 
-/// `hud_emoji` の入力値を判定し、妥当なら `None`、不正なら理由の文字列を返す。
+/// `hud_emoji` の入力値を判定し、妥当なら `None`、不正なら理由の `Msg` を返す。
 /// 空文字（trim 後）は「アイコンなし」として妥当扱いする。
-pub fn hud_emoji_validation_error(raw: &str) -> Option<&'static str> {
+pub fn hud_emoji_validation_error(raw: &str) -> Option<Msg> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return None;
@@ -70,12 +81,12 @@ pub fn hud_emoji_validation_error(raw: &str) -> Option<&'static str> {
     let mut graphemes = trimmed.graphemes(true);
     let first = graphemes.next().expect("trimmed is non-empty");
     if graphemes.next().is_some() {
-        return Some("絵文字1文字だけ入力できます");
+        return Some(Msg::EmojiTooLong);
     }
     if first.chars().any(is_emoji_codepoint) {
         None
     } else {
-        Some("絵文字を入力してください")
+        Some(Msg::EmojiNotEmoji)
     }
 }
 
@@ -118,6 +129,7 @@ pub fn parse_config_key(raw: &str) -> Option<ConfigKey> {
         "hud_background_color" | "hud-background-color" => Some(ConfigKey::HudBackgroundColor),
         "hud_emoji" | "hud-emoji" => Some(ConfigKey::HudEmoji),
         "hud_image_max_height" | "hud-image-max-height" => Some(ConfigKey::HudImageMaxHeight),
+        "language" => Some(ConfigKey::Language),
         _ => None,
     }
 }
@@ -191,6 +203,10 @@ pub(crate) fn parse_hud_background_color_setting(
     default: HudBackgroundColor,
 ) -> HudBackgroundColor {
     parse_hud_background_color(raw).unwrap_or(default)
+}
+
+pub(crate) fn parse_language_setting(raw: &str, default: LanguageSetting) -> LanguageSetting {
+    parse_language(raw).unwrap_or(default)
 }
 
 pub fn set_config_value(
@@ -289,13 +305,24 @@ pub fn set_config_value(
         }
         ConfigKey::HudEmoji => {
             let Some(emoji) = parse_hud_emoji(value) else {
-                let reason = hud_emoji_validation_error(value).unwrap_or("must be a single emoji");
+                // CLI 経路は言語設定を持たないため英語固定で組み立てる
+                let reason = hud_emoji_validation_error(value)
+                    .map(|msg| i18n::text(Lang::En, msg))
+                    .unwrap_or("must be a single emoji");
                 return Err(AppError::InvalidValue {
                     key: "hud_emoji",
                     message: format!("{reason}, got: {}", value.trim()),
                 });
             };
             config.display.hud_emoji = Some(emoji);
+        }
+        ConfigKey::Language => {
+            let raw = value.trim();
+            let parsed = parse_language(raw).ok_or_else(|| AppError::InvalidValue {
+                key: "language",
+                message: format!("{raw} (allowed: auto, ja, en)"),
+            })?;
+            config.display.language = Some(parsed);
         }
         ConfigKey::HudImageMaxHeight => {
             let raw = value.trim();
@@ -530,18 +557,31 @@ mod tests {
         assert_eq!(hud_emoji_validation_error("📋"), None);
         assert_eq!(hud_emoji_validation_error("🇯🇵"), None);
         assert_eq!(hud_emoji_validation_error("1️⃣"), None);
-        assert_eq!(
-            hud_emoji_validation_error("📋🍣"),
-            Some("絵文字1文字だけ入力できます")
-        );
-        assert_eq!(
-            hud_emoji_validation_error("a"),
-            Some("絵文字を入力してください")
-        );
-        assert_eq!(
-            hud_emoji_validation_error("あ"),
-            Some("絵文字を入力してください")
-        );
+        assert_eq!(hud_emoji_validation_error("📋🍣"), Some(Msg::EmojiTooLong));
+        assert_eq!(hud_emoji_validation_error("a"), Some(Msg::EmojiNotEmoji));
+        assert_eq!(hud_emoji_validation_error("あ"), Some(Msg::EmojiNotEmoji));
+    }
+
+    #[test]
+    fn parse_language_accepts_valid_values() {
+        assert_eq!(parse_language("auto"), Some(LanguageSetting::Auto));
+        assert_eq!(parse_language("ja"), Some(LanguageSetting::Ja));
+        assert_eq!(parse_language("en"), Some(LanguageSetting::En));
+        assert_eq!(parse_language("  JA  "), Some(LanguageSetting::Ja));
+        assert_eq!(parse_language("invalid"), None);
+    }
+
+    #[test]
+    fn set_config_value_accepts_language() {
+        let mut config = AppConfigFile::default();
+        let warning =
+            set_config_value(&mut config, ConfigKey::Language, "ja").expect("set language");
+        assert_eq!(config.display.language, Some(LanguageSetting::Ja));
+        assert!(warning.is_none());
+
+        let err = set_config_value(&mut config, ConfigKey::Language, "fr")
+            .expect_err("reject invalid language");
+        assert!(err.to_string().contains("language"));
     }
 
     #[test]

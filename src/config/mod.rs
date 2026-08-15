@@ -2,7 +2,7 @@ mod cli;
 mod io;
 mod parse;
 pub(crate) mod settings;
-mod types;
+pub(crate) mod types;
 
 // 定数
 pub const POLL_INTERVAL_SECS: f64 = 0.3;
@@ -35,8 +35,8 @@ pub use cli::handle_config_command;
 pub use io::{config_file_path, load_config_file, save_config_file};
 pub use parse::{
     hud_emoji_validation_error, parse_config_key, parse_f64_setting, parse_f64_value,
-    parse_hud_background_color, parse_hud_emoji, parse_hud_position, parse_usize_setting,
-    parse_usize_value, set_config_value,
+    parse_hud_background_color, parse_hud_emoji, parse_hud_position, parse_language,
+    parse_usize_setting, parse_usize_value, set_config_value,
 };
 pub use settings::{
     apply_config_file, apply_env_overrides, default_display_settings, display_settings,
@@ -44,4 +44,5 @@ pub use settings::{
 };
 pub use types::{
     AppConfigFile, ConfigKey, DisplayConfigFile, DisplaySettings, HudBackgroundColor, HudPosition,
+    LanguageSetting,
 };

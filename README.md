@@ -43,7 +43,7 @@ cliip-show
 
 `cliip-show` はターミナルを占有したまま起動します。これは初回だけの一時的な起動で、ターミナルを閉じるとアプリも終了します。起動すると自動起動の確認ダイアログが出るので、有効にすると次回ログインから自動で起動するようになります。
 
-ログイン時の自動起動は設定ウィンドウの「ログイン時に自動起動」チェックボックスからいつでも切り替えられます（下記「表示設定」参照）。
+ログイン時の自動起動は設定ウィンドウの「ログイン時に自動起動」からいつでも切り替えられます（下記「表示設定」参照）。
 
 ## 表示設定
 
@@ -91,6 +91,7 @@ cliip-show --config set hud_image_max_height 120
 - `hud_background_color`（既定値: `default`、`default` / `yellow` / `blue` / `green` / `red` / `purple`）
 - `hud_emoji`（既定値: `📋`、任意の絵文字。空でアイコンなし）
 - `hud_image_max_height`（既定値: `160`、`40` - `240`）画像サムネイルの高さ上限（px）。実際の上限は `hud_scale` 倍され、元画像より大きくは表示しません
+- `language`（既定値: `auto`、`auto` / `ja` / `en`）メニューバーと設定ウィンドウの表示言語。`auto` は macOS の優先言語に従います
 
 > **設定の即時反映:** 変更は再起動なしで自動的に反映されます。
 
@@ -105,6 +106,7 @@ CLIIP_SHOW_HUD_SCALE=1.2 \
 CLIIP_SHOW_HUD_BACKGROUND_COLOR=blue \
 CLIIP_SHOW_HUD_EMOJI=🍣 \
 CLIIP_SHOW_HUD_IMAGE_MAX_HEIGHT=120 \
+CLIIP_SHOW_LANGUAGE=en \
 cargo run
 ```
 

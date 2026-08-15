@@ -1,0 +1,275 @@
+//! UI 文言の言語ごとの表記。
+//!
+//! `.lproj` と `NSLocalizedString` は使わない。バンドルが読む言語は起動時に決まるため、
+//! 設定からの切り替えに再起動が要るようになる。文言は Rust 側の表として持ち、
+//! `Msg` を増やしたときに訳が欠けていればコンパイルエラーになるようにしている。
+//!
+//! stderr に出す診断メッセージと `--help` は英語固定で、この表には載せない。
+
+use objc2::runtime::AnyObject;
+use objc2::{class, msg_send};
+
+use crate::config::types::LanguageSetting;
+use crate::objc_helpers::nsstring_to_string;
+
+/// 表示に使う言語。`LanguageSetting::Auto` を OS のロケールで解決した結果でもある。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lang {
+    Ja,
+    En,
+}
+
+/// 言語ごとの表記を持つ UI 文言。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Msg {
+    MenuSettings,
+    MenuPause,
+    MenuQuit,
+    MenuEdit,
+    MenuCut,
+    MenuCopy,
+    MenuPaste,
+    MenuSelectAll,
+
+    LoginPromptMessage,
+    LoginPromptDetail,
+    LoginPromptEnable,
+    LoginPromptLater,
+    LoginPromptSuppress,
+
+    SettingsTitle,
+    SettingsStartAtLogin,
+    LabelPollInterval,
+    LabelHudDuration,
+    LabelHudFadeDuration,
+    LabelHudScale,
+    LabelMaxCharsPerLine,
+    LabelMaxLines,
+    LabelHudImageMaxHeight,
+    LabelHudPosition,
+    LabelHudBackgroundColor,
+    LabelHudEmoji,
+    LabelLanguage,
+    LanguageAuto,
+    ButtonRestoreDefaults,
+    ButtonPreview,
+    ButtonSave,
+
+    EmojiTooLong,
+    EmojiNotEmoji,
+
+    PreviewShortText,
+}
+
+/// `msg` を `lang` の表記で返す。
+pub fn text(lang: Lang, msg: Msg) -> &'static str {
+    let (ja, en) = match msg {
+        Msg::MenuSettings => ("設定…", "Settings…"),
+        Msg::MenuPause => ("一時停止", "Pause"),
+        Msg::MenuQuit => ("cliip-show を終了", "Quit cliip-show"),
+        Msg::MenuEdit => ("編集", "Edit"),
+        Msg::MenuCut => ("切り取り", "Cut"),
+        Msg::MenuCopy => ("コピー", "Copy"),
+        Msg::MenuPaste => ("ペースト", "Paste"),
+        Msg::MenuSelectAll => ("すべてを選択", "Select All"),
+
+        Msg::LoginPromptMessage => (
+            "ログイン時に cliip-show を自動起動しますか？",
+            "Start cliip-show automatically at login?",
+        ),
+        Msg::LoginPromptDetail => (
+            "設定ウィンドウの「ログイン時に自動起動」からいつでも変更できます。",
+            "You can change this any time from “Start at login” in the settings window.",
+        ),
+        Msg::LoginPromptEnable => ("有効にする", "Enable"),
+        Msg::LoginPromptLater => ("あとで", "Not Now"),
+        Msg::LoginPromptSuppress => ("今後表示しない", "Don’t ask again"),
+
+        Msg::SettingsTitle => ("cliip-show 設定", "cliip-show Settings"),
+        Msg::SettingsStartAtLogin => ("ログイン時に自動起動", "Start at login"),
+        Msg::LabelPollInterval => ("ポーリング間隔（秒）", "Polling interval (sec)"),
+        Msg::LabelHudDuration => ("表示時間（秒）", "Display duration (sec)"),
+        Msg::LabelHudFadeDuration => ("フェード時間（秒）", "Fade duration (sec)"),
+        Msg::LabelHudScale => ("HUDサイズ倍率", "HUD scale"),
+        Msg::LabelMaxCharsPerLine => ("1行の最大文字数", "Max characters per line"),
+        Msg::LabelMaxLines => ("最大行数", "Max lines"),
+        Msg::LabelHudImageMaxHeight => {
+            ("画像サムネイル高さ上限（px）", "Max thumbnail height (px)")
+        }
+        Msg::LabelHudPosition => ("表示位置", "Position"),
+        Msg::LabelHudBackgroundColor => ("背景色", "Background color"),
+        Msg::LabelHudEmoji => ("アイコン絵文字", "Icon emoji"),
+        Msg::LabelLanguage => ("言語", "Language"),
+        Msg::LanguageAuto => ("システムに合わせる", "Match System"),
+        Msg::ButtonRestoreDefaults => ("デフォルトに戻す", "Restore Defaults"),
+        Msg::ButtonPreview => ("お試し表示", "Preview"),
+        Msg::ButtonSave => ("保存", "Save"),
+
+        Msg::EmojiTooLong => ("絵文字1文字だけ入力できます", "Enter a single emoji"),
+        Msg::EmojiNotEmoji => ("絵文字を入力してください", "Enter an emoji"),
+
+        Msg::PreviewShortText => (
+            "サンプル表示：短いテキストです",
+            "Preview: a short line of text",
+        ),
+    };
+
+    match lang {
+        Lang::Ja => ja,
+        Lang::En => en,
+    }
+}
+
+/// 言語ポップアップに並べる選択肢と、その並び順。ラベルは `language_label` が返す。
+pub const LANGUAGE_CHOICES: [LanguageSetting; 3] = [
+    LanguageSetting::Auto,
+    LanguageSetting::Ja,
+    LanguageSetting::En,
+];
+
+/// 言語ポップアップに出す `setting` のラベル。
+///
+/// 日本語 / English は表示言語を切り替えても自国語表記のままにする。英語表示の人が
+/// 日本語を探すときも、その逆も、探している言語がその言語で書かれている方が見つかる。
+pub fn language_label(lang: Lang, setting: LanguageSetting) -> &'static str {
+    match setting {
+        LanguageSetting::Auto => text(lang, Msg::LanguageAuto),
+        LanguageSetting::Ja => "日本語",
+        LanguageSetting::En => "English",
+    }
+}
+
+/// お試し表示で使う長い 1 行。折り返しを確認できる長さまで繰り返す。
+pub fn preview_long_line(lang: Lang) -> String {
+    let unit = match lang {
+        Lang::Ja => "サンプル表示の見た目を確認するための長めの一行です。",
+        Lang::En => "A fairly long line of sample text for checking how the preview looks. ",
+    };
+    unit.repeat(5)
+}
+
+/// お試し表示で使う `n` 行目のサンプル行。
+pub fn preview_numbered_line(lang: Lang, n: usize) -> String {
+    match lang {
+        Lang::Ja => format!("これは{n}行目のサンプル行です。"),
+        Lang::En => format!("This is sample line {n}."),
+    }
+}
+
+/// 設定値を実際に表示に使う言語へ解決する。
+///
+/// # Safety
+/// AppKit / Foundation を初期化済みのプロセスから呼ぶこと。
+pub unsafe fn resolve(setting: LanguageSetting) -> Lang {
+    // Auto のときだけ OS へ問い合わせる。絵文字欄の打鍵ごとに呼ばれる経路があるため、
+    // 明示指定時に NSLocale を引かないようにしている。
+    match setting {
+        LanguageSetting::Auto => system_language(),
+        LanguageSetting::Ja => Lang::Ja,
+        LanguageSetting::En => Lang::En,
+    }
+}
+
+/// `resolve` から OS のロケール参照を切り離したもの。
+pub fn resolve_with_system(setting: LanguageSetting, system: Lang) -> Lang {
+    match setting {
+        LanguageSetting::Auto => system,
+        LanguageSetting::Ja => Lang::Ja,
+        LanguageSetting::En => Lang::En,
+    }
+}
+
+/// OS の優先言語の先頭から表示言語を決める。日本語以外はすべて英語に倒す。
+///
+/// # Safety
+/// Foundation を初期化済みのプロセスから呼ぶこと。
+pub unsafe fn system_language() -> Lang {
+    let languages: *mut AnyObject = msg_send![class!(NSLocale), preferredLanguages];
+    if languages.is_null() {
+        return Lang::En;
+    }
+    let count: usize = msg_send![languages, count];
+    if count == 0 {
+        return Lang::En;
+    }
+    let first: *mut AnyObject = msg_send![languages, objectAtIndex: 0usize];
+    match nsstring_to_string(first) {
+        Some(tag) => lang_from_bcp47(&tag),
+        None => Lang::En,
+    }
+}
+
+/// BCP 47 の言語タグ（`ja-JP` など）から表示言語を決める。
+pub fn lang_from_bcp47(tag: &str) -> Lang {
+    let primary = tag.split(['-', '_']).next().unwrap_or("");
+    if primary.eq_ignore_ascii_case("ja") {
+        Lang::Ja
+    } else {
+        Lang::En
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lang_from_bcp47_picks_japanese_only_for_ja() {
+        assert_eq!(lang_from_bcp47("ja"), Lang::Ja);
+        assert_eq!(lang_from_bcp47("ja-JP"), Lang::Ja);
+        assert_eq!(lang_from_bcp47("ja_JP"), Lang::Ja);
+        assert_eq!(lang_from_bcp47("JA-jp"), Lang::Ja);
+        assert_eq!(lang_from_bcp47("en-US"), Lang::En);
+        assert_eq!(lang_from_bcp47("jam"), Lang::En);
+        assert_eq!(lang_from_bcp47(""), Lang::En);
+    }
+
+    /// 言語ポップアップは `LANGUAGE_CHOICES` の並び順とインデックスで値を往復させる。
+    /// `LanguageSetting` に値を足してここへ足し忘れると、その値は選べなくなる。
+    #[test]
+    fn language_choices_cover_every_setting() {
+        for setting in [
+            LanguageSetting::Auto,
+            LanguageSetting::Ja,
+            LanguageSetting::En,
+        ] {
+            assert!(
+                LANGUAGE_CHOICES.contains(&setting),
+                "{setting:?} が LANGUAGE_CHOICES に無い"
+            );
+        }
+        assert_eq!(LANGUAGE_CHOICES.len(), 3);
+    }
+
+    #[test]
+    fn language_labels_are_distinct_in_both_languages() {
+        for lang in [Lang::Ja, Lang::En] {
+            let labels: Vec<&str> = LANGUAGE_CHOICES
+                .iter()
+                .map(|setting| language_label(lang, *setting))
+                .collect();
+            let mut unique = labels.clone();
+            unique.sort_unstable();
+            unique.dedup();
+            assert_eq!(
+                unique.len(),
+                labels.len(),
+                "{lang:?} でラベルが重複している"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_with_system_follows_system_only_for_auto() {
+        assert_eq!(
+            resolve_with_system(LanguageSetting::Auto, Lang::Ja),
+            Lang::Ja
+        );
+        assert_eq!(
+            resolve_with_system(LanguageSetting::Auto, Lang::En),
+            Lang::En
+        );
+        assert_eq!(resolve_with_system(LanguageSetting::Ja, Lang::En), Lang::Ja);
+        assert_eq!(resolve_with_system(LanguageSetting::En, Lang::Ja), Lang::En);
+    }
+}

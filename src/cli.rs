@@ -80,12 +80,13 @@ pub fn handle_cli_flags() -> bool {
             );
             let _ = writeln!(
                 help,
-                "  hud_emoji               default=📋 (任意の絵文字。空でアイコンなし)"
+                "  hud_emoji               default=📋 (any single emoji; empty for no icon)"
             );
             let _ = writeln!(
                 help,
-                "  hud_image_max_height    default=160 (40 - 240)  ※ 実際の上限は hud_scale 倍される"
+                "  hud_image_max_height    default=160 (40 - 240)  note: scaled by hud_scale"
             );
+            let _ = writeln!(help, "  language                default=auto (auto|ja|en)");
             let _ = writeln!(help);
             let _ = writeln!(
                 help,
@@ -135,6 +136,10 @@ pub fn handle_cli_flags() -> bool {
             let _ = writeln!(
                 help,
                 "  CLIIP_SHOW_HUD_IMAGE_MAX_HEIGHT Max thumbnail height for copied images (40 - 240)"
+            );
+            let _ = writeln!(
+                help,
+                "  CLIIP_SHOW_LANGUAGE             UI language (auto|ja|en)"
             );
             print!("{help}");
             true
