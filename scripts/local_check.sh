@@ -234,6 +234,10 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# 設定ウィンドウの自動起動トグルだけは $CONFIG_PATH ではなく $HOME の LaunchAgent を読み書きする。
+# ここで触ると開発ビルドのパスを指す plist が書かれ、cargo clean でインストール済みアプリの
+# 自動起動ごと壊れる。
+echo "[local_check] warning: do not touch the login item toggle; it overwrites the installed app's LaunchAgent"
 echo "[local_check] starting cliip-show (Ctrl+C to stop)"
 CLIIP_SHOW_CONFIG_PATH="$CONFIG_PATH" "$BIN" &
 APP_PID="$!"
