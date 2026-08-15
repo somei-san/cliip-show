@@ -9,7 +9,7 @@ fn main() {
 
         let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
         if app.is_null() {
-            eprintln!("fatal: NSApplication の初期化に失敗しました");
+            eprintln!("fatal: failed to initialize NSApplication");
             std::process::exit(1);
         }
         let _: bool = msg_send![app, setActivationPolicy: 1isize];

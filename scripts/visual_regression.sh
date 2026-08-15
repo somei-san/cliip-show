@@ -52,6 +52,7 @@ render_and_compare() {
     -u CLIIP_SHOW_HUD_BACKGROUND_COLOR
     -u CLIIP_SHOW_HUD_IMAGE_MAX_HEIGHT
     -u CLIIP_SHOW_HUD_EMOJI
+    -u CLIIP_SHOW_LANGUAGE
     "CLIIP_SHOW_CONFIG_PATH=$VRT_CONFIG_PATH"
   )
   if [[ $# -gt 0 ]]; then

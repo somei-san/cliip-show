@@ -31,6 +31,12 @@ HUD を実機で見るなら `./scripts/local_check.sh`（オプションは `do
 - VRT のケースは `CLIIP_SHOW_*` 環境変数で設定を上書きして作る（`scripts/visual_regression.sh` の `run_case`）
 - `Cargo.toml` の `edition` を変えたら `.claude/settings.json` の rustfmt フック（`--edition` を直書き）も同期する。ズレるとフックの整形結果を CI の `cargo fmt --check` が拒否する
 
+## ドキュメント
+
+`README.md`（英語）と `README.ja.md`（日本語）は同じ内容・同じ構成を保つ。片方だけ直すと、もう一方を見た読み手が古い情報を掴む。見出しの並び、設定キーの表、コマンド例まで対応させること。
+
+UI 文言を README に書くときは `src/i18n.rs` の文言テーブルと一致させる。英語版に載せるラベルはテーブルの英語表記そのままにする。
+
 ## モジュール構成
 
 | ファイル | 役割 |
@@ -46,6 +52,7 @@ HUD を実機で見るなら `./scripts/local_check.sh`（オプションは `do
 | `src/login_item.rs` | LaunchAgent の plist 書き出し・解除（自動起動） |
 | `src/text.rs` | テキスト切り詰め処理 |
 | `src/png.rs` | PNG生成・差分計算（VRT用） |
+| `src/i18n.rs` | UI文言の言語ごとの表記と、表示言語の解決 |
 | `src/objc_helpers.rs` | NSString変換ユーティリティ |
 | `src/error.rs` | `AppError` 型定義 |
 

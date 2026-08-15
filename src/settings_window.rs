@@ -10,14 +10,15 @@ use crate::app::{
     apply_settings_now, present_hud, show_sample_image_content, show_text_content, AppState,
 };
 use crate::config::{
-    apply_config_file, default_display_settings, hud_emoji_validation_error, save_config_file,
-    set_config_value, settings_to_config_file, ConfigKey, DisplaySettings, MAX_HUD_DURATION_SECS,
-    MAX_HUD_FADE_DURATION_SECS, MAX_HUD_IMAGE_MAX_HEIGHT, MAX_HUD_SCALE, MAX_POLL_INTERVAL_SECS,
-    MAX_TRUNCATE_MAX_LINES, MAX_TRUNCATE_MAX_WIDTH, MIN_HUD_DURATION_SECS,
-    MIN_HUD_FADE_DURATION_SECS, MIN_HUD_IMAGE_MAX_HEIGHT, MIN_HUD_SCALE, MIN_POLL_INTERVAL_SECS,
-    MIN_TRUNCATE_MAX_LINES, MIN_TRUNCATE_MAX_WIDTH,
+    apply_config_file, default_display_settings, hud_emoji_validation_error, load_config_file,
+    save_config_file, set_config_value, settings_to_config_file, ConfigKey, DisplaySettings,
+    LanguageSetting, MAX_HUD_DURATION_SECS, MAX_HUD_FADE_DURATION_SECS, MAX_HUD_IMAGE_MAX_HEIGHT,
+    MAX_HUD_SCALE, MAX_POLL_INTERVAL_SECS, MAX_TRUNCATE_MAX_LINES, MAX_TRUNCATE_MAX_WIDTH,
+    MIN_HUD_DURATION_SECS, MIN_HUD_FADE_DURATION_SECS, MIN_HUD_IMAGE_MAX_HEIGHT, MIN_HUD_SCALE,
+    MIN_POLL_INTERVAL_SECS, MIN_TRUNCATE_MAX_LINES, MIN_TRUNCATE_MAX_WIDTH,
 };
 use crate::hud::BACKING_BUFFERED;
+use crate::i18n::{self, Lang, Msg};
 use crate::objc_helpers::{nsstring_from_str, nsstring_to_string};
 use crate::png::create_preview_sample_image;
 
@@ -28,9 +29,9 @@ enum PreviewSample {
 }
 
 /// 既定の `max_chars_per_line`・`max_lines` で行内と行数の両方の切り詰めが起きる分量にしてある。
-fn preview_long_text() -> String {
-    let mut lines = vec!["サンプル表示の見た目を確認するための長めの一行です。".repeat(5)];
-    lines.extend((2..=7).map(|n| format!("これは{n}行目のサンプル行です。")));
+fn preview_long_text(lang: Lang) -> String {
+    let mut lines = vec![i18n::preview_long_line(lang)];
+    lines.extend((2..=7).map(|n| i18n::preview_numbered_line(lang, n)));
     lines.join("\n")
 }
 
@@ -46,11 +47,12 @@ const SETTINGS_STYLE_MASK: usize = 1 | 2;
 const SETTINGS_WINDOW_WIDTH: f64 = 520.0;
 const SETTINGS_ROW_HEIGHT: f64 = 34.0;
 const SETTINGS_ROW_COUNT: usize = 10;
-// 設定ファイルに乗る行（上記10行）とは別に、区切り行とログイン項目の行を末尾に足す。
-// ログイン項目は下書き→保存のモデルに乗らず、チェックした瞬間に OS へ反映するため。
+// HUD の見た目を決める上記10行とは別に、区切り行を挟んで言語とログイン項目を末尾に置く。
+// この2つは下書き→保存のモデルに乗らず、操作した瞬間に保存・反映する。
 const SETTINGS_DIVIDER_ROW_INDEX: usize = SETTINGS_ROW_COUNT;
-const SETTINGS_LOGIN_ITEM_ROW_INDEX: usize = SETTINGS_ROW_COUNT + 1;
-const SETTINGS_TOTAL_ROW_COUNT: usize = SETTINGS_ROW_COUNT + 2;
+const SETTINGS_LANGUAGE_ROW_INDEX: usize = SETTINGS_ROW_COUNT + 1;
+const SETTINGS_LOGIN_ITEM_ROW_INDEX: usize = SETTINGS_ROW_COUNT + 2;
+const SETTINGS_TOTAL_ROW_COUNT: usize = SETTINGS_ROW_COUNT + 3;
 const SETTINGS_TOP_MARGIN: f64 = 20.0;
 const SETTINGS_BOTTOM_MARGIN: f64 = 20.0;
 // ウィンドウ下部、行の並びとは別に「デフォルトに戻す」「お試し表示」「保存」ボタンを置くための領域
@@ -78,8 +80,24 @@ const SETTINGS_STEPPER_X: f64 = SETTINGS_CONTROL_X + SETTINGS_FIELD_WIDTH + 6.0;
 const SETTINGS_STEPPER_WIDTH: f64 = 19.0;
 const SETTINGS_POPUP_WIDTH: f64 = 200.0;
 const SETTINGS_EMOJI_FIELD_WIDTH: f64 = 120.0;
+// コントロール列の右端。幅が固定でないコントロールはここに右端を合わせる
+const SETTINGS_CONTROL_RIGHT_X: f64 = SETTINGS_CONTROL_X + SETTINGS_POPUP_WIDTH;
 // 絵文字フィールドの直下に表示するバリデーションメッセージの高さ。行スタックとボタン領域の間に確保する
 const SETTINGS_EMOJI_MESSAGE_HEIGHT: f64 = 16.0;
+
+/// 言語切り替えで表示テキストを差し替える対象コントロール。
+pub struct LocalizedControl {
+    pub control: *mut AnyObject,
+    pub msg: Msg,
+    pub kind: LocalizedKind,
+}
+
+pub enum LocalizedKind {
+    /// NSTextField のラベル。`setStringValue:` で差し替える。
+    StringValue,
+    /// NSButton / NSMenuItem / NSMenu / NSWindow のタイトル。`setTitle:` で差し替える。
+    Title,
+}
 
 /// 設定ウィンドウを構成するコントロールへのポインタ。`AppState` に保持し、
 /// `openSettings:` で使い回す（ウィンドウは初回だけ生成する）。
@@ -104,14 +122,23 @@ pub struct SettingsControls {
     pub hud_emoji_field: *mut AnyObject,
     /// 絵文字フィールドの入力中バリデーションメッセージ。妥当なときは空文字。
     pub hud_emoji_message_label: *mut AnyObject,
-    /// ログイン時の自動起動チェックボックス。下書き→保存のモデルには乗らず、
+    /// 表示言語のポップアップ。他の設定行と違い下書き→保存のモデルには乗らず、選択した瞬間に
+    /// 設定ファイルへ保存する（`apply_language_setting_change`）。
+    pub language_popup: *mut AnyObject,
+    /// ログイン時の自動起動トグル。下書き→保存のモデルには乗らず、
     /// チェックした瞬間に `login_item::enable`/`disable` を呼ぶ（`toggleLoginItem:`）。
-    pub login_item_checkbox: *mut AnyObject,
+    pub login_item_toggle: *mut AnyObject,
     /// ウィンドウ内で編集中の下書き。「保存」（`saveSettings:`）を押すまで設定ファイルには
     /// 反映しない。`settingChanged:` はこの下書きだけを更新する。
+    ///
+    /// `language` はこの下書きの対象外だが、フィールド自体は `DisplaySettings` の一部として
+    /// 常に持つ。「保存」時に古い言語で上書きしないよう、言語が変わるたびに
+    /// `apply_settings_now`／`reset_settings` の側でここも一緒に同期すること。
     pub draft: DisplaySettings,
     /// 「お試し表示」を押すたびに進める、次に表示するサンプルの番号（`PREVIEW_SAMPLES` を巡回）。
     pub preview_sample_index: usize,
+    /// 言語切り替え（`apply_language`）で文言を差し替える対象の一覧。
+    pub localized: Vec<LocalizedControl>,
 }
 
 impl Default for SettingsControls {
@@ -136,9 +163,11 @@ impl Default for SettingsControls {
             hud_background_color_popup: ptr::null_mut(),
             hud_emoji_field: ptr::null_mut(),
             hud_emoji_message_label: ptr::null_mut(),
-            login_item_checkbox: ptr::null_mut(),
+            language_popup: ptr::null_mut(),
+            login_item_toggle: ptr::null_mut(),
             draft: default_display_settings(),
             preview_sample_index: 0,
+            localized: Vec::new(),
         }
     }
 }
@@ -156,6 +185,7 @@ pub fn config_key_to_tag(key: ConfigKey) -> isize {
         ConfigKey::HudBackgroundColor => 7,
         ConfigKey::HudEmoji => 8,
         ConfigKey::HudImageMaxHeight => 9,
+        ConfigKey::Language => 10,
     }
 }
 
@@ -171,6 +201,7 @@ pub fn tag_to_config_key(tag: isize) -> Option<ConfigKey> {
         7 => Some(ConfigKey::HudBackgroundColor),
         8 => Some(ConfigKey::HudEmoji),
         9 => Some(ConfigKey::HudImageMaxHeight),
+        10 => Some(ConfigKey::Language),
         _ => None,
     }
 }
@@ -299,6 +330,73 @@ unsafe fn make_stepper(
     stepper
 }
 
+/// 言語ポップアップを作る。
+///
+/// 他のポップアップは表示タイトルがそのまま設定値だが、言語だけは表示ラベルと設定値が
+/// 別（「システムに合わせる」に対して `auto`）。そのためタイトル一致では往復できず、
+/// `LANGUAGE_CHOICES` の並び順とインデックスで対応づける。
+unsafe fn make_language_popup(
+    lang: Lang,
+    selected: LanguageSetting,
+    tag: isize,
+    frame: NSRect,
+    delegate: &AnyObject,
+) -> *mut AnyObject {
+    let popup: *mut AnyObject = msg_send![class!(NSPopUpButton), alloc];
+    let popup: *mut AnyObject = msg_send![popup, initWithFrame: frame pullsDown: false];
+    for setting in i18n::LANGUAGE_CHOICES {
+        let ns = nsstring_from_str(i18n::language_label(lang, setting));
+        let () = msg_send![popup, addItemWithTitle: ns];
+        let () = msg_send![ns, release];
+    }
+    select_language_item(popup, selected);
+    let () = msg_send![popup, setTag: tag];
+    let () = msg_send![popup, setTarget: delegate];
+    let () = msg_send![popup, setAction: sel!(settingChanged:)];
+    popup
+}
+
+/// 言語ポップアップの選択を `setting` に合わせる。
+unsafe fn select_language_item(popup: *mut AnyObject, setting: LanguageSetting) {
+    if popup.is_null() {
+        return;
+    }
+    let index = i18n::LANGUAGE_CHOICES
+        .iter()
+        .position(|choice| *choice == setting)
+        .unwrap_or(0);
+    let () = msg_send![popup, selectItemAtIndex: index as isize];
+}
+
+/// 言語ポップアップで選択されている設定値を返す。
+unsafe fn selected_language_value(popup: *mut AnyObject) -> Option<LanguageSetting> {
+    if popup.is_null() {
+        return None;
+    }
+    let index: isize = msg_send![popup, indexOfSelectedItem];
+    let index = usize::try_from(index).ok()?;
+    i18n::LANGUAGE_CHOICES.get(index).copied()
+}
+
+/// 言語切り替えに合わせて選択肢のラベルを差し替える。選択位置は動かさない。
+///
+/// `setTitle:` は action を送らないので、この関数を `settingChanged:` の処理中に
+/// 呼んでも再入は起きない。
+unsafe fn retitle_language_popup(popup: *mut AnyObject, lang: Lang) {
+    if popup.is_null() {
+        return;
+    }
+    for (index, setting) in i18n::LANGUAGE_CHOICES.iter().enumerate() {
+        let item: *mut AnyObject = msg_send![popup, itemAtIndex: index as isize];
+        if item.is_null() {
+            continue;
+        }
+        let ns = nsstring_from_str(i18n::language_label(lang, *setting));
+        let () = msg_send![item, setTitle: ns];
+        let () = msg_send![ns, release];
+    }
+}
+
 unsafe fn make_popup(
     items: &[&str],
     selected: &str,
@@ -331,11 +429,13 @@ unsafe fn add_slider_row(
     content_view: *mut AnyObject,
     delegate: &AnyObject,
     index: usize,
-    label_text: &str,
+    lang: Lang,
+    label_msg: Msg,
     key: ConfigKey,
     min: f64,
     max: f64,
     value: f64,
+    localized: &mut Vec<LocalizedControl>,
 ) -> (*mut AnyObject, *mut AnyObject) {
     let row_bottom = row_bottom_y(index);
     let label_rect = centered_rect(
@@ -357,7 +457,7 @@ unsafe fn add_slider_row(
         row_bottom,
     );
 
-    let label = make_label(label_text, label_rect);
+    let label = make_label(i18n::text(lang, label_msg), label_rect);
     let slider = make_slider(
         min,
         max,
@@ -372,6 +472,12 @@ unsafe fn add_slider_row(
     let () = msg_send![content_view, addSubview: slider];
     let () = msg_send![content_view, addSubview: value_label];
 
+    localized.push(LocalizedControl {
+        control: label,
+        msg: label_msg,
+        kind: LocalizedKind::StringValue,
+    });
+
     (slider, value_label)
 }
 
@@ -380,11 +486,13 @@ unsafe fn add_stepper_row(
     content_view: *mut AnyObject,
     delegate: &AnyObject,
     index: usize,
-    label_text: &str,
+    lang: Lang,
+    label_msg: Msg,
     key: ConfigKey,
     min: usize,
     max: usize,
     value: usize,
+    localized: &mut Vec<LocalizedControl>,
 ) -> (*mut AnyObject, *mut AnyObject) {
     let row_bottom = row_bottom_y(index);
     let label_rect = centered_rect(
@@ -407,7 +515,7 @@ unsafe fn add_stepper_row(
     );
 
     let tag = config_key_to_tag(key);
-    let label = make_label(label_text, label_rect);
+    let label = make_label(i18n::text(lang, label_msg), label_rect);
     let field = make_editable_field(&value.to_string(), tag, field_rect, delegate);
     let stepper = make_stepper(
         min as f64,
@@ -422,17 +530,26 @@ unsafe fn add_stepper_row(
     let () = msg_send![content_view, addSubview: field];
     let () = msg_send![content_view, addSubview: stepper];
 
+    localized.push(LocalizedControl {
+        control: label,
+        msg: label_msg,
+        kind: LocalizedKind::StringValue,
+    });
+
     (field, stepper)
 }
 
+#[allow(clippy::too_many_arguments)]
 unsafe fn add_popup_row(
     content_view: *mut AnyObject,
     delegate: &AnyObject,
     index: usize,
-    label_text: &str,
+    lang: Lang,
+    label_msg: Msg,
     key: ConfigKey,
     items: &[&str],
     selected: &str,
+    localized: &mut Vec<LocalizedControl>,
 ) -> *mut AnyObject {
     let row_bottom = row_bottom_y(index);
     let label_rect = centered_rect(
@@ -448,7 +565,7 @@ unsafe fn add_popup_row(
         row_bottom,
     );
 
-    let label = make_label(label_text, label_rect);
+    let label = make_label(i18n::text(lang, label_msg), label_rect);
     let popup = make_popup(
         items,
         selected,
@@ -460,18 +577,73 @@ unsafe fn add_popup_row(
     let () = msg_send![content_view, addSubview: label];
     let () = msg_send![content_view, addSubview: popup];
 
+    localized.push(LocalizedControl {
+        control: label,
+        msg: label_msg,
+        kind: LocalizedKind::StringValue,
+    });
+
+    popup
+}
+
+/// 言語専用のポップアップ行。表示ラベルと設定値が別なので `add_popup_row` とは
+/// ポップアップの作り方だけが違う。
+unsafe fn add_language_row(
+    content_view: *mut AnyObject,
+    delegate: &AnyObject,
+    index: usize,
+    lang: Lang,
+    selected: LanguageSetting,
+    localized: &mut Vec<LocalizedControl>,
+) -> *mut AnyObject {
+    let row_bottom = row_bottom_y(index);
+    let label_rect = centered_rect(
+        SETTINGS_LABEL_X,
+        SETTINGS_LABEL_WIDTH,
+        SETTINGS_LABEL_HEIGHT,
+        row_bottom,
+    );
+    let popup_rect = centered_rect(
+        SETTINGS_CONTROL_X,
+        SETTINGS_POPUP_WIDTH,
+        SETTINGS_CONTROL_HEIGHT,
+        row_bottom,
+    );
+
+    let label = make_label(i18n::text(lang, Msg::LabelLanguage), label_rect);
+    let popup = make_language_popup(
+        lang,
+        selected,
+        config_key_to_tag(ConfigKey::Language),
+        popup_rect,
+        delegate,
+    );
+
+    let () = msg_send![content_view, addSubview: label];
+    let () = msg_send![content_view, addSubview: popup];
+
+    localized.push(LocalizedControl {
+        control: label,
+        msg: Msg::LabelLanguage,
+        kind: LocalizedKind::StringValue,
+    });
+
     popup
 }
 
 /// 絵文字フィールド専用の行。入力中バリデーションのため `controlTextDidChange:` を
-/// 受け取れるよう `setDelegate:` し、フィールド直下にメッセージラベルを追加する。
+/// 受け取れるよう `setDelegate:` し、メッセージラベルを追加する。ラベルの位置は
+/// 行の並びではなくウィンドウ下端が基準（`SETTINGS_EMOJI_MESSAGE_HEIGHT`）。
+#[allow(clippy::too_many_arguments)]
 unsafe fn add_field_row(
     content_view: *mut AnyObject,
     delegate: &AnyObject,
     index: usize,
-    label_text: &str,
+    lang: Lang,
+    label_msg: Msg,
     key: ConfigKey,
     value: &str,
+    localized: &mut Vec<LocalizedControl>,
 ) -> (*mut AnyObject, *mut AnyObject) {
     let row_bottom = row_bottom_y(index);
     let label_rect = centered_rect(
@@ -498,7 +670,7 @@ unsafe fn add_field_row(
         },
     };
 
-    let label = make_label(label_text, label_rect);
+    let label = make_label(i18n::text(lang, label_msg), label_rect);
     let field = make_editable_field(value, config_key_to_tag(key), field_rect, delegate);
     let () = msg_send![field, setDelegate: delegate];
 
@@ -510,14 +682,20 @@ unsafe fn add_field_row(
     let () = msg_send![content_view, addSubview: field];
     let () = msg_send![content_view, addSubview: message_label];
 
+    localized.push(LocalizedControl {
+        control: label,
+        msg: label_msg,
+        kind: LocalizedKind::StringValue,
+    });
+
     (field, message_label)
 }
 
-// NSButtonType: Switch（チェックボックス）
-const NS_BUTTON_TYPE_SWITCH: usize = 3;
 // NSControlStateValue
 const NS_CONTROL_STATE_VALUE_OFF: isize = 0;
 const NS_CONTROL_STATE_VALUE_ON: isize = 1;
+// NSControlSize: small
+const NS_CONTROL_SIZE_SMALL: usize = 1;
 
 /// 他の設定行（下書き→保存モデル）とログイン項目（OS へ即時反映）を見た目で区切るための
 /// 区切り線。新規の ObjC API を増やさないよう、罫線文字のラベルで表現する。
@@ -535,35 +713,51 @@ unsafe fn add_divider_row(content_view: *mut AnyObject, index: usize) {
     let () = msg_send![content_view, addSubview: divider];
 }
 
-/// ログイン時の自動起動チェックボックスの行。`state` は表示専用の初期値で、
-/// 実際の値はウィンドウを開くたびに `sync_login_item_checkbox` が上書きする。
+/// ログイン時の自動起動の行。`enabled` は表示専用の初期値で、
+/// 実際の値はウィンドウを開くたびに `sync_login_item_toggle` が上書きする。
 unsafe fn add_login_item_row(
     content_view: *mut AnyObject,
     delegate: &AnyObject,
     index: usize,
+    lang: Lang,
     enabled: bool,
+    localized: &mut Vec<LocalizedControl>,
 ) -> *mut AnyObject {
     let row_bottom = row_bottom_y(index);
-    let rect = centered_rect(
+    let label_rect = centered_rect(
         SETTINGS_LABEL_X,
-        SETTINGS_WINDOW_WIDTH - SETTINGS_LABEL_X - SETTINGS_BUTTON_RIGHT_MARGIN,
-        SETTINGS_CONTROL_HEIGHT,
+        SETTINGS_LABEL_WIDTH,
+        SETTINGS_LABEL_HEIGHT,
         row_bottom,
     );
+    let label = make_label(i18n::text(lang, Msg::SettingsStartAtLogin), label_rect);
+    let toggle: *mut AnyObject = msg_send![class!(NSSwitch), alloc];
+    let toggle: *mut AnyObject = msg_send![toggle, init];
+    let () = msg_send![toggle, setControlSize: NS_CONTROL_SIZE_SMALL];
+    // NSSwitch は自前の寸法を持ち、こちらで渡したフレームの大きさに従わない。
+    // 実寸を読んでから、他の行のコントロールと右端が揃う位置に置く。
+    let size: NSSize = msg_send![toggle, intrinsicContentSize];
+    let toggle_rect = centered_rect(
+        SETTINGS_CONTROL_RIGHT_X - size.width,
+        size.width,
+        size.height,
+        row_bottom,
+    );
+    let () = msg_send![toggle, setFrame: toggle_rect];
+    let () = msg_send![toggle, setState: login_item_control_state(enabled)];
+    let () = msg_send![toggle, setTarget: delegate];
+    let () = msg_send![toggle, setAction: sel!(toggleLoginItem:)];
 
-    let checkbox: *mut AnyObject = msg_send![class!(NSButton), alloc];
-    let checkbox: *mut AnyObject = msg_send![checkbox, initWithFrame: rect];
-    let () = msg_send![checkbox, setButtonType: NS_BUTTON_TYPE_SWITCH];
-    let title = nsstring_from_str("ログイン時に自動起動");
-    let () = msg_send![checkbox, setTitle: title];
-    let () = msg_send![title, release];
-    let state = login_item_control_state(enabled);
-    let () = msg_send![checkbox, setState: state];
-    let () = msg_send![checkbox, setTarget: delegate];
-    let () = msg_send![checkbox, setAction: sel!(toggleLoginItem:)];
+    let () = msg_send![content_view, addSubview: label];
+    let () = msg_send![content_view, addSubview: toggle];
 
-    let () = msg_send![content_view, addSubview: checkbox];
-    checkbox
+    localized.push(LocalizedControl {
+        control: label,
+        msg: Msg::SettingsStartAtLogin,
+        kind: LocalizedKind::StringValue,
+    });
+
+    toggle
 }
 
 fn login_item_control_state(enabled: bool) -> isize {
@@ -578,12 +772,14 @@ fn login_item_control_state(enabled: bool) -> isize {
 /// 初回のみ呼び、以後は返り値の `SettingsControls` を使い回すこと。
 ///
 /// 生成直後の値はプレースホルダ（既定値）。実際の値は呼び出し側が続けて
-/// `sync_controls_from_settings` で反映すること。
+/// `sync_controls_from_settings` で反映すること。`lang` は生成時点の表示言語で、
+/// 以後の切り替えは `apply_language` が担う。
 ///
 /// # Safety
 /// AppKit のメインスレッドから呼ぶこと。
-pub unsafe fn build_settings_window(delegate: &AnyObject) -> SettingsControls {
+pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> SettingsControls {
     let placeholder = default_display_settings();
+    let mut localized: Vec<LocalizedControl> = Vec::new();
 
     let rect = NSRect {
         origin: NSPoint { x: 0.0, y: 0.0 },
@@ -602,13 +798,18 @@ pub unsafe fn build_settings_window(delegate: &AnyObject) -> SettingsControls {
     ];
     // 閉じても解放させず、AppState に持ったポインタを再利用して開き直す
     let () = msg_send![window, setReleasedWhenClosed: false];
-    let title = nsstring_from_str("cliip-show 設定");
+    let title = nsstring_from_str(i18n::text(lang, Msg::SettingsTitle));
     let () = msg_send![window, setTitle: title];
     let () = msg_send![title, release];
     // rect の origin は (0, 0)（画面左下隅）のままなので、明示的に画面中央へ寄せる
     let () = msg_send![window, center];
     // 保存せずに閉じたときに設定ファイルの内容へ戻すため windowWillClose: を受け取る
     let () = msg_send![window, setDelegate: delegate];
+    localized.push(LocalizedControl {
+        control: window,
+        msg: Msg::SettingsTitle,
+        kind: LocalizedKind::Title,
+    });
 
     let background: *mut AnyObject = msg_send![background_view_class(), alloc];
     let background: *mut AnyObject = msg_send![background, initWithFrame: rect];
@@ -621,108 +822,137 @@ pub unsafe fn build_settings_window(delegate: &AnyObject) -> SettingsControls {
         content_view,
         delegate,
         0,
-        "ポーリング間隔（秒）",
+        lang,
+        Msg::LabelPollInterval,
         ConfigKey::PollIntervalSecs,
         MIN_POLL_INTERVAL_SECS,
         MAX_POLL_INTERVAL_SECS,
         placeholder.poll_interval_secs,
+        &mut localized,
     );
     let (hud_duration_slider, hud_duration_value_label) = add_slider_row(
         content_view,
         delegate,
         1,
-        "表示時間（秒）",
+        lang,
+        Msg::LabelHudDuration,
         ConfigKey::HudDurationSecs,
         MIN_HUD_DURATION_SECS,
         MAX_HUD_DURATION_SECS,
         placeholder.hud_duration_secs,
+        &mut localized,
     );
     let (hud_fade_duration_slider, hud_fade_duration_value_label) = add_slider_row(
         content_view,
         delegate,
         2,
-        "フェード時間（秒）",
+        lang,
+        Msg::LabelHudFadeDuration,
         ConfigKey::HudFadeDurationSecs,
         MIN_HUD_FADE_DURATION_SECS,
         MAX_HUD_FADE_DURATION_SECS,
         placeholder.hud_fade_duration_secs,
+        &mut localized,
     );
     let (hud_scale_slider, hud_scale_value_label) = add_slider_row(
         content_view,
         delegate,
         3,
-        "HUDサイズ倍率",
+        lang,
+        Msg::LabelHudScale,
         ConfigKey::HudScale,
         MIN_HUD_SCALE,
         MAX_HUD_SCALE,
         placeholder.hud_scale,
+        &mut localized,
     );
     let (max_chars_per_line_field, max_chars_per_line_stepper) = add_stepper_row(
         content_view,
         delegate,
         4,
-        "1行の最大文字数",
+        lang,
+        Msg::LabelMaxCharsPerLine,
         ConfigKey::MaxCharsPerLine,
         MIN_TRUNCATE_MAX_WIDTH,
         MAX_TRUNCATE_MAX_WIDTH,
         placeholder.truncate_max_width,
+        &mut localized,
     );
     let (max_lines_field, max_lines_stepper) = add_stepper_row(
         content_view,
         delegate,
         5,
-        "最大行数",
+        lang,
+        Msg::LabelMaxLines,
         ConfigKey::MaxLines,
         MIN_TRUNCATE_MAX_LINES,
         MAX_TRUNCATE_MAX_LINES,
         placeholder.truncate_max_lines,
+        &mut localized,
     );
     let (hud_image_max_height_field, hud_image_max_height_stepper) = add_stepper_row(
         content_view,
         delegate,
         6,
-        "画像サムネイル高さ上限（px）",
+        lang,
+        Msg::LabelHudImageMaxHeight,
         ConfigKey::HudImageMaxHeight,
         MIN_HUD_IMAGE_MAX_HEIGHT,
         MAX_HUD_IMAGE_MAX_HEIGHT,
         placeholder.hud_image_max_height,
+        &mut localized,
     );
     let hud_position_popup = add_popup_row(
         content_view,
         delegate,
         7,
-        "表示位置",
+        lang,
+        Msg::LabelHudPosition,
         ConfigKey::HudPosition,
         &["top", "center", "bottom"],
         placeholder.hud_position.as_str(),
+        &mut localized,
     );
     let hud_background_color_popup = add_popup_row(
         content_view,
         delegate,
         8,
-        "背景色",
+        lang,
+        Msg::LabelHudBackgroundColor,
         ConfigKey::HudBackgroundColor,
         &["default", "yellow", "blue", "green", "red", "purple"],
         placeholder.hud_background_color.as_str(),
+        &mut localized,
     );
     let (hud_emoji_field, hud_emoji_message_label) = add_field_row(
         content_view,
         delegate,
         9,
-        "アイコン絵文字",
+        lang,
+        Msg::LabelHudEmoji,
         ConfigKey::HudEmoji,
         &placeholder.hud_emoji,
+        &mut localized,
     );
-
     add_divider_row(content_view, SETTINGS_DIVIDER_ROW_INDEX);
-    let login_item_checkbox = add_login_item_row(
+    let language_popup = add_language_row(
+        content_view,
+        delegate,
+        SETTINGS_LANGUAGE_ROW_INDEX,
+        lang,
+        placeholder.language,
+        &mut localized,
+    );
+    let login_item_toggle = add_login_item_row(
         content_view,
         delegate,
         SETTINGS_LOGIN_ITEM_ROW_INDEX,
+        lang,
         crate::login_item::is_enabled(),
+        &mut localized,
     );
 
-    add_button_row(content_view, delegate);
+    add_button_row(content_view, delegate, lang, &mut localized);
 
     SettingsControls {
         window,
@@ -744,14 +974,21 @@ pub unsafe fn build_settings_window(delegate: &AnyObject) -> SettingsControls {
         hud_background_color_popup,
         hud_emoji_field,
         hud_emoji_message_label,
-        login_item_checkbox,
+        language_popup,
+        login_item_toggle,
         draft: placeholder,
         preview_sample_index: 0,
+        localized,
     }
 }
 
 /// ボタンは右寄せで、右端が「保存」になるよう逆順に座標を計算する。
-unsafe fn add_button_row(content_view: *mut AnyObject, delegate: &AnyObject) {
+unsafe fn add_button_row(
+    content_view: *mut AnyObject,
+    delegate: &AnyObject,
+    lang: Lang,
+    localized: &mut Vec<LocalizedControl>,
+) {
     let y = SETTINGS_BOTTOM_MARGIN + (SETTINGS_BUTTON_AREA_HEIGHT - SETTINGS_BUTTON_HEIGHT) / 2.0;
     let save_x = SETTINGS_WINDOW_WIDTH - SETTINGS_BUTTON_RIGHT_MARGIN - SETTINGS_BUTTON_WIDTH;
     let preview_x = save_x - SETTINGS_BUTTON_GAP - SETTINGS_BUTTON_WIDTH;
@@ -762,7 +999,7 @@ unsafe fn add_button_row(content_view: *mut AnyObject, delegate: &AnyObject) {
     };
 
     let reset_button = make_button(
-        "デフォルトに戻す",
+        i18n::text(lang, Msg::ButtonRestoreDefaults),
         sel!(resetSettings:),
         "",
         NSRect {
@@ -772,7 +1009,7 @@ unsafe fn add_button_row(content_view: *mut AnyObject, delegate: &AnyObject) {
         delegate,
     );
     let preview_button = make_button(
-        "お試し表示",
+        i18n::text(lang, Msg::ButtonPreview),
         sel!(previewSettings:),
         "",
         NSRect {
@@ -783,7 +1020,7 @@ unsafe fn add_button_row(content_view: *mut AnyObject, delegate: &AnyObject) {
     );
     // Enter で発火するデフォルトボタンにする
     let save_button = make_button(
-        "保存",
+        i18n::text(lang, Msg::ButtonSave),
         sel!(saveSettings:),
         "\r",
         NSRect {
@@ -796,6 +1033,22 @@ unsafe fn add_button_row(content_view: *mut AnyObject, delegate: &AnyObject) {
     let () = msg_send![content_view, addSubview: reset_button];
     let () = msg_send![content_view, addSubview: preview_button];
     let () = msg_send![content_view, addSubview: save_button];
+
+    localized.push(LocalizedControl {
+        control: reset_button,
+        msg: Msg::ButtonRestoreDefaults,
+        kind: LocalizedKind::Title,
+    });
+    localized.push(LocalizedControl {
+        control: preview_button,
+        msg: Msg::ButtonPreview,
+        kind: LocalizedKind::Title,
+    });
+    localized.push(LocalizedControl {
+        control: save_button,
+        msg: Msg::ButtonSave,
+        kind: LocalizedKind::Title,
+    });
 }
 
 unsafe fn make_button(
@@ -879,6 +1132,7 @@ pub unsafe fn sync_controls_from_settings(controls: &SettingsControls, settings:
         controls.hud_background_color_popup,
         settings.hud_background_color.as_str(),
     );
+    select_language_item(controls.language_popup, settings.language);
 
     set_string_value(controls.hud_emoji_field, &settings.hud_emoji);
     // プログラムによる同期はすべて妥当な値のみを書き戻すため、残っているメッセージは消す。
@@ -887,15 +1141,23 @@ pub unsafe fn sync_controls_from_settings(controls: &SettingsControls, settings:
     set_string_value(controls.hud_emoji_message_label, "");
 }
 
-/// ログイン項目チェックボックスの表示を実際の LaunchAgent の状態に合わせる。
+/// ログイン項目トグルの表示を実際の LaunchAgent の状態に合わせる。
 /// ウィンドウを開くたびに呼び、ファイル外（Finder 等）での変更との食い違いを防ぐ。
 /// `toggleLoginItem:` が `enable`/`disable` に失敗したときの巻き戻しにも使う。
 ///
 /// # Safety
 /// AppKit のメインスレッドから呼ぶこと。
-pub unsafe fn sync_login_item_checkbox(controls: &SettingsControls) {
+pub unsafe fn sync_login_item_toggle(controls: &SettingsControls) {
     let state = login_item_control_state(crate::login_item::is_enabled());
-    let () = msg_send![controls.login_item_checkbox, setState: state];
+    let () = msg_send![controls.login_item_toggle, setState: state];
+}
+
+/// 言語ポップアップの選択を、いま効いている設定値に合わせる。
+///
+/// # Safety
+/// AppKit のメインスレッドから呼ぶこと。
+pub unsafe fn sync_language_popup(controls: &SettingsControls, setting: LanguageSetting) {
+    select_language_item(controls.language_popup, setting);
 }
 
 /// `controlTextDidChange:` から呼ぶ。絵文字フィールドの現在の入力値を判定し、
@@ -907,7 +1169,10 @@ pub unsafe fn sync_login_item_checkbox(controls: &SettingsControls) {
 pub unsafe fn update_emoji_validation_message(state: &AppState) {
     let raw: *mut AnyObject = msg_send![state.settings_controls.hud_emoji_field, stringValue];
     let text = nsstring_to_string(raw).unwrap_or_default();
-    let message = hud_emoji_validation_error(&text).unwrap_or("");
+    let lang = i18n::resolve(state.settings.language);
+    let message = hud_emoji_validation_error(&text)
+        .map(|msg| i18n::text(lang, msg))
+        .unwrap_or("");
     set_string_value(state.settings_controls.hud_emoji_message_label, message);
 }
 
@@ -964,6 +1229,10 @@ unsafe fn raw_value_for_control(
             let title: *mut AnyObject = msg_send![sender, titleOfSelectedItem];
             nsstring_to_string(title)
         }
+        // 言語は表示ラベルが設定値と別なので、タイトルではなく選択位置から引く。
+        ConfigKey::Language => {
+            selected_language_value(sender).map(|value| value.as_str().to_string())
+        }
         ConfigKey::HudEmoji => {
             let value: *mut AnyObject = msg_send![sender, stringValue];
             nsstring_to_string(value)
@@ -984,6 +1253,14 @@ pub unsafe fn apply_setting_change(state: &mut AppState, sender: *mut AnyObject)
     let Some(key) = tag_to_config_key(tag) else {
         return;
     };
+
+    // 言語は下書き（保存ボタンで確定するモデル）の対象外。選んだ瞬間に設定ファイルへ
+    // 保存し、HUD・設定ウィンドウ・メニューへ即時反映する（自動起動トグルと同じ扱い）。
+    if key == ConfigKey::Language {
+        apply_language_setting_change(state, sender);
+        return;
+    }
+
     let Some(raw_value) = raw_value_for_control(key, sender, &state.settings_controls) else {
         return;
     };
@@ -1024,13 +1301,98 @@ pub unsafe fn apply_setting_change(state: &mut AppState, sender: *mut AnyObject)
     );
 }
 
+/// 言語ポップアップの `settingChanged:` から呼ぶ。他の設定と違い下書きを経由せず、選択した
+/// 瞬間に `--config set` と同じ経路（読み込み→検証→保存）でファイルへ書き、`apply_settings_now`
+/// で HUD・設定ウィンドウ・メニューへ即時反映する。
+///
+/// `apply_settings_now` の言語差分側で `draft.language` も一緒に同期する。ここで揃えておかないと
+/// 「保存」ボタンが `draft`（開いた時点のスナップショット）を丸ごと書き戻す際に、今しがた
+/// 選んだ言語を古い値で上書きしてしまう。
+///
+/// # Safety
+/// - `APP_STATE` をロックしないこと（呼び出し側が既にロックを保持している）。
+/// - AppKit のメインスレッドから呼ぶこと。
+unsafe fn apply_language_setting_change(state: &mut AppState, sender: *mut AnyObject) {
+    // 表示ラベル（「システムに合わせる」等）は設定値ではないので、選択位置から値を引く。
+    let Some(selected) = selected_language_value(sender) else {
+        return;
+    };
+
+    match save_language_setting(state, selected.as_str()) {
+        Ok(new_settings) => apply_settings_now(state, new_settings),
+        Err(error) => {
+            eprintln!("warning: {error}");
+            // 保存できなかったので、ポップアップの表示を実際に効いている値へ戻す。
+            // 下書きを経由しないコントロールなので、放置すると適用されていない値を
+            // 表示し続ける（ログイン項目トグルの失敗時と同じ扱い）。
+            select_language_item(
+                state.settings_controls.language_popup,
+                state.settings.language,
+            );
+        }
+    }
+}
+
+/// 言語設定を設定ファイルへ保存し、保存後のファイル内容から `DisplaySettings` を組み直す。
+///
+/// 組み直しに `display_settings_from_file` を使うのは、`language` だけ差し替えると
+/// 外部エディタでの変更を取り込まないまま `config_mtime` だけ進んでしまい、
+/// ファイル監視がその変更を二度と拾わなくなるため。
+///
+/// 副作用として、ファイルに保存していない状態は捨てられる。「お試し表示」で下書きを
+/// HUD に当てている最中に言語を切り替えると、HUD はファイルの値に戻る。
+unsafe fn save_language_setting(
+    state: &mut AppState,
+    raw: &str,
+) -> Result<DisplaySettings, String> {
+    let Some(path) = state.config_path.clone() else {
+        return Err("config path is not resolved; cannot save language setting".to_string());
+    };
+    let (mut config, _) = load_config_file(&path).map_err(|error| error.to_string())?;
+    set_config_value(&mut config, ConfigKey::Language, raw).map_err(|error| error.to_string())?;
+    save_config_file(&path, &config).map_err(|error| error.to_string())?;
+    state.config_mtime = std::fs::metadata(&path)
+        .ok()
+        .and_then(|m| m.modified().ok());
+
+    crate::app::display_settings_from_file(&path).map_err(|error| error.to_string())
+}
+
+/// 言語切り替えで、設定ウィンドウ内の静的なラベル・タイトルをすべて差し替える。
+///
+/// `APP_STATE` のロックを保持したまま呼んでよい: ここで触るのは非編集の `NSTextField`
+/// ラベルと `NSButton`/`NSWindow` のタイトルだけで、いずれも action やテキスト編集の
+/// デリゲート通知（`controlTextDidChange:` 等）を発火しないため、Objective-C 側からの
+/// 再入は起きない。
+///
+/// # Safety
+/// AppKit のメインスレッドから呼ぶこと。
+pub unsafe fn apply_language(controls: &SettingsControls, lang: Lang) {
+    for entry in &controls.localized {
+        let text = i18n::text(lang, entry.msg);
+        match entry.kind {
+            LocalizedKind::StringValue => set_string_value(entry.control, text),
+            LocalizedKind::Title => {
+                let ns = nsstring_from_str(text);
+                let () = msg_send![entry.control, setTitle: ns];
+                let () = msg_send![ns, release];
+            }
+        }
+    }
+    // 「システムに合わせる」は表示言語で書き分けるため、選択肢のラベルも差し替える。
+    retitle_language_popup(controls.language_popup, lang);
+}
+
 /// 下書きを既定値に戻し、コントロール表示を同期する。保存も HUD への適用もしない。
+/// 言語は下書きモデルの対象外のため、既定値へは戻さず現在値を保つ。
 ///
 /// # Safety
 /// - `APP_STATE` をロックしないこと（呼び出し側が既にロックを保持している）。
 /// - AppKit のメインスレッドから呼ぶこと。
 pub unsafe fn reset_settings(state: &mut AppState) {
+    let language = state.settings_controls.draft.language;
     state.settings_controls.draft = default_display_settings();
+    state.settings_controls.draft.language = language;
     sync_controls_from_settings(&state.settings_controls, &state.settings_controls.draft);
 }
 
@@ -1050,14 +1412,17 @@ pub unsafe fn preview_settings(this: &AnyObject, state: &mut AppState) {
     let index = state.settings_controls.preview_sample_index;
     state.settings_controls.preview_sample_index = (index + 1) % PREVIEW_SAMPLES.len();
 
+    let lang = i18n::resolve(state.settings.language);
     match PREVIEW_SAMPLES[index] {
-        PreviewSample::ShortText => show_text_content(state, "サンプル表示：短いテキストです"),
-        PreviewSample::LongText => show_text_content(state, &preview_long_text()),
+        PreviewSample::ShortText => {
+            show_text_content(state, i18n::text(lang, Msg::PreviewShortText))
+        }
+        PreviewSample::LongText => show_text_content(state, &preview_long_text(lang)),
         PreviewSample::Image => match create_preview_sample_image() {
             Ok(image) => show_sample_image_content(state, image),
             Err(error) => {
                 eprintln!("warning: {error}");
-                show_text_content(state, "サンプル表示：短いテキストです");
+                show_text_content(state, i18n::text(lang, Msg::PreviewShortText));
             }
         },
     }
@@ -1145,6 +1510,7 @@ fn control_for_key(controls: &SettingsControls, key: ConfigKey) -> *mut AnyObjec
         ConfigKey::HudPosition => controls.hud_position_popup,
         ConfigKey::HudBackgroundColor => controls.hud_background_color_popup,
         ConfigKey::HudEmoji => controls.hud_emoji_field,
+        ConfigKey::Language => controls.language_popup,
     }
 }
 
@@ -1160,6 +1526,10 @@ unsafe fn raw_value_for_key(key: ConfigKey, control: *mut AnyObject) -> Option<S
         ConfigKey::HudPosition | ConfigKey::HudBackgroundColor => {
             let title: *mut AnyObject = msg_send![control, titleOfSelectedItem];
             nsstring_to_string(title)
+        }
+        // 言語は表示ラベルが設定値と別なので、タイトルではなく選択位置から引く。
+        ConfigKey::Language => {
+            selected_language_value(control).map(|value| value.as_str().to_string())
         }
         ConfigKey::MaxCharsPerLine
         | ConfigKey::MaxLines
@@ -1225,6 +1595,8 @@ unsafe fn resync_controls_after_apply(
         // 拒否された入力は set_config_value のエラー側で戻すため、ここでは触らない。
         // 編集中フィールドへの setStringValue を避ける狙いもある。
         ConfigKey::HudEmoji => {}
+        // 言語は下書きモデルの対象外で、保存の成否にかかわらず再同期する対象が無い。
+        ConfigKey::Language => {}
     }
 }
 
@@ -1247,7 +1619,7 @@ mod tests {
     use super::{config_key_to_tag, tag_to_config_key};
     use crate::config::ConfigKey;
 
-    const ALL_KEYS: [ConfigKey; 10] = [
+    const ALL_KEYS: [ConfigKey; 11] = [
         ConfigKey::PollIntervalSecs,
         ConfigKey::HudDurationSecs,
         ConfigKey::HudFadeDurationSecs,
@@ -1258,6 +1630,7 @@ mod tests {
         ConfigKey::HudBackgroundColor,
         ConfigKey::HudEmoji,
         ConfigKey::HudImageMaxHeight,
+        ConfigKey::Language,
     ];
 
     #[test]
@@ -1271,7 +1644,7 @@ mod tests {
     #[test]
     fn tag_to_config_key_rejects_unknown_tags() {
         assert_eq!(tag_to_config_key(-1), None);
-        assert_eq!(tag_to_config_key(10), None);
+        assert_eq!(tag_to_config_key(11), None);
         assert_eq!(tag_to_config_key(9999), None);
     }
 }

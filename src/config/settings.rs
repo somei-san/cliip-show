@@ -1,10 +1,13 @@
 use super::io::{config_file_path, load_config_file};
 use super::parse::{
     parse_f64_config_value, parse_f64_setting, parse_hud_background_color_setting, parse_hud_emoji,
-    parse_hud_position_setting, parse_usize_config_value, parse_usize_setting,
+    parse_hud_position_setting, parse_language_setting, parse_usize_config_value,
+    parse_usize_setting,
 };
 use super::types::HudBackgroundColor;
-use super::types::{AppConfigFile, DisplayConfigFile, DisplaySettings, HudPosition};
+use super::types::{
+    AppConfigFile, DisplayConfigFile, DisplaySettings, HudPosition, LanguageSetting,
+};
 use super::{
     DEFAULT_HUD_FADE_DURATION_SECS, DEFAULT_HUD_IMAGE_MAX_HEIGHT, DEFAULT_HUD_SCALE,
     DEFAULT_TRUNCATE_MAX_LINES, DEFAULT_TRUNCATE_MAX_WIDTH, HUD_DURATION_SECS,
@@ -26,6 +29,7 @@ pub fn default_display_settings() -> DisplaySettings {
         hud_background_color: HudBackgroundColor::default(),
         hud_emoji: "📋".to_string(),
         hud_image_max_height: DEFAULT_HUD_IMAGE_MAX_HEIGHT,
+        language: LanguageSetting::default(),
     }
 }
 
@@ -118,6 +122,9 @@ pub fn apply_config_file(base: DisplaySettings, config: &AppConfigFile) -> Displ
             "hud_image_max_height",
         );
     }
+    if let Some(value) = config.display.language {
+        settings.language = value;
+    }
     settings
 }
 
@@ -185,6 +192,9 @@ pub fn apply_env_overrides(base: DisplaySettings) -> DisplaySettings {
             MAX_HUD_IMAGE_MAX_HEIGHT,
         );
     }
+    if let Some(value) = read_env_option("CLIIP_SHOW_LANGUAGE") {
+        settings.language = parse_language_setting(&value, settings.language);
+    }
     settings
 }
 
@@ -205,6 +215,7 @@ pub fn print_effective_settings(settings: DisplaySettings) {
     );
     println!("hud_emoji = {}", settings.hud_emoji);
     println!("hud_image_max_height = {}", settings.hud_image_max_height);
+    println!("language = {}", settings.language.as_str());
 }
 
 pub fn settings_to_config_file(settings: DisplaySettings) -> AppConfigFile {
@@ -220,6 +231,7 @@ pub fn settings_to_config_file(settings: DisplaySettings) -> AppConfigFile {
             hud_background_color: Some(settings.hud_background_color),
             hud_emoji: Some(settings.hud_emoji.clone()),
             hud_image_max_height: Some(settings.hud_image_max_height),
+            language: Some(settings.language),
         },
     }
 }

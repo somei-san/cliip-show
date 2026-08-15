@@ -70,6 +70,9 @@ pub fn handle_config_command<I: Iterator<Item = String>>(args: &mut I) -> bool {
                 if let Some(value) = &config.display.hud_emoji {
                     println!("hud_emoji = {}", value);
                 }
+                if let Some(value) = config.display.language {
+                    println!("language = {}", value.as_str());
+                }
             } else {
                 println!("config_file = not_found");
             }
@@ -114,7 +117,7 @@ pub fn handle_config_command<I: Iterator<Item = String>>(args: &mut I) -> bool {
             let Some(key_raw) = args.next() else {
                 eprintln!("Usage: cliip-show --config set <key> <value>");
                 eprintln!(
-                    "Available keys: poll_interval_secs, hud_duration_secs, hud_fade_duration_secs, max_chars_per_line, max_lines, hud_position, hud_scale, hud_background_color, hud_emoji"
+                    "Available keys: poll_interval_secs, hud_duration_secs, hud_fade_duration_secs, max_chars_per_line, max_lines, hud_position, hud_scale, hud_background_color, hud_emoji, language"
                 );
                 std::process::exit(2);
             };
@@ -128,7 +131,7 @@ pub fn handle_config_command<I: Iterator<Item = String>>(args: &mut I) -> bool {
             }
             let Some(key) = parse_config_key(key_raw.trim()) else {
                 eprintln!(
-                    "Unknown key: {key_raw}. Available keys: poll_interval_secs, hud_duration_secs, hud_fade_duration_secs, max_chars_per_line, max_lines, hud_position, hud_scale, hud_background_color, hud_emoji"
+                    "Unknown key: {key_raw}. Available keys: poll_interval_secs, hud_duration_secs, hud_fade_duration_secs, max_chars_per_line, max_lines, hud_position, hud_scale, hud_background_color, hud_emoji, language"
                 );
                 std::process::exit(2);
             };
