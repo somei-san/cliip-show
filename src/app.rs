@@ -362,6 +362,12 @@ pub(crate) unsafe fn apply_settings_now(state: &mut AppState, new_settings: Disp
         let lang = i18n::resolve(state.settings.language);
         crate::settings_window::apply_language(&state.settings_controls, lang);
         crate::menu::apply_language(&state.menu_handles, lang);
+        // 外部から言語が変わったときはポップアップの選択も追随させる。文言の差し替えは
+        // 選択位置を動かさないため、これが無いと選択だけ古い値を指したままになる。
+        crate::settings_window::sync_language_popup(
+            &state.settings_controls,
+            state.settings.language,
+        );
         // 絵文字の検証メッセージは内容が動的で `localized` に載せられないため、個別に描き直す。
         if !state.settings_controls.hud_emoji_field.is_null() {
             crate::settings_window::update_emoji_validation_message(state);

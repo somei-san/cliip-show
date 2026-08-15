@@ -25,7 +25,7 @@ When a copy carries both text and an image (browsers and spreadsheets usually do
 
 The menu bar icon gives you:
 - Settings…: opens the settings window (see [Settings](#settings))
-- Pause: stops the HUD. Anything copied while paused stays unshown after you resume
+- Pause: stops the HUD, with a checkmark while it is on. Anything copied while paused stays unshown after you resume
 - Quit cliip-show
 
 ## Requirements

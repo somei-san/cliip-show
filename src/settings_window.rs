@@ -632,7 +632,8 @@ unsafe fn add_language_row(
 }
 
 /// 絵文字フィールド専用の行。入力中バリデーションのため `controlTextDidChange:` を
-/// 受け取れるよう `setDelegate:` し、フィールド直下にメッセージラベルを追加する。
+/// 受け取れるよう `setDelegate:` し、メッセージラベルを追加する。ラベルの位置は
+/// 行の並びではなくウィンドウ下端が基準（`SETTINGS_EMOJI_MESSAGE_HEIGHT`）。
 #[allow(clippy::too_many_arguments)]
 unsafe fn add_field_row(
     content_view: *mut AnyObject,
@@ -1151,6 +1152,14 @@ pub unsafe fn sync_login_item_toggle(controls: &SettingsControls) {
     let () = msg_send![controls.login_item_toggle, setState: state];
 }
 
+/// 言語ポップアップの選択を、いま効いている設定値に合わせる。
+///
+/// # Safety
+/// AppKit のメインスレッドから呼ぶこと。
+pub unsafe fn sync_language_popup(controls: &SettingsControls, setting: LanguageSetting) {
+    select_language_item(controls.language_popup, setting);
+}
+
 /// `controlTextDidChange:` から呼ぶ。絵文字フィールドの現在の入力値を判定し、
 /// 不正なら理由をメッセージラベルに表示する。妥当なら空にする。
 ///
@@ -1329,6 +1338,9 @@ unsafe fn apply_language_setting_change(state: &mut AppState, sender: *mut AnyOb
 /// 組み直しに `display_settings_from_file` を使うのは、`language` だけ差し替えると
 /// 外部エディタでの変更を取り込まないまま `config_mtime` だけ進んでしまい、
 /// ファイル監視がその変更を二度と拾わなくなるため。
+///
+/// 副作用として、ファイルに保存していない状態は捨てられる。「お試し表示」で下書きを
+/// HUD に当てている最中に言語を切り替えると、HUD はファイルの値に戻る。
 unsafe fn save_language_setting(
     state: &mut AppState,
     raw: &str,
