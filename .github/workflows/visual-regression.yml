@@ -7,6 +7,19 @@ on:
       - main
 
 jobs:
+  # objc2 のコードは macOS でしか型検査が通らないため clippy も macos-latest で回す
+  lint:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Check formatting
+        run: cargo fmt --check
+      - name: Run clippy
+        run: cargo clippy --all-targets -- -D warnings
+
   visual-regression:
     runs-on: macos-latest
     steps:

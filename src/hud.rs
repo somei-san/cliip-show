@@ -625,7 +625,7 @@ mod tests {
     fn fit_thumbnail_size_keeps_aspect_ratio_when_shrinking() {
         let (width, height) = fit_thumbnail_size(320.0, 180.0, 100, 1.0, true);
         assert_eq!(height, 100.0);
-        assert_eq!(width, (320.0 * (100.0 / 180.0) as f64).round());
+        assert_eq!(width, (320.0_f64 * (100.0 / 180.0)).round());
     }
 
     #[test]
@@ -683,7 +683,7 @@ mod tests {
 
     #[test]
     fn hud_width_regression_snapshot() {
-        let cases = vec![
+        let cases = [
             ("ascii_short", "hello".to_string()),
             ("ascii_40", "a".repeat(40)),
             ("wide_20", "あ".repeat(20)),
