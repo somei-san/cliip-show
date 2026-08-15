@@ -23,7 +23,7 @@ cargo run
 
 ```bash
 ./scripts/local_check.sh --position bottom --scale 1.5 --color red
-./scripts/local_check.sh --no-stop-brew --no-build
+./scripts/local_check.sh --no-stop-installed --no-build
 ```
 
 このスクリプトは検証用configを `/tmp/cliip-show-local-check.toml` に作成し、`Ctrl+C` で終了できます。
