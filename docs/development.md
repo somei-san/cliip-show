@@ -83,7 +83,7 @@ open target/release/bundle/osx/cliip-show.app
 
 ## アイコンの素材を更新する
 
-`assets/*-template.svg` を差し替えたときは、同名の PNG を作り直します。この PNG を `src/menu.rs`（メニューバー常駐アイコン）と `src/settings_window.rs`（設定ウィンドウのタブ）が `include_bytes!` で埋め込み、テンプレート画像として描画します。素材を増やすときも `-template.svg` で終わる名前で `assets/` に置きます。
+`assets/*-template.svg` を差し替えたときは、同名の PNG を作り直します。この PNG を `src/menu.rs`（メニューバー常駐アイコン）と `src/settings_window/build.rs`（設定ウィンドウのタブ）が `include_bytes!` で埋め込み、テンプレート画像として描画します。素材を増やすときも `-template.svg` で終わる名前で `assets/` に置きます。
 
 `scripts/build_menu_icon.sh` を実行すると、`assets/` にあるすべての SVG から PNG を生成します。
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # assets/*-template.svg から、テンプレート画像用の PNG を生成する。
-# 生成物は src/menu.rs と src/settings_window.rs が include_bytes! で埋め込む。
+# 生成物は src/menu.rs と src/settings_window/build.rs が include_bytes! で埋め込む。
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
