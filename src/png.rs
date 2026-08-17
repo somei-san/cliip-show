@@ -111,7 +111,12 @@ pub enum SettingsPane {
 /// `CLIIP_SHOW_LANGUAGE` を必ず明示すること（`auto` は実行マシンのシステム言語に
 /// 依存し、ローカルと CI でベースラインが食い違う）。
 ///
-/// タブバーはウィンドウのツールバー領域（contentView の外）にあるため写らない。
+/// 撮れるのは行・コントロールの配置と文言で、次は写らない:
+/// - タブバー（ウィンドウのツールバー領域 = contentView の外）
+/// - 実ウィンドウの背景（ここでは決定性のために不透明背景を合成しており、
+///   実アプリの背景まわりの退行はこのスナップショットでは検出できない）
+///
+/// 自動起動トグルは実行マシンの LaunchAgent の有無で初期値が変わるため、OFF に固定する。
 pub fn render_settings_png(pane: SettingsPane, output_path: &str) -> Result<(), AppError> {
     unsafe {
         let _app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
@@ -129,22 +134,30 @@ pub fn render_settings_png(pane: SettingsPane, output_path: &str) -> Result<(), 
         }
         // プレースホルダ（既定値）のままではなく、環境変数まで効かせた実効設定を写す
         crate::settings_window::sync_controls_from_settings(&controls, &settings);
+        // 自動起動トグルは CLIIP_SHOW_* で上書きできず、実行マシンの LaunchAgent の有無が
+        // 写り込む。ベースラインを環境非依存にするため OFF に固定する
+        let () = msg_send![controls.login_item_toggle, setState: 0isize];
 
         let tab_index: isize = match pane {
-            SettingsPane::Settings => 0,
-            SettingsPane::Support => 1,
+            SettingsPane::Settings => crate::settings_window::TAB_INDEX_SETTINGS,
+            SettingsPane::Support => crate::settings_window::TAB_INDEX_SUPPORT,
         };
         let tab_controller: *mut AnyObject = msg_send![controls.window, contentViewController];
         let () = msg_send![tab_controller, setSelectedTabViewItemIndex: tab_index];
 
         // 実行マシンのライト/ダーク設定でベースラインが割れないよう、外観をライトに固定する。
         // 画面に出さないウィンドウは外観が解決されず、ダーク環境では白文字が透明背景に
-        // 載って消えた状態で描画される
+        // 載って消えた状態で描画される。固定できないなら非決定な PNG を書くより失敗させる
         let aqua_name = NSString::from_str("NSAppearanceNameAqua");
         let aqua: *mut AnyObject = msg_send![class!(NSAppearance), appearanceNamed: &*aqua_name];
-        if !aqua.is_null() {
-            let () = msg_send![controls.window, setAppearance: aqua];
+        if aqua.is_null() {
+            let () = msg_send![controls.window, close];
+            let () = msg_send![delegate, release];
+            return Err(AppError::RenderFailed(
+                "failed to resolve Aqua appearance".to_string(),
+            ));
         }
+        let () = msg_send![controls.window, setAppearance: aqua];
 
         // contentView は透明で、ウィンドウ背景は contentView の外にあるため PNG に写らない。
         // ラベルの黒文字が読めるよう、不透明な明色を背景に敷く
@@ -283,7 +296,7 @@ unsafe fn draw_preview_sample_label(canvas_width: f64, canvas_height: f64) {
     let () = msg_send![shadow, release];
 }
 
-/// HUD ウィンドウの contentView を PNG にして書き出す。
+/// ウィンドウの contentView を PNG にして書き出す（HUD・設定ウィンドウ共用）。
 ///
 /// # Safety
 /// - `window` は有効な NSWindow であること。呼び出し後にクローズされる。

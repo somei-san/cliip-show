@@ -24,6 +24,12 @@ use super::{LocalizedControl, LocalizedKind, SettingsControls};
 
 const GEAR_TEMPLATE_PNG: &[u8] = include_bytes!("../../assets/gear-template.png");
 const BEER_TEMPLATE_PNG: &[u8] = include_bytes!("../../assets/beer-template.png");
+
+/// タブの並び。`build_settings_window` の `add_pane_tab` の呼び出し順がこの値を決める。
+/// タブを増やす・並び替えるときは呼び出し順とここを同時に更新すること
+/// （VRT の `--render-settings-png` がこの index でペインを選ぶ）。
+pub(crate) const TAB_INDEX_SETTINGS: isize = 0;
+pub(crate) const TAB_INDEX_SUPPORT: isize = 1;
 const TAB_ICON_SIZE: f64 = 18.0;
 /// アイコンとタブ名の間隔。AppKit 側では詰まって見えるので、画像の下に透明な余白を足して空ける。
 const TAB_ICON_BOTTOM_PADDING: f64 = 4.0;
@@ -401,6 +407,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         tab_controller,
         setTabStyle: NS_TAB_VIEW_CONTROLLER_TAB_STYLE_TOOLBAR
     ];
+    // 追加順が TAB_INDEX_SETTINGS / TAB_INDEX_SUPPORT を決める
     add_pane_tab(
         tab_controller,
         content_view,

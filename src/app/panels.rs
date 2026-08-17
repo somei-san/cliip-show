@@ -235,13 +235,30 @@ mod tests {
                     .count()
                     + 1;
                 let link_key = NSString::from_str(super::NS_LINK_ATTRIBUTE_NAME);
+                let mut effective = NSRange {
+                    location: 0,
+                    length: 0,
+                };
                 let url: *mut AnyObject = msg_send![
                     credits,
                     attribute: &*link_key
                     atIndex: link_location
-                    effectiveRange: std::ptr::null_mut::<NSRange>()
+                    effectiveRange: &mut effective
                 ];
                 assert!(!url.is_null(), "link attribute missing ({lang:?})");
+                // リンクが URL 全体を覆っていること（1 文字だけ等の付け間違いを弾く）
+                assert_eq!(effective.location, link_location, "({lang:?})");
+                assert_eq!(
+                    effective.length,
+                    REPOSITORY_URL.encode_utf16().count(),
+                    "({lang:?})"
+                );
+                let absolute: *mut AnyObject = msg_send![url, absoluteString];
+                assert_eq!(
+                    nsstring_to_string(absolute).as_deref(),
+                    Some(REPOSITORY_URL),
+                    "({lang:?})"
+                );
 
                 let () = msg_send![credits, release];
             }

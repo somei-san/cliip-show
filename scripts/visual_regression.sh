@@ -25,6 +25,9 @@ rm -f "$ARTIFACT_DIR"/*.png
 cargo build >/dev/null
 BIN="$ROOT_DIR/target/debug/cliip-show"
 MAX_DIFF_PERMILLE="${MAX_DIFF_PERMILLE:-120}" # 120/1000 = 12%
+# 設定ウィンドウのペインは HUD より差分の面積比が小さい（ja/en の文言全取り替えでも
+# 実測 40〜65‰）ため、HUD 用の許容値では文言の退行を検出できない。別枠で厳しくする
+SETTINGS_MAX_DIFF_PERMILLE="${SETTINGS_MAX_DIFF_PERMILLE:-30}"
 VRT_CONFIG_PATH="$ARTIFACT_DIR/vrt-config.toml"
 rm -f "$VRT_CONFIG_PATH"
 
@@ -106,19 +109,20 @@ render_and_compare() {
     return
   fi
 
+  local tolerance="${CASE_MAX_DIFF_PERMILLE:-$MAX_DIFF_PERMILLE}"
   if [[ "$diff_pixels" -eq 0 ]]; then
     rm -f "$diff"
     echo "ok: $id"
   else
-    if (( diff_pixels * 1000 <= total_pixels * MAX_DIFF_PERMILLE )); then
-      echo "ok: $id (within tolerance ${diff_pixels}/${total_pixels}, max=${MAX_DIFF_PERMILLE}/1000)"
+    if (( diff_pixels * 1000 <= total_pixels * tolerance )); then
+      echo "ok: $id (within tolerance ${diff_pixels}/${total_pixels}, max=${tolerance}/1000)"
       rm -f "$diff"
     else
       echo "ng: $id" >&2
       echo "  baseline: $baseline" >&2
       echo "  current : $current" >&2
       echo "  diff    : $diff" >&2
-      echo "  pixels  : ${diff_pixels}/${total_pixels} (max=${MAX_DIFF_PERMILLE}/1000)" >&2
+      echo "  pixels  : ${diff_pixels}/${total_pixels} (max=${tolerance}/1000)" >&2
       failed=1
     fi
   fi
@@ -145,7 +149,8 @@ run_settings_case() {
   local id="$1"
   local pane="$2"
   shift 2
-  render_and_compare "$id" --render-settings-png --pane "$pane" "$@"
+  CASE_MAX_DIFF_PERMILLE="$SETTINGS_MAX_DIFF_PERMILLE" \
+    render_and_compare "$id" --render-settings-png --pane "$pane" "$@"
 }
 
 run_case \

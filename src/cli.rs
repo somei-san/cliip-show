@@ -583,14 +583,17 @@ mod tests {
 
     #[test]
     fn settings_args_accept_pane_and_output() {
-        let parsed =
-            parse_settings_png_args(args(&["--pane", "support", "--output", "/tmp/s.png"]));
         assert_eq!(
-            parsed,
+            parse_settings_png_args(args(&["--pane", "support", "--output", "/tmp/s.png"])),
             Ok(SettingsPngArgs {
                 pane: SettingsPane::Support,
                 output_path: "/tmp/s.png".to_string(),
             })
+        );
+        assert_eq!(
+            parse_settings_png_args(args(&["--pane", "settings", "--output", "/tmp/s.png"]))
+                .map(|parsed| parsed.pane),
+            Ok(SettingsPane::Settings)
         );
     }
 
@@ -611,6 +614,18 @@ mod tests {
         assert_eq!(
             parse_settings_png_args(args(&["--panes", "settings"])),
             Err("Unknown option for --render-settings-png: --panes".to_string())
+        );
+    }
+
+    #[test]
+    fn settings_args_reject_missing_values() {
+        assert_eq!(
+            parse_settings_png_args(args(&["--pane"])),
+            Err("Missing value for --pane".to_string())
+        );
+        assert_eq!(
+            parse_settings_png_args(args(&["--output"])),
+            Err("Missing value for --output".to_string())
         );
     }
 

@@ -10,6 +10,7 @@ use crate::config::{default_display_settings, ConfigKey, DisplaySettings};
 use crate::i18n::Msg;
 
 pub use build::build_settings_window;
+pub(crate) use build::{TAB_INDEX_SETTINGS, TAB_INDEX_SUPPORT};
 pub use sync::{
     apply_language, apply_setting_change, preview_settings, reset_settings, save_settings,
     sync_controls_from_settings, sync_language_popup, sync_login_item_toggle,
