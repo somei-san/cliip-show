@@ -14,6 +14,133 @@ fn parse_image_fixture_size(raw: &str) -> Option<(usize, usize)> {
     Some((width, height))
 }
 
+/// `--render-hud-png` で HUD に載せる内容。
+#[derive(Debug, PartialEq, Eq)]
+enum RenderContent {
+    Text(String),
+    ImageFixture { width: usize, height: usize },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct RenderHudArgs {
+    content: RenderContent,
+    output_path: String,
+}
+
+/// `--render-hud-png` に続くオプションを解析する。Err はそのまま stderr に出す
+/// usage エラーメッセージ（呼び出し元が exit code 2 で終了する）。
+fn parse_render_hud_args(args: impl Iterator<Item = String>) -> Result<RenderHudArgs, String> {
+    let mut args = args;
+    let mut text: Option<String> = None;
+    let mut image_fixture: Option<(usize, usize)> = None;
+    let mut output_path: Option<String> = None;
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--text" => {
+                let Some(value) = args.next() else {
+                    return Err("Missing value for --text".to_string());
+                };
+                text = Some(value);
+            }
+            "--image-fixture" => {
+                let Some(value) = args.next() else {
+                    return Err("Missing value for --image-fixture".to_string());
+                };
+                let Some(size) = parse_image_fixture_size(&value) else {
+                    return Err(format!(
+                        "Invalid value for --image-fixture: {value} (expected <W>x<H>, e.g. 320x180)"
+                    ));
+                };
+                image_fixture = Some(size);
+            }
+            "--output" => {
+                let Some(value) = args.next() else {
+                    return Err("Missing value for --output".to_string());
+                };
+                output_path = Some(value);
+            }
+            unknown => {
+                return Err(format!("Unknown option for --render-hud-png: {unknown}"));
+            }
+        }
+    }
+
+    if text.is_some() && image_fixture.is_some() {
+        return Err("--text and --image-fixture are mutually exclusive".to_string());
+    }
+
+    let Some(output_path) = output_path else {
+        return Err("--output is required for --render-hud-png".to_string());
+    };
+
+    let content = match image_fixture {
+        Some((width, height)) => RenderContent::ImageFixture { width, height },
+        None => RenderContent::Text(text.unwrap_or_else(|| "Clipboard text".to_string())),
+    };
+    Ok(RenderHudArgs {
+        content,
+        output_path,
+    })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct DiffPngArgs {
+    baseline_path: String,
+    current_path: String,
+    output_path: String,
+}
+
+/// `--diff-png` に続くオプションを解析する。Err の扱いは `parse_render_hud_args` と同じ。
+fn parse_diff_png_args(args: impl Iterator<Item = String>) -> Result<DiffPngArgs, String> {
+    let mut args = args;
+    let mut baseline_path: Option<String> = None;
+    let mut current_path: Option<String> = None;
+    let mut output_path: Option<String> = None;
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--baseline" => {
+                let Some(value) = args.next() else {
+                    return Err("Missing value for --baseline".to_string());
+                };
+                baseline_path = Some(value);
+            }
+            "--current" => {
+                let Some(value) = args.next() else {
+                    return Err("Missing value for --current".to_string());
+                };
+                current_path = Some(value);
+            }
+            "--output" => {
+                let Some(value) = args.next() else {
+                    return Err("Missing value for --output".to_string());
+                };
+                output_path = Some(value);
+            }
+            unknown => {
+                return Err(format!("Unknown option for --diff-png: {unknown}"));
+            }
+        }
+    }
+
+    let Some(baseline_path) = baseline_path else {
+        return Err("--baseline is required for --diff-png".to_string());
+    };
+    let Some(current_path) = current_path else {
+        return Err("--current is required for --diff-png".to_string());
+    };
+    let Some(output_path) = output_path else {
+        return Err("--output is required for --diff-png".to_string());
+    };
+
+    Ok(DiffPngArgs {
+        baseline_path,
+        current_path,
+        output_path,
+    })
+}
+
 pub fn handle_cli_flags() -> bool {
     let mut args = std::env::args();
     let _program = args.next();
@@ -117,60 +244,19 @@ pub fn handle_cli_flags() -> bool {
         }
         "--config-show" => show_config(&mut args),
         "--render-hud-png" => {
-            let mut text: Option<String> = None;
-            let mut image_fixture: Option<(usize, usize)> = None;
-            let mut output_path: Option<String> = None;
-
-            while let Some(arg) = args.next() {
-                match arg.as_str() {
-                    "--text" => {
-                        let Some(value) = args.next() else {
-                            eprintln!("Missing value for --text");
-                            std::process::exit(2);
-                        };
-                        text = Some(value);
-                    }
-                    "--image-fixture" => {
-                        let Some(value) = args.next() else {
-                            eprintln!("Missing value for --image-fixture");
-                            std::process::exit(2);
-                        };
-                        let Some(size) = parse_image_fixture_size(&value) else {
-                            eprintln!("Invalid value for --image-fixture: {value} (expected <W>x<H>, e.g. 320x180)");
-                            std::process::exit(2);
-                        };
-                        image_fixture = Some(size);
-                    }
-                    "--output" => {
-                        let Some(value) = args.next() else {
-                            eprintln!("Missing value for --output");
-                            std::process::exit(2);
-                        };
-                        output_path = Some(value);
-                    }
-                    unknown => {
-                        eprintln!("Unknown option for --render-hud-png: {unknown}");
-                        std::process::exit(2);
-                    }
+            let parsed = match parse_render_hud_args(args) {
+                Ok(parsed) => parsed,
+                Err(message) => {
+                    eprintln!("{message}");
+                    std::process::exit(2);
                 }
-            }
-
-            if text.is_some() && image_fixture.is_some() {
-                eprintln!("--text and --image-fixture are mutually exclusive");
-                std::process::exit(2);
-            }
-
-            let Some(output_path) = output_path else {
-                eprintln!("--output is required for --render-hud-png");
-                std::process::exit(2);
             };
 
-            let result = match image_fixture {
-                Some((width, height)) => render_hud_image_png(width, height, &output_path),
-                None => {
-                    let text = text.unwrap_or_else(|| "Clipboard text".to_string());
-                    render_hud_png(&text, &output_path)
+            let result = match parsed.content {
+                RenderContent::ImageFixture { width, height } => {
+                    render_hud_image_png(width, height, &parsed.output_path)
                 }
+                RenderContent::Text(text) => render_hud_png(&text, &parsed.output_path),
             };
             if let Err(error) = result {
                 eprintln!("{error}");
@@ -179,55 +265,21 @@ pub fn handle_cli_flags() -> bool {
             true
         }
         "--diff-png" => {
-            let mut baseline_path: Option<String> = None;
-            let mut current_path: Option<String> = None;
-            let mut output_path: Option<String> = None;
-
-            while let Some(arg) = args.next() {
-                match arg.as_str() {
-                    "--baseline" => {
-                        let Some(value) = args.next() else {
-                            eprintln!("Missing value for --baseline");
-                            std::process::exit(2);
-                        };
-                        baseline_path = Some(value);
-                    }
-                    "--current" => {
-                        let Some(value) = args.next() else {
-                            eprintln!("Missing value for --current");
-                            std::process::exit(2);
-                        };
-                        current_path = Some(value);
-                    }
-                    "--output" => {
-                        let Some(value) = args.next() else {
-                            eprintln!("Missing value for --output");
-                            std::process::exit(2);
-                        };
-                        output_path = Some(value);
-                    }
-                    unknown => {
-                        eprintln!("Unknown option for --diff-png: {unknown}");
-                        std::process::exit(2);
-                    }
+            let parsed = match parse_diff_png_args(args) {
+                Ok(parsed) => parsed,
+                Err(message) => {
+                    eprintln!("{message}");
+                    std::process::exit(2);
                 }
-            }
-
-            let Some(baseline_path) = baseline_path else {
-                eprintln!("--baseline is required for --diff-png");
-                std::process::exit(2);
-            };
-            let Some(current_path) = current_path else {
-                eprintln!("--current is required for --diff-png");
-                std::process::exit(2);
-            };
-            let Some(output_path) = output_path else {
-                eprintln!("--output is required for --diff-png");
-                std::process::exit(2);
             };
 
-            match generate_diff_png(&baseline_path, &current_path, &output_path) {
+            match generate_diff_png(
+                &parsed.baseline_path,
+                &parsed.current_path,
+                &parsed.output_path,
+            ) {
                 Ok(summary) => {
+                    // VRT スクリプトがこの stdout 形式をパースしている（変えるならスクリプトも同時に）
                     println!(
                         "diff_pixels={} total_pixels={}",
                         summary.diff_pixels, summary.total_pixels
@@ -250,7 +302,210 @@ pub fn handle_cli_flags() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_image_fixture_size;
+    use super::{
+        parse_diff_png_args, parse_image_fixture_size, parse_render_hud_args, DiffPngArgs,
+        RenderContent, RenderHudArgs,
+    };
+
+    fn args(list: &[&str]) -> impl Iterator<Item = String> {
+        list.iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+
+    #[test]
+    fn render_args_accept_text_and_output() {
+        let parsed = parse_render_hud_args(args(&["--text", "hello", "--output", "/tmp/out.png"]));
+        assert_eq!(
+            parsed,
+            Ok(RenderHudArgs {
+                content: RenderContent::Text("hello".to_string()),
+                output_path: "/tmp/out.png".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn render_args_accept_image_fixture() {
+        let parsed = parse_render_hud_args(args(&[
+            "--image-fixture",
+            "320x180",
+            "--output",
+            "/tmp/o.png",
+        ]));
+        assert_eq!(
+            parsed,
+            Ok(RenderHudArgs {
+                content: RenderContent::ImageFixture {
+                    width: 320,
+                    height: 180
+                },
+                output_path: "/tmp/o.png".to_string(),
+            })
+        );
+    }
+
+    /// `--text` 省略時はプレースホルダ文言で描画する（既定値も外部挙動なので固定する）。
+    #[test]
+    fn render_args_default_to_placeholder_text() {
+        let parsed = parse_render_hud_args(args(&["--output", "/tmp/out.png"]));
+        assert_eq!(
+            parsed.map(|p| p.content),
+            Ok(RenderContent::Text("Clipboard text".to_string()))
+        );
+    }
+
+    /// `--output` も欠けた状態で両指定した場合、必須チェックより排他チェックが先に報告されること
+    /// （エラーの判定順序の固定）。
+    #[test]
+    fn render_args_reject_text_with_image_fixture() {
+        let parsed =
+            parse_render_hud_args(args(&["--text", "hello", "--image-fixture", "320x180"]));
+        assert_eq!(
+            parsed,
+            Err("--text and --image-fixture are mutually exclusive".to_string())
+        );
+    }
+
+    /// ループ内のエラー（unknown option）は排他チェックより先に報告されること。
+    #[test]
+    fn render_args_report_loop_errors_before_exclusivity() {
+        let parsed = parse_render_hud_args(args(&[
+            "--text",
+            "hello",
+            "--image-fixture",
+            "320x180",
+            "--bogus",
+        ]));
+        assert_eq!(
+            parsed,
+            Err("Unknown option for --render-hud-png: --bogus".to_string())
+        );
+    }
+
+    #[test]
+    fn render_args_require_output() {
+        let parsed = parse_render_hud_args(args(&["--text", "hello"]));
+        assert_eq!(
+            parsed,
+            Err("--output is required for --render-hud-png".to_string())
+        );
+    }
+
+    #[test]
+    fn render_args_reject_unknown_options_and_missing_values() {
+        assert_eq!(
+            parse_render_hud_args(args(&["--textt", "hello"])),
+            Err("Unknown option for --render-hud-png: --textt".to_string())
+        );
+        assert_eq!(
+            parse_render_hud_args(args(&["--text"])),
+            Err("Missing value for --text".to_string())
+        );
+        assert_eq!(
+            parse_render_hud_args(args(&["--image-fixture"])),
+            Err("Missing value for --image-fixture".to_string())
+        );
+        assert_eq!(
+            parse_render_hud_args(args(&["--output"])),
+            Err("Missing value for --output".to_string())
+        );
+        assert_eq!(
+            parse_render_hud_args(args(&["--image-fixture", "320"])),
+            Err(
+                "Invalid value for --image-fixture: 320 (expected <W>x<H>, e.g. 320x180)"
+                    .to_string()
+            )
+        );
+    }
+
+    /// オプション直後の値はフラグ風の文字列でもそのまま値として取り込む（現行契約の固定）。
+    /// `--text --output /x.png` は text="--output" になり、続く /x.png が unknown 扱いになる。
+    #[test]
+    fn render_args_take_the_next_token_verbatim_as_a_value() {
+        let parsed = parse_render_hud_args(args(&["--text", "--output", "/tmp/x.png"]));
+        assert_eq!(
+            parsed,
+            Err("Unknown option for --render-hud-png: /tmp/x.png".to_string())
+        );
+    }
+
+    #[test]
+    fn diff_args_accept_all_three_paths() {
+        let parsed = parse_diff_png_args(args(&[
+            "--baseline",
+            "/tmp/b.png",
+            "--current",
+            "/tmp/c.png",
+            "--output",
+            "/tmp/d.png",
+        ]));
+        assert_eq!(
+            parsed,
+            Ok(DiffPngArgs {
+                baseline_path: "/tmp/b.png".to_string(),
+                current_path: "/tmp/c.png".to_string(),
+                output_path: "/tmp/d.png".to_string(),
+            })
+        );
+    }
+
+    /// 3 つの必須オプションはどれが欠けてもエラーになり、欠けたものが名指しされること。
+    /// 全部欠けたときは baseline → current → output の順で先頭のものが報告される。
+    #[test]
+    fn diff_args_require_each_path() {
+        assert_eq!(
+            parse_diff_png_args(args(&[])),
+            Err("--baseline is required for --diff-png".to_string())
+        );
+        assert_eq!(
+            parse_diff_png_args(args(&["--current", "/tmp/c.png", "--output", "/tmp/d.png"])),
+            Err("--baseline is required for --diff-png".to_string())
+        );
+        assert_eq!(
+            parse_diff_png_args(args(&[
+                "--baseline",
+                "/tmp/b.png",
+                "--output",
+                "/tmp/d.png"
+            ])),
+            Err("--current is required for --diff-png".to_string())
+        );
+        assert_eq!(
+            parse_diff_png_args(args(&[
+                "--baseline",
+                "/tmp/b.png",
+                "--current",
+                "/tmp/c.png"
+            ])),
+            Err("--output is required for --diff-png".to_string())
+        );
+    }
+
+    #[test]
+    fn diff_args_reject_unknown_options() {
+        assert_eq!(
+            parse_diff_png_args(args(&["--base", "/tmp/b.png"])),
+            Err("Unknown option for --diff-png: --base".to_string())
+        );
+    }
+
+    #[test]
+    fn diff_args_reject_missing_values() {
+        assert_eq!(
+            parse_diff_png_args(args(&["--baseline"])),
+            Err("Missing value for --baseline".to_string())
+        );
+        assert_eq!(
+            parse_diff_png_args(args(&["--current"])),
+            Err("Missing value for --current".to_string())
+        );
+        assert_eq!(
+            parse_diff_png_args(args(&["--output"])),
+            Err("Missing value for --output".to_string())
+        );
+    }
 
     #[test]
     fn parse_image_fixture_size_accepts_valid_sizes() {

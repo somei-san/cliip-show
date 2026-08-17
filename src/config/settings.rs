@@ -129,6 +129,17 @@ pub fn apply_config_file(base: DisplaySettings, config: &AppConfigFile) -> Displ
 }
 
 pub fn apply_env_overrides(base: DisplaySettings) -> DisplaySettings {
+    apply_env_overrides_with(base, |name| std::env::var(name).ok())
+}
+
+/// 環境変数の読み取り元を差し替えられる本体。`std::env` はプロセスグローバルで
+/// 並列実行のテストから安全に操作できないため、テストは lookup を注入して呼ぶ。
+fn apply_env_overrides_with(
+    base: DisplaySettings,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> DisplaySettings {
+    // trim はここで行う（lookup は生の値を返す契約）
+    let read_env_option = |name: &str| lookup(name).map(|raw| raw.trim().to_string());
     let mut settings = base;
     if let Some(value) = read_env_option("CLIIP_SHOW_POLL_INTERVAL_SECS") {
         settings.poll_interval_secs = parse_f64_setting(
@@ -265,17 +276,27 @@ pub fn settings_to_config_file(settings: DisplaySettings) -> AppConfigFile {
     }
 }
 
-fn read_env_option(name: &str) -> Option<String> {
-    let Ok(raw) = std::env::var(name) else {
-        return None;
-    };
-    Some(raw.trim().to_string())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{default_display_settings, saved_value, settings_to_config_file};
-    use crate::config::ConfigKey;
+    use super::{
+        apply_config_file, apply_env_overrides_with, default_display_settings, saved_value,
+        settings_to_config_file,
+    };
+    use crate::config::types::{HudPosition, LanguageSetting};
+    use crate::config::{
+        AppConfigFile, ConfigKey, MAX_HUD_FADE_DURATION_SECS, MAX_HUD_IMAGE_MAX_HEIGHT,
+        MAX_HUD_SCALE, MAX_TRUNCATE_MAX_LINES, MIN_HUD_SCALE, MIN_POLL_INTERVAL_SECS,
+    };
+
+    /// 固定の名前→値ペアを lookup として返す（`std::env` を触らないための注入）。
+    fn env_from(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+        move |name| {
+            pairs
+                .iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, value)| (*value).to_string())
+        }
+    }
 
     /// キーを足したときに `[saved]` の出力から漏れないことを守る。
     #[test]
@@ -288,6 +309,160 @@ mod tests {
                 key.as_str()
             );
         }
+    }
+
+    /// 設定ファイルの範囲外の値は落とさずクランプして採用する（手編集した値で起動不能にしない）。
+    /// 下限側は parse.rs の `apply_config_file_clamps_out_of_range_values` が張っているので、
+    /// ここでは上限側と、そちらに無い fade / image_max_height を押さえる。
+    #[test]
+    fn apply_config_file_clamps_values_above_max() {
+        let mut config = AppConfigFile::default();
+        config.display.hud_scale = Some(99.0);
+        config.display.max_lines = Some(999);
+        config.display.hud_fade_duration_secs = Some(99.0);
+        config.display.hud_image_max_height = Some(9999);
+
+        let settings = apply_config_file(default_display_settings(), &config);
+        assert_eq!(settings.hud_scale, MAX_HUD_SCALE);
+        assert_eq!(settings.truncate_max_lines, MAX_TRUNCATE_MAX_LINES);
+        assert_eq!(settings.hud_fade_duration_secs, MAX_HUD_FADE_DURATION_SECS);
+        assert_eq!(settings.hud_image_max_height, MAX_HUD_IMAGE_MAX_HEIGHT);
+    }
+
+    /// 範囲の端の値はクランプに巻き込まれずそのまま通ること（境界の off-by-one 検出）。
+    #[test]
+    fn apply_config_file_keeps_boundary_values_unchanged() {
+        let mut config = AppConfigFile::default();
+        config.display.hud_scale = Some(MIN_HUD_SCALE);
+        config.display.poll_interval_secs = Some(MIN_POLL_INTERVAL_SECS);
+        config.display.max_lines = Some(MAX_TRUNCATE_MAX_LINES);
+
+        let settings = apply_config_file(default_display_settings(), &config);
+        assert_eq!(settings.hud_scale, MIN_HUD_SCALE);
+        assert_eq!(settings.poll_interval_secs, MIN_POLL_INTERVAL_SECS);
+        assert_eq!(settings.truncate_max_lines, MAX_TRUNCATE_MAX_LINES);
+    }
+
+    /// 設定ファイルに無いキーはデフォルト値のまま残ること。
+    #[test]
+    fn apply_config_file_keeps_defaults_for_absent_keys() {
+        let mut config = AppConfigFile::default();
+        config.display.hud_scale = Some(1.5);
+
+        let defaults = default_display_settings();
+        let settings = apply_config_file(defaults.clone(), &config);
+        assert_eq!(settings.hud_scale, 1.5);
+        assert_eq!(settings.poll_interval_secs, defaults.poll_interval_secs);
+        assert_eq!(settings.hud_emoji, defaults.hud_emoji);
+        assert_eq!(settings.language, defaults.language);
+    }
+
+    /// 環境変数は設定ファイルの値より優先される（docs/development.md に明記している外部仕様）。
+    #[test]
+    fn env_overrides_take_precedence_over_the_config_file() {
+        let mut config = AppConfigFile::default();
+        config.display.hud_scale = Some(1.5);
+        config.display.hud_position = Some(HudPosition::Center);
+        let from_file = apply_config_file(default_display_settings(), &config);
+
+        let settings = apply_env_overrides_with(
+            from_file,
+            env_from(&[
+                ("CLIIP_SHOW_HUD_SCALE", "0.8"),
+                ("CLIIP_SHOW_HUD_POSITION", "bottom"),
+                ("CLIIP_SHOW_LANGUAGE", "ja"),
+            ]),
+        );
+        assert_eq!(settings.hud_scale, 0.8);
+        assert_eq!(settings.hud_position, HudPosition::Bottom);
+        assert_eq!(settings.language, LanguageSetting::Ja);
+    }
+
+    /// パースできない環境変数は無視して元の値を使う（変な値で起動不能にしない）。
+    #[test]
+    fn invalid_env_values_fall_back_to_the_base_value() {
+        let base = default_display_settings();
+        let settings = apply_env_overrides_with(
+            base.clone(),
+            env_from(&[
+                ("CLIIP_SHOW_HUD_SCALE", "abc"),
+                ("CLIIP_SHOW_HUD_POSITION", "middle"),
+                ("CLIIP_SHOW_HUD_EMOJI", "📋🍣"),
+                ("CLIIP_SHOW_MAX_LINES", "-1"),
+            ]),
+        );
+        assert_eq!(settings, base);
+    }
+
+    /// 範囲外の環境変数は落とさずクランプして採用する。
+    #[test]
+    fn out_of_range_env_values_are_clamped() {
+        let settings = apply_env_overrides_with(
+            default_display_settings(),
+            env_from(&[
+                ("CLIIP_SHOW_HUD_SCALE", "99"),
+                ("CLIIP_SHOW_POLL_INTERVAL_SECS", "0.0001"),
+            ]),
+        );
+        assert_eq!(settings.hud_scale, MAX_HUD_SCALE);
+        assert_eq!(settings.poll_interval_secs, MIN_POLL_INTERVAL_SECS);
+    }
+
+    /// シェルの引用符由来の前後空白は取り除いてから解釈する。
+    #[test]
+    fn env_values_are_trimmed_before_parsing() {
+        let settings = apply_env_overrides_with(
+            default_display_settings(),
+            env_from(&[
+                ("CLIIP_SHOW_HUD_SCALE", " 1.5 "),
+                ("CLIIP_SHOW_HUD_POSITION", " bottom "),
+            ]),
+        );
+        assert_eq!(settings.hud_scale, 1.5);
+        assert_eq!(settings.hud_position, HudPosition::Bottom);
+    }
+
+    /// 全キーが `CLIIP_SHOW_<キー名大文字>` の環境変数で上書きできること。
+    /// production 側の変数名リテラルの書き換え・追随漏れをここで落とす
+    /// （命名規約は docs/development.md の環境変数の節）。
+    #[test]
+    fn every_config_key_is_reachable_via_env() {
+        for key in ConfigKey::ALL {
+            // デフォルトと異なる有効値。デフォルトと同じ値だと空振りでも通ってしまう
+            let value = match key {
+                ConfigKey::PollIntervalSecs => "0.5",
+                ConfigKey::HudDurationSecs => "2.0",
+                ConfigKey::HudFadeDurationSecs => "1.0",
+                ConfigKey::MaxCharsPerLine => "50",
+                ConfigKey::MaxLines => "3",
+                ConfigKey::HudPosition => "bottom",
+                ConfigKey::HudScale => "1.5",
+                ConfigKey::HudBackgroundColor => "blue",
+                ConfigKey::HudEmoji => "🍺",
+                ConfigKey::HudImageMaxHeight => "80",
+                ConfigKey::Language => "ja",
+            };
+            let env_name = format!("CLIIP_SHOW_{}", key.as_str().to_uppercase());
+            let settings = apply_env_overrides_with(default_display_settings(), |name| {
+                (name == env_name).then(|| value.to_string())
+            });
+            assert_ne!(
+                settings,
+                default_display_settings(),
+                "{env_name} が設定に反映されない"
+            );
+        }
+    }
+
+    /// `CLIIP_SHOW_HUD_EMOJI=""`（アイコンなし）は「未設定」ではなく空指定として効くこと。
+    /// VRT の no_emoji ケースはこの挙動に依存している。
+    #[test]
+    fn empty_env_emoji_disables_the_icon() {
+        let settings = apply_env_overrides_with(
+            default_display_settings(),
+            env_from(&[("CLIIP_SHOW_HUD_EMOJI", "")]),
+        );
+        assert_eq!(settings.hud_emoji, "");
     }
 
     /// `as_str` が設定ファイルのキー名からずれると、`[saved]` が設定ファイルに無い名前を出す。

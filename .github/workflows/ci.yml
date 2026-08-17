@@ -1,10 +1,16 @@
-name: visual-regression
+name: ci
 
 on:
   pull_request:
   push:
     branches:
       - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # PR への連続 push では古いランをキャンセルする。main の push はキャンセルしない
+  # （連続 merge 時にゲート通過の記録が欠けるのを防ぐ）
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   # objc2 のコードは macOS でしか型検査が通らないため clippy も macos-latest で回す
@@ -15,21 +21,26 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
       - name: Check formatting
         run: cargo fmt --check
       - name: Run clippy
         run: cargo clippy --all-targets -- -D warnings
 
+  # cargo test と VRT はビルド成果物を共有できるよう同一 job にまとめている
   visual-regression:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Run unit tests
         run: cargo test
       - name: Run visual regression
         run: ./scripts/visual_regression.sh
         env:
+          # ローカル既定（120）より緩い値。GitHub ランナーは手元の実機とフォント
+          # レンダリングが微妙に違い、文字境界のアンチエイリアスに差分が乗るため
           MAX_DIFF_PERMILLE: 160
       - name: Upload visual artifacts on failure
         if: failure()
