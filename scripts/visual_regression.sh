@@ -303,6 +303,18 @@ run_image_case \
   "320x180" \
   "CLIIP_SHOW_HUD_IMAGE_MAX_HEIGHT=80"
 
+# Settings profile: hud_scale=2.0 with an image (thumbnail box must scale with the HUD)
+run_image_case \
+  "setting_hud_scale_20_image" \
+  "320x180" \
+  "CLIIP_SHOW_HUD_SCALE=2.0"
+
+# Settings profile: hud_background_color with an image (background layer behind the thumbnail)
+run_image_case \
+  "setting_hud_background_color_green_image" \
+  "320x180" \
+  "CLIIP_SHOW_HUD_BACKGROUND_COLOR=green"
+
 # Settings profile: hud_emoji="" (no icon, text) — icon column and its gap are removed
 run_case \
   "no_emoji_short_text" \
