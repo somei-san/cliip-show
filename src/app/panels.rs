@@ -24,6 +24,11 @@ const NS_LINK_ATTRIBUTE_NAME: &str = "NSLink";
 ///
 /// 常駐が前提のアプリで自動起動が切れている状態は設定が未完了なので、断られても促し続ける。
 /// 抑止チェックボックスを入れて閉じたときだけ `mark_prompted` を記録し、以後は出さない。
+///
+/// # Safety
+/// - `APP_STATE` のロックを保持したまま呼ばないこと。`runModal` が実行ループを止めるため、
+///   他の経路がロック待ちで固まる。
+/// - AppKit のメインスレッドから呼ぶこと。
 pub(super) unsafe fn prompt_login_item_if_needed(lang: Lang) {
     if crate::login_item::is_enabled() || crate::login_item::has_prompted() {
         return;

@@ -472,9 +472,10 @@ mod tests {
     use super::get_delegate_class;
     use objc2::sel;
 
-    /// メニュー項目やボタンが送るセレクタに応答しないと、クリックした瞬間に
+    /// メニュー項目やボタン・タイマーが送るセレクタに応答しないと、発火した瞬間に
     /// unrecognized selector で落ちる。セレクタ名は文字列なのでコンパイルでは
-    /// 食い違いを検出できない。
+    /// 食い違いを検出できない。特に hideHud: / fadeTick: は登録（mod.rs）と送信
+    /// （hud_show.rs）が別ファイルで、片方だけ触る編集が起きやすい。
     #[test]
     fn delegate_responds_to_menu_selectors() {
         let class = get_delegate_class();
@@ -484,6 +485,8 @@ mod tests {
             sel!(openSupportPage:),
             sel!(showAboutPanel:),
             sel!(quitApp:),
+            sel!(hideHud:),
+            sel!(fadeTick:),
         ] {
             assert!(
                 class.responds_to(selector),

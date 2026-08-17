@@ -184,9 +184,10 @@ pub(super) unsafe fn hide_hud_now(this: &AnyObject, state: &mut AppState) {
 
 /// フェードアウトの 1 ティック。`hide_hud_now` が張った `fadeTick:` タイマーから呼ばれる。
 ///
-/// ロックを保持したまま `setAlphaValue:`/`orderOut:` を呼ぶと再入の懸念があるため、
-/// フィールドの更新が終わったら `drop(guard)` で手放してから AppKit を呼ぶ。この手放しの
-/// タイミングが本質のため、ロック取得だけを mod.rs のシムに切り出す形にはしていない。
+/// フィールドの更新が終わったら `drop(guard)` でロックを手放してから AppKit を呼ぶ。
+/// ティックは高頻度に発火するので、AppKit の描画中までロックを持ち続けない。
+/// この手放しのタイミングが本質のため、ロック取得だけを mod.rs のシムに切り出す形には
+/// していない。
 pub(super) extern "C" fn fade_tick(_: &AnyObject, _: Sel, timer: *mut AnyObject) {
     unsafe {
         // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
