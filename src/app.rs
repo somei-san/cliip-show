@@ -797,7 +797,7 @@ extern "C" fn show_about_panel(_: &AnyObject, _: Sel, _: *mut AnyObject) {
             nsstring_from_str(ABOUT_OPTION_CREDITS),
         ];
         let values = [
-            nsstring_from_str("cliip-show"),
+            nsstring_from_str(i18n::APP_NAME),
             nsstring_from_str(env!("CARGO_PKG_VERSION")),
             about_credits(lang),
         ];
