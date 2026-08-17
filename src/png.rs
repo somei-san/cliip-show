@@ -359,86 +359,53 @@ pub fn generate_diff_png(
         }
 
         if baseline_data.is_null() || current_data.is_null() || diff_data.is_null() {
-            // bitmapData が取れない場合は ObjC API にフォールバック
-            for x in 0..baseline_width {
-                for y in 0..baseline_height {
-                    let baseline_color: *mut AnyObject = msg_send![baseline_rep, colorAtX: x y: y];
-                    let current_color: *mut AnyObject = msg_send![current_rep, colorAtX: x y: y];
-                    let Some((br, bg, bb, ba)) = color_components(baseline_color) else {
-                        continue;
-                    };
-                    let Some((cr, cg, cb, ca)) = color_components(current_color) else {
-                        continue;
-                    };
-                    let same = pixel_is_same(
-                        PixelColor {
-                            r: br,
-                            g: bg,
-                            b: bb,
-                            a: ba,
-                        },
-                        PixelColor {
-                            r: cr,
-                            g: cg,
-                            b: cb,
-                            a: ca,
-                        },
-                    );
-                    let color: *mut AnyObject = if same {
-                        let gray = ((cr + cg + cb) / 3.0).clamp(0.0, 1.0);
-                        msg_send![class!(NSColor), colorWithCalibratedRed: gray green: gray blue: gray alpha: 0.08f64]
-                    } else {
-                        diff_pixels += 1;
-                        let delta = (to_u8(cr).abs_diff(to_u8(br)))
-                            .max(to_u8(cg).abs_diff(to_u8(bg)))
-                            .max(to_u8(cb).abs_diff(to_u8(bb)));
-                        let intensity = (f64::from(delta.max(128))) / 255.0;
-                        msg_send![class!(NSColor), colorWithCalibratedRed: intensity green: 0.0f64 blue: 0.0f64 alpha: 0.9f64]
-                    };
-                    let () = msg_send![diff_rep, setColor: color atX: x y: y];
-                }
-            }
-        } else {
-            // 直接バッファ操作: RGBA 8bpp を仮定（create_bitmap_rep_for_bounds と同じ設定）
-            // Safety:
-            // - bytes_per_row >= width * 4 は直前の境界チェックで保証済み
-            // - データポインタは null でないことを直前でチェック済み
-            // - ループ変数 y < height, x < width なのでオフセットはバッファ範囲内
-            for y in 0..baseline_height as usize {
-                for x in 0..baseline_width as usize {
-                    let b_offset = y * bytes_per_row_baseline + x * 4;
-                    let c_offset = y * bytes_per_row_current + x * 4;
-                    let d_offset = y * bytes_per_row_diff + x * 4;
-                    let br = *baseline_data.add(b_offset);
-                    let bg = *baseline_data.add(b_offset + 1);
-                    let bb = *baseline_data.add(b_offset + 2);
-                    let ba = *baseline_data.add(b_offset + 3);
-                    let cr = *current_data.add(c_offset);
-                    let cg = *current_data.add(c_offset + 1);
-                    let cb = *current_data.add(c_offset + 2);
-                    let ca = *current_data.add(c_offset + 3);
+            let () = msg_send![baseline_rep, release];
+            let () = msg_send![current_rep, release];
+            let () = msg_send![diff_rep, release];
+            return Err(AppError::RenderFailed(
+                "failed to access bitmap data for diff".to_string(),
+            ));
+        }
 
-                    let same = br.abs_diff(cr) <= PIXEL_CHANNEL_TOLERANCE
-                        && bg.abs_diff(cg) <= PIXEL_CHANNEL_TOLERANCE
-                        && bb.abs_diff(cb) <= PIXEL_CHANNEL_TOLERANCE
-                        && ba.abs_diff(ca) <= PIXEL_CHANNEL_TOLERANCE;
+        // 直接バッファ操作: RGBA 8bpp を仮定（create_bitmap_rep_for_bounds と同じ設定）
+        // Safety:
+        // - bytes_per_row >= width * 4 は直前の境界チェックで保証済み
+        // - データポインタは null でないことを直前でチェック済み
+        // - ループ変数 y < height, x < width なのでオフセットはバッファ範囲内
+        for y in 0..baseline_height as usize {
+            for x in 0..baseline_width as usize {
+                let b_offset = y * bytes_per_row_baseline + x * 4;
+                let c_offset = y * bytes_per_row_current + x * 4;
+                let d_offset = y * bytes_per_row_diff + x * 4;
+                let br = *baseline_data.add(b_offset);
+                let bg = *baseline_data.add(b_offset + 1);
+                let bb = *baseline_data.add(b_offset + 2);
+                let ba = *baseline_data.add(b_offset + 3);
+                let cr = *current_data.add(c_offset);
+                let cg = *current_data.add(c_offset + 1);
+                let cb = *current_data.add(c_offset + 2);
+                let ca = *current_data.add(c_offset + 3);
 
-                    if same {
-                        let gray = (cr as u16 + cg as u16 + cb as u16) / 3;
-                        let dimmed = (gray as u8).saturating_mul(2) / 25; // ~8% opacity
-                        *diff_data.add(d_offset) = dimmed;
-                        *diff_data.add(d_offset + 1) = dimmed;
-                        *diff_data.add(d_offset + 2) = dimmed;
-                        *diff_data.add(d_offset + 3) = 20; // alpha ~8%
-                    } else {
-                        diff_pixels += 1;
-                        let delta = cr.abs_diff(br).max(cg.abs_diff(bg)).max(cb.abs_diff(bb));
-                        let intensity = delta.max(128);
-                        *diff_data.add(d_offset) = intensity;
-                        *diff_data.add(d_offset + 1) = 0;
-                        *diff_data.add(d_offset + 2) = 0;
-                        *diff_data.add(d_offset + 3) = 230; // alpha ~90%
-                    }
+                let same = br.abs_diff(cr) <= PIXEL_CHANNEL_TOLERANCE
+                    && bg.abs_diff(cg) <= PIXEL_CHANNEL_TOLERANCE
+                    && bb.abs_diff(cb) <= PIXEL_CHANNEL_TOLERANCE
+                    && ba.abs_diff(ca) <= PIXEL_CHANNEL_TOLERANCE;
+
+                if same {
+                    let gray = (cr as u16 + cg as u16 + cb as u16) / 3;
+                    let dimmed = (gray as u8).saturating_mul(2) / 25; // ~8% opacity
+                    *diff_data.add(d_offset) = dimmed;
+                    *diff_data.add(d_offset + 1) = dimmed;
+                    *diff_data.add(d_offset + 2) = dimmed;
+                    *diff_data.add(d_offset + 3) = 20; // alpha ~8%
+                } else {
+                    diff_pixels += 1;
+                    let delta = cr.abs_diff(br).max(cg.abs_diff(bg)).max(cb.abs_diff(bb));
+                    let intensity = delta.max(128);
+                    *diff_data.add(d_offset) = intensity;
+                    *diff_data.add(d_offset + 1) = 0;
+                    *diff_data.add(d_offset + 2) = 0;
+                    *diff_data.add(d_offset + 3) = 230; // alpha ~90%
                 }
             }
         }
@@ -475,43 +442,6 @@ pub fn generate_diff_png(
             total_pixels,
         })
     }
-}
-
-unsafe fn color_components(color: *mut AnyObject) -> Option<(f64, f64, f64, f64)> {
-    if color.is_null() {
-        return None;
-    }
-
-    let device_rgb_name = NSString::from_str("NSDeviceRGBColorSpace");
-    let rgb_color: *mut AnyObject = msg_send![color, colorUsingColorSpaceName: &*device_rgb_name];
-    if rgb_color.is_null() {
-        return None;
-    }
-
-    let r: f64 = msg_send![rgb_color, redComponent];
-    let g: f64 = msg_send![rgb_color, greenComponent];
-    let b: f64 = msg_send![rgb_color, blueComponent];
-    let a: f64 = msg_send![rgb_color, alphaComponent];
-    Some((r, g, b, a))
-}
-
-fn to_u8(component: f64) -> u8 {
-    (component.clamp(0.0, 1.0) * 255.0).round() as u8
-}
-
-#[derive(Clone, Copy)]
-struct PixelColor {
-    r: f64,
-    g: f64,
-    b: f64,
-    a: f64,
-}
-
-fn pixel_is_same(baseline: PixelColor, current: PixelColor) -> bool {
-    to_u8(baseline.r).abs_diff(to_u8(current.r)) <= PIXEL_CHANNEL_TOLERANCE
-        && to_u8(baseline.g).abs_diff(to_u8(current.g)) <= PIXEL_CHANNEL_TOLERANCE
-        && to_u8(baseline.b).abs_diff(to_u8(current.b)) <= PIXEL_CHANNEL_TOLERANCE
-        && to_u8(baseline.a).abs_diff(to_u8(current.a)) <= PIXEL_CHANNEL_TOLERANCE
 }
 
 pub fn create_bitmap_rep_for_bounds(bounds: NSRect) -> Result<*mut AnyObject, AppError> {
