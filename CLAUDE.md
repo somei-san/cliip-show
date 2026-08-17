@@ -53,7 +53,7 @@ UI 文言を README に書くときは `src/i18n.rs` の文言テーブルと一
 | `src/text.rs` | テキスト切り詰め処理 |
 | `src/png.rs` | PNG生成・差分計算（VRT用） |
 | `src/i18n.rs` | UI文言の言語ごとの表記と、表示言語の解決 |
-| `src/objc_helpers.rs` | NSString変換ユーティリティ |
+| `src/objc_helpers.rs` | NSString変換とテンプレート画像生成のユーティリティ |
 | `src/error.rs` | `AppError` 型定義 |
 
 ## リリース

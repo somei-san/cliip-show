@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# assets/peanut-template.svg から、メニューバーアイコン用の
-# assets/peanut-template.png を生成する。
+# assets/*-template.svg から、テンプレート画像用の PNG を生成する。
+# 生成物は src/menu.rs と src/settings_window.rs が include_bytes! で埋め込む。
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -11,27 +11,32 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 1
 fi
 
-SVG="$ROOT_DIR/assets/peanut-template.svg"
-PNG="$ROOT_DIR/assets/peanut-template.png"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-if [[ ! -f "$SVG" ]]; then
-  echo "素材が見つかりません: $SVG" >&2
+shopt -s nullglob
+SVGS=("$ROOT_DIR"/assets/*-template.svg)
+if [[ ${#SVGS[@]} -eq 0 ]]; then
+  echo "素材が見つかりません: assets/*-template.svg" >&2
   exit 1
 fi
 
-# 塗りが中間色のままだとアルファが最大値に届かず、アイコンが薄く描画される
-sed -E 's/#[0-9A-Fa-f]{6}/#000000/g' "$SVG" > "$WORK/icon.svg"
+for SVG in "${SVGS[@]}"; do
+  NAME="$(basename "$SVG" .svg)"
+  PNG="$ROOT_DIR/assets/$NAME.png"
 
-qlmanage -t -s 512 -o "$WORK" "$WORK/icon.svg" >/dev/null 2>&1
+  # 塗りが中間色のままだとアルファが最大値に届かず、アイコンが薄く描画される
+  sed -E 's/#[0-9A-Fa-f]{6}/#000000/g' "$SVG" > "$WORK/$NAME.svg"
 
-RENDERED="$WORK/icon.svg.png"
-if [[ ! -f "$RENDERED" ]]; then
-  echo "SVG の描画に失敗しました" >&2
-  exit 1
-fi
+  qlmanage -t -s 512 -o "$WORK" "$WORK/$NAME.svg" >/dev/null 2>&1
 
-osascript -l JavaScript "$ROOT_DIR/scripts/build_menu_icon.js" "$RENDERED" "$PNG"
+  RENDERED="$WORK/$NAME.svg.png"
+  if [[ ! -f "$RENDERED" ]]; then
+    echo "SVG の描画に失敗しました: $SVG" >&2
+    exit 1
+  fi
 
-echo "生成しました: $PNG"
+  osascript -l JavaScript "$ROOT_DIR/scripts/build_menu_icon.js" "$RENDERED" "$PNG"
+
+  echo "生成しました: $PNG"
+done
