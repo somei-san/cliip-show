@@ -1,9 +1,9 @@
+use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{class, msg_send};
 use objc2_foundation::{NSRange, NSString};
 
 use crate::i18n::{self, Lang, Msg};
-use crate::objc_helpers::nsstring_from_str;
 
 use super::APP_STATE;
 
@@ -99,20 +99,31 @@ pub(super) extern "C" fn show_about_panel(_: &AnyObject, _: Sel, _: *mut AnyObje
         };
 
         let keys = [
-            nsstring_from_str(ABOUT_OPTION_APPLICATION_NAME),
-            nsstring_from_str(ABOUT_OPTION_APPLICATION_VERSION),
-            nsstring_from_str(ABOUT_OPTION_CREDITS),
+            NSString::from_str(ABOUT_OPTION_APPLICATION_NAME),
+            NSString::from_str(ABOUT_OPTION_APPLICATION_VERSION),
+            NSString::from_str(ABOUT_OPTION_CREDITS),
         ];
-        let values = [
-            nsstring_from_str(i18n::APP_NAME),
-            nsstring_from_str(env!("CARGO_PKG_VERSION")),
-            about_credits(lang),
+        let app_name = NSString::from_str(i18n::APP_NAME);
+        let version = NSString::from_str(env!("CARGO_PKG_VERSION"));
+        let credits = about_credits(lang);
+
+        // dictionaryWithObjects:forKeys:count: は生ポインタの配列を取る。NSDictionary が
+        // キーを copy・値を retain するので、Retained の drop（スコープ末尾）と両立する
+        let key_ptrs: [*const NSString; 3] = [
+            Retained::as_ptr(&keys[0]),
+            Retained::as_ptr(&keys[1]),
+            Retained::as_ptr(&keys[2]),
+        ];
+        let value_ptrs: [*mut AnyObject; 3] = [
+            Retained::as_ptr(&app_name) as *mut AnyObject,
+            Retained::as_ptr(&version) as *mut AnyObject,
+            credits,
         ];
         let options: *mut AnyObject = msg_send![
             class!(NSDictionary),
-            dictionaryWithObjects: values.as_ptr()
-            forKeys: keys.as_ptr()
-            count: keys.len()
+            dictionaryWithObjects: value_ptrs.as_ptr()
+            forKeys: key_ptrs.as_ptr()
+            count: key_ptrs.len()
         ];
 
         let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
@@ -120,9 +131,7 @@ pub(super) extern "C" fn show_about_panel(_: &AnyObject, _: Sel, _: *mut AnyObje
         let () = msg_send![app, activateIgnoringOtherApps: true];
         let () = msg_send![app, orderFrontStandardAboutPanelWithOptions: options];
 
-        for object in keys.into_iter().chain(values) {
-            let () = msg_send![object, release];
-        }
+        let () = msg_send![credits, release];
     }
 }
 
