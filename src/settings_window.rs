@@ -825,6 +825,13 @@ fn stack_down(top: &mut f64, gap: f64, height: f64, width: f64) -> NSRect {
     }
 }
 
+/// `stack_down` と同じ積み方で、横位置だけペインの中央にする。
+fn stack_down_centered(top: &mut f64, gap: f64, height: f64, width: f64) -> NSRect {
+    let mut rect = stack_down(top, gap, height, width);
+    rect.origin.x = (SETTINGS_WINDOW_WIDTH - width) / 2.0;
+    rect
+}
+
 /// 寄付タブのペイン。
 unsafe fn make_support_pane(
     delegate: &AnyObject,
@@ -855,7 +862,7 @@ unsafe fn make_support_pane(
         i18n::text(lang, Msg::SupportBuyBeer),
         sel!(openSupportPage:),
         "",
-        stack_down(
+        stack_down_centered(
             &mut top,
             SUPPORT_BUTTON_GAP,
             PANE_BUTTON_HEIGHT,

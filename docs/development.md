@@ -28,6 +28,48 @@ cargo run
 
 このスクリプトは検証用configを `/tmp/cliip-show-local-check.toml` に作成し、`Ctrl+C` で終了できます。
 
+## 設定ファイルと環境変数
+
+現在の設定値を表示する:
+
+```bash
+cliip-show --config-show
+```
+
+設定ファイル:
+- 既定パス: `~/Library/Application Support/cliip-show/config.toml`
+- パス変更: `CLIIP_SHOW_CONFIG_PATH=/path/to/config.toml`
+
+ファイルへの変更は再起動なしで反映されます。
+
+設定キー:
+- `poll_interval_secs`（既定値: `0.3`、`0.05` - `5.0`）
+- `hud_duration_secs`（既定値: `1.0`、`0.1` - `10.0`）
+- `hud_fade_duration_secs`（既定値: `0.3`、`0.0` - `2.0`、`0.0` でフェードなし）
+- `max_chars_per_line`（既定値: `100`、`1` - `500`）
+- `max_lines`（既定値: `5`、`1` - `20`）
+- `hud_position`（既定値: `top`、`top` / `center` / `bottom`）
+- `hud_scale`（既定値: `1.1`、`0.5` - `2.0`）
+- `hud_background_color`（既定値: `default`、`default` / `yellow` / `blue` / `green` / `red` / `purple`）
+- `hud_emoji`（既定値: `📋`、任意の絵文字。空でアイコンなし）
+- `hud_image_max_height`（既定値: `160`、`40` - `240`）画像サムネイルの高さ上限（px）。実際の上限は `hud_scale` 倍され、元画像より大きくは表示しません
+- `language`（既定値: `auto`、`auto` / `ja` / `en`）メニューバーと設定ウィンドウの表示言語。`auto` は macOS の優先言語に従います
+
+環境変数は設定ファイルより優先します。キー名を大文字にして `CLIIP_SHOW_` を付けた名前です。
+
+```bash
+CLIIP_SHOW_HUD_DURATION_SECS=2.5 \
+CLIIP_SHOW_HUD_FADE_DURATION_SECS=0.5 \
+CLIIP_SHOW_MAX_LINES=3 \
+CLIIP_SHOW_HUD_POSITION=top \
+CLIIP_SHOW_HUD_SCALE=1.2 \
+CLIIP_SHOW_HUD_BACKGROUND_COLOR=blue \
+CLIIP_SHOW_HUD_EMOJI=🍣 \
+CLIIP_SHOW_HUD_IMAGE_MAX_HEIGHT=120 \
+CLIIP_SHOW_LANGUAGE=en \
+cargo run
+```
+
 ## `.app` 化して動作確認
 
 ローカルで `.app` として起動確認したい場合のみ実行してください。  

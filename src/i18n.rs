@@ -12,6 +12,13 @@ use objc2::{class, msg_send};
 use crate::config::types::LanguageSetting;
 use crate::objc_helpers::nsstring_to_string;
 
+/// UI に出すアプリ名。言語によらずこの表記にする。
+///
+/// コマンド名・設定ファイルのパス・LaunchAgent のラベルは `cliip-show` のままにする。
+/// 既存のインストールが読み書きしている先なので、変えるとログイン項目が二重になり、
+/// 保存済みの設定も読めなくなる。
+pub const APP_NAME: &str = "Cliip Show";
+
 /// 表示に使う言語。`LanguageSetting::Auto` を OS のロケールで解決した結果でもある。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lang {
@@ -74,8 +81,8 @@ pub fn text(lang: Lang, msg: Msg) -> &'static str {
     let (ja, en) = match msg {
         Msg::MenuSettings => ("設定…", "Settings…"),
         Msg::MenuPause => ("一時停止", "Pause"),
-        Msg::MenuAbout => ("cliip-show について", "About cliip-show"),
-        Msg::MenuQuit => ("cliip-show を終了", "Quit cliip-show"),
+        Msg::MenuAbout => ("Cliip Show について", "About Cliip Show"),
+        Msg::MenuQuit => ("Cliip Show を終了", "Quit Cliip Show"),
         Msg::MenuEdit => ("編集", "Edit"),
         Msg::MenuCut => ("切り取り", "Cut"),
         Msg::MenuCopy => ("コピー", "Copy"),
@@ -83,8 +90,8 @@ pub fn text(lang: Lang, msg: Msg) -> &'static str {
         Msg::MenuSelectAll => ("すべてを選択", "Select All"),
 
         Msg::LoginPromptMessage => (
-            "ログイン時に cliip-show を自動起動しますか？",
-            "Start cliip-show automatically at login?",
+            "ログイン時に Cliip Show を自動起動しますか？",
+            "Start Cliip Show automatically at login?",
         ),
         Msg::LoginPromptDetail => (
             "設定ウィンドウの「ログイン時に自動起動」からいつでも変更できます。",
@@ -94,7 +101,7 @@ pub fn text(lang: Lang, msg: Msg) -> &'static str {
         Msg::LoginPromptLater => ("あとで", "Not Now"),
         Msg::LoginPromptSuppress => ("今後表示しない", "Don’t ask again"),
 
-        Msg::SettingsTitle => ("cliip-show 設定", "cliip-show Settings"),
+        Msg::SettingsTitle => ("Cliip Show 設定", "Cliip Show Settings"),
         Msg::TabSettings => ("設定", "Settings"),
         Msg::TabSupport => ("寄付", "Support"),
         Msg::SettingsStartAtLogin => ("ログイン時に自動起動", "Start at login"),
@@ -118,8 +125,8 @@ pub fn text(lang: Lang, msg: Msg) -> &'static str {
 
         Msg::SupportBuyBeer => ("ビールを奢る…", "Buy me a beer…"),
         Msg::SupportMessage => (
-            "cliip-show はすべての機能を無償で提供しています。\nビールを奢ってもらえると開発の励みになります 🍺",
-            "cliip-show is free, with every feature included.\nBuying me a beer keeps the work going 🍺",
+            "Cliip Show はすべての機能を無償で提供しています。\nビールを奢ってもらえると開発の励みになります 🍺",
+            "Cliip Show is free, with every feature included.\nBuying me a beer keeps the work going 🍺",
         ),
         Msg::AboutDescription => (
             "コピーした内容を画面中央に表示する macOS の常駐アプリ 🥜",
@@ -276,6 +283,27 @@ mod tests {
                 labels.len(),
                 "{lang:?} でラベルが重複している"
             );
+        }
+    }
+
+    /// アプリ名を含む文言。表記が `APP_NAME` からずれると、メニューバーのメニューと
+    /// 設定ウィンドウのタイトルで名前が食い違って見える。
+    #[test]
+    fn messages_naming_the_app_use_the_display_name() {
+        for msg in [
+            Msg::MenuAbout,
+            Msg::MenuQuit,
+            Msg::LoginPromptMessage,
+            Msg::SettingsTitle,
+            Msg::SupportMessage,
+        ] {
+            for lang in [Lang::Ja, Lang::En] {
+                let rendered = text(lang, msg);
+                assert!(
+                    rendered.contains(APP_NAME),
+                    "{msg:?} ({lang:?}) に {APP_NAME} が無い: {rendered}"
+                );
+            }
         }
     }
 

@@ -150,7 +150,7 @@ pub unsafe fn install_main_menu(lang: Lang) -> EditMenuHandles {
     let main_menu: *mut AnyObject = msg_send![main_menu, init];
 
     // アプリ名はローカライズ対象ではない（固有名詞のため Msg には持たせない）
-    let app_menu_item = make_container_menu_item("cliip-show");
+    let app_menu_item = make_container_menu_item(i18n::APP_NAME);
     let app_menu: *mut AnyObject = msg_send![class!(NSMenu), alloc];
     let app_menu: *mut AnyObject = msg_send![app_menu, init];
     let () = msg_send![app_menu_item, setSubmenu: app_menu];
