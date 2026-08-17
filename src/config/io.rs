@@ -8,14 +8,20 @@ use super::types::AppConfigFile;
 const DEFAULT_CONFIG_RELATIVE_PATH: &str = "Library/Application Support/cliip-show/config.toml";
 
 pub fn config_file_path() -> Result<PathBuf, AppError> {
-    if let Ok(path) = std::env::var("CLIIP_SHOW_CONFIG_PATH") {
+    config_file_path_with(|name| std::env::var(name).ok())
+}
+
+/// 環境変数の読み取り元を差し替えられる本体。`std::env` はプロセスグローバルで
+/// 並列実行のテストから安全に操作できないため、テストは lookup を注入して呼ぶ。
+fn config_file_path_with(lookup: impl Fn(&str) -> Option<String>) -> Result<PathBuf, AppError> {
+    if let Some(path) = lookup("CLIIP_SHOW_CONFIG_PATH") {
         let trimmed = path.trim();
         if !trimmed.is_empty() {
             return Ok(PathBuf::from(trimmed));
         }
     }
 
-    let home = std::env::var("HOME").map_err(|_| {
+    let home = lookup("HOME").ok_or_else(|| {
         AppError::ConfigResolve("failed to resolve HOME for config path".to_string())
     })?;
     let trimmed = home.trim();
@@ -74,7 +80,7 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
-    use super::{load_config_file, save_config_file};
+    use super::{config_file_path_with, load_config_file, save_config_file};
     use crate::config::settings::{
         apply_config_file, default_display_settings, settings_to_config_file,
     };
@@ -172,6 +178,48 @@ mod tests {
 
         let error = load_config_file(&config_path).expect_err("must fail");
         assert!(matches!(error, AppError::ConfigParse { .. }), "{error:?}");
+    }
+
+    /// `CLIIP_SHOW_CONFIG_PATH` があれば HOME より優先される。前後の空白は取り除かれる。
+    /// VRT スクリプトはこの変数で開発者の実設定を隔離している。
+    #[test]
+    fn explicit_config_path_wins_over_home() {
+        let path = config_file_path_with(|name| match name {
+            "CLIIP_SHOW_CONFIG_PATH" => Some(" /tmp/custom.toml ".to_string()),
+            "HOME" => Some("/Users/example".to_string()),
+            _ => None,
+        })
+        .expect("resolve path");
+        assert_eq!(path, PathBuf::from("/tmp/custom.toml"));
+    }
+
+    /// 空白のみの `CLIIP_SHOW_CONFIG_PATH` は未設定と同じ扱いで HOME 配下に落ちる。
+    #[test]
+    fn blank_config_path_falls_back_to_home() {
+        let path = config_file_path_with(|name| match name {
+            "CLIIP_SHOW_CONFIG_PATH" => Some("   ".to_string()),
+            "HOME" => Some("/Users/example".to_string()),
+            _ => None,
+        })
+        .expect("resolve path");
+        assert_eq!(
+            path,
+            PathBuf::from("/Users/example/Library/Application Support/cliip-show/config.toml")
+        );
+    }
+
+    /// HOME が引けない・空白のみのときはエラーになる（勝手なパスに書きにいかない）。
+    #[test]
+    fn missing_or_blank_home_is_an_error() {
+        let error = config_file_path_with(|_| None).expect_err("must fail without HOME");
+        assert!(matches!(error, AppError::ConfigResolve(_)), "{error:?}");
+
+        let error = config_file_path_with(|name| match name {
+            "HOME" => Some("  ".to_string()),
+            _ => None,
+        })
+        .expect_err("must fail with blank HOME");
+        assert!(matches!(error, AppError::ConfigResolve(_)), "{error:?}");
     }
 
     /// 保存先の親ディレクトリが無くても作って書き込める（初回保存の経路）。
