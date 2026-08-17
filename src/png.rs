@@ -548,3 +548,225 @@ pub fn create_bitmap_rep_for_bounds(bounds: NSRect) -> Result<*mut AnyObject, Ap
         Ok(bitmap)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+
+    use super::{
+        create_bitmap_rep_for_bounds, generate_diff_png, BITMAP_IMAGE_FILE_TYPE_PNG,
+        PIXEL_CHANNEL_TOLERANCE,
+    };
+    use crate::objc_helpers::nsstring_from_str;
+
+    /// テストごとに独立したディレクトリを使う（cargo test は並列実行のため共有すると干渉する）。
+    /// 名前には連番も混ぜ、`test_name` をコピペで重複させても並列テスト同士が
+    /// ディレクトリを共有しないようにする。
+    struct TempPngDir(PathBuf);
+
+    impl TempPngDir {
+        fn new(test_name: &str) -> Self {
+            static DIR_SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let seq = DIR_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let dir = std::env::temp_dir().join(format!(
+                "cliip-show-png-test-{}-{seq}-{test_name}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&dir).expect("create temp dir");
+            Self(dir)
+        }
+
+        fn path(&self, file_name: &str) -> String {
+            self.0.join(file_name).to_string_lossy().into_owned()
+        }
+    }
+
+    impl Drop for TempPngDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// ピクセル関数から PNG を書き出す。`create_fixture_image` は Safety 契約が
+    /// メインスレッド前提なので使わず、`write_window_png` と同型の NSBitmapImageRep
+    /// 直書きにする。テストスレッドから呼んでもメインスレッド制約に触れない。
+    ///
+    /// alpha は 255 固定で使うこと。alpha < 255 のピクセルは PNG の premultiplied alpha 変換で
+    /// ロード時にチャンネル値がずれ、期待値が非決定になる。
+    unsafe fn write_test_png(
+        path: &str,
+        width: usize,
+        height: usize,
+        pixel: impl Fn(usize, usize) -> [u8; 4],
+    ) {
+        let rep = create_bitmap_rep_for_bounds(NSRect {
+            origin: NSPoint { x: 0.0, y: 0.0 },
+            size: NSSize {
+                width: width as f64,
+                height: height as f64,
+            },
+        })
+        .expect("create bitmap rep");
+
+        let data: *mut u8 = msg_send![rep, bitmapData];
+        assert!(!data.is_null());
+        let bytes_per_row: usize = msg_send![rep, bytesPerRow];
+        for y in 0..height {
+            for x in 0..width {
+                let offset = y * bytes_per_row + x * 4;
+                let color = pixel(x, y);
+                std::slice::from_raw_parts_mut(data.add(offset), 4).copy_from_slice(&color);
+            }
+        }
+
+        let properties: *mut AnyObject = msg_send![objc2::class!(NSDictionary), dictionary];
+        let png: *mut AnyObject = msg_send![
+            rep,
+            representationUsingType: BITMAP_IMAGE_FILE_TYPE_PNG
+            properties: properties
+        ];
+        assert!(!png.is_null());
+        let path_ns = nsstring_from_str(path);
+        let success: bool = msg_send![png, writeToFile: path_ns atomically: true];
+        let () = msg_send![path_ns, release];
+        let () = msg_send![rep, release];
+        assert!(success, "failed to write test PNG: {path}");
+    }
+
+    /// PNG から 1 ピクセルを読み戻す。diff PNG の成果物検証用。
+    unsafe fn read_png_pixel(path: &str, x: usize, y: usize) -> [u8; 4] {
+        let path_ns = nsstring_from_str(path);
+        let rep: *mut AnyObject = msg_send![
+            objc2::class!(NSBitmapImageRep),
+            imageRepWithContentsOfFile: path_ns
+        ];
+        let () = msg_send![path_ns, release];
+        assert!(!rep.is_null(), "failed to load PNG: {path}");
+        let _: *mut AnyObject = msg_send![rep, retain];
+
+        let data: *mut u8 = msg_send![rep, bitmapData];
+        assert!(!data.is_null());
+        let bytes_per_row: usize = msg_send![rep, bytesPerRow];
+        let mut pixel = [0u8; 4];
+        pixel.copy_from_slice(std::slice::from_raw_parts(
+            data.add(y * bytes_per_row + x * 4),
+            4,
+        ));
+        let () = msg_send![rep, release];
+        pixel
+    }
+
+    const BASE_COLOR: [u8; 4] = [100, 100, 100, 255];
+
+    #[test]
+    fn identical_images_have_zero_diff_pixels() {
+        let temp = TempPngDir::new("identical");
+        let baseline = temp.path("baseline.png");
+        let current = temp.path("current.png");
+        unsafe {
+            write_test_png(&baseline, 8, 6, |_, _| BASE_COLOR);
+            write_test_png(&current, 8, 6, |_, _| BASE_COLOR);
+        }
+
+        let diff = temp.path("diff.png");
+        let summary = generate_diff_png(&baseline, &current, &diff).expect("diff");
+        assert_eq!(summary.diff_pixels, 0);
+        assert_eq!(summary.total_pixels, 8 * 6);
+        // VRT スクリプトが消費する成果物なので、書き出しの成功まで見る
+        assert!(std::path::Path::new(&diff).is_file());
+    }
+
+    #[test]
+    fn a_single_changed_pixel_is_counted_once() {
+        let temp = TempPngDir::new("one-pixel");
+        let baseline = temp.path("baseline.png");
+        let current = temp.path("current.png");
+        unsafe {
+            write_test_png(&baseline, 8, 6, |_, _| BASE_COLOR);
+            write_test_png(&current, 8, 6, |x, y| {
+                if x == 3 && y == 2 {
+                    [200, 0, 0, 255]
+                } else {
+                    BASE_COLOR
+                }
+            });
+        }
+
+        let diff = temp.path("diff.png");
+        let summary = generate_diff_png(&baseline, &current, &diff).expect("diff");
+        assert_eq!(summary.diff_pixels, 1);
+
+        // diff PNG 上で、変えた座標だけが赤くマークされること（x/y 転置や stride ミスの検出）。
+        // アルファ 255 未満のピクセルは premultiplied alpha の丸めで読み戻し値が数段階ずれるため、
+        // 正確な値ではなく「赤優位」と「グレー（R=G=B）」で判定する
+        unsafe {
+            let marked = read_png_pixel(&diff, 3, 2);
+            assert!(
+                marked[0] >= 100 && marked[1] == 0 && marked[2] == 0,
+                "changed pixel not marked red: {marked:?}"
+            );
+            let unmarked = read_png_pixel(&diff, 0, 0);
+            assert!(
+                unmarked[0] == unmarked[1] && unmarked[1] == unmarked[2],
+                "unchanged pixel not gray: {unmarked:?}"
+            );
+        }
+    }
+
+    /// チャンネル差がちょうど許容値のときは同一扱い、許容値 + 1 で差分扱いになること
+    /// （`PIXEL_CHANNEL_TOLERANCE` の off-by-one 検出）。
+    #[test]
+    fn channel_tolerance_boundary_splits_same_and_diff() {
+        let temp = TempPngDir::new("tolerance");
+        let baseline = temp.path("baseline.png");
+        let within = temp.path("within.png");
+        let beyond = temp.path("beyond.png");
+        let delta_within = BASE_COLOR[0] + PIXEL_CHANNEL_TOLERANCE;
+        let delta_beyond = BASE_COLOR[0] + PIXEL_CHANNEL_TOLERANCE + 1;
+        unsafe {
+            write_test_png(&baseline, 8, 6, |_, _| BASE_COLOR);
+            write_test_png(&within, 8, 6, |_, _| [delta_within, 100, 100, 255]);
+            write_test_png(&beyond, 8, 6, |_, _| [delta_beyond, 100, 100, 255]);
+        }
+
+        let summary =
+            generate_diff_png(&baseline, &within, &temp.path("diff-within.png")).expect("diff");
+        assert_eq!(summary.diff_pixels, 0);
+
+        let summary =
+            generate_diff_png(&baseline, &beyond, &temp.path("diff-beyond.png")).expect("diff");
+        assert_eq!(summary.diff_pixels, 8 * 6);
+    }
+
+    #[test]
+    fn size_mismatch_is_an_error() {
+        let temp = TempPngDir::new("size-mismatch");
+        let baseline = temp.path("baseline.png");
+        let current = temp.path("current.png");
+        unsafe {
+            write_test_png(&baseline, 8, 6, |_, _| BASE_COLOR);
+            write_test_png(&current, 8, 7, |_, _| BASE_COLOR);
+        }
+
+        let error = generate_diff_png(&baseline, &current, &temp.path("diff.png"))
+            .expect_err("must fail on size mismatch");
+        assert!(error.to_string().contains("size mismatch"), "{error}");
+    }
+
+    #[test]
+    fn missing_baseline_is_an_error() {
+        let temp = TempPngDir::new("missing-baseline");
+        let current = temp.path("current.png");
+        unsafe {
+            write_test_png(&current, 8, 6, |_, _| BASE_COLOR);
+        }
+
+        let error = generate_diff_png(&temp.path("no-such.png"), &current, &temp.path("diff.png"))
+            .expect_err("must fail on missing baseline");
+        assert!(error.to_string().contains("baseline"), "{error}");
+    }
+}

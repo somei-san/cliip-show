@@ -274,8 +274,13 @@ fn read_env_option(name: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_display_settings, saved_value, settings_to_config_file};
-    use crate::config::ConfigKey;
+    use super::{
+        apply_config_file, default_display_settings, saved_value, settings_to_config_file,
+    };
+    use crate::config::{
+        AppConfigFile, ConfigKey, MAX_HUD_FADE_DURATION_SECS, MAX_HUD_IMAGE_MAX_HEIGHT,
+        MAX_HUD_SCALE, MAX_TRUNCATE_MAX_LINES, MIN_HUD_SCALE, MIN_POLL_INTERVAL_SECS,
+    };
 
     /// キーを足したときに `[saved]` の出力から漏れないことを守る。
     #[test]
@@ -288,6 +293,52 @@ mod tests {
                 key.as_str()
             );
         }
+    }
+
+    /// 設定ファイルの範囲外の値は落とさずクランプして採用する（手編集した値で起動不能にしない）。
+    /// 下限側は parse.rs の `apply_config_file_clamps_out_of_range_values` が張っているので、
+    /// ここでは上限側と、そちらに無い fade / image_max_height を押さえる。
+    #[test]
+    fn apply_config_file_clamps_values_above_max() {
+        let mut config = AppConfigFile::default();
+        config.display.hud_scale = Some(99.0);
+        config.display.max_lines = Some(999);
+        config.display.hud_fade_duration_secs = Some(99.0);
+        config.display.hud_image_max_height = Some(9999);
+
+        let settings = apply_config_file(default_display_settings(), &config);
+        assert_eq!(settings.hud_scale, MAX_HUD_SCALE);
+        assert_eq!(settings.truncate_max_lines, MAX_TRUNCATE_MAX_LINES);
+        assert_eq!(settings.hud_fade_duration_secs, MAX_HUD_FADE_DURATION_SECS);
+        assert_eq!(settings.hud_image_max_height, MAX_HUD_IMAGE_MAX_HEIGHT);
+    }
+
+    /// 範囲の端の値はクランプに巻き込まれずそのまま通ること（境界の off-by-one 検出）。
+    #[test]
+    fn apply_config_file_keeps_boundary_values_unchanged() {
+        let mut config = AppConfigFile::default();
+        config.display.hud_scale = Some(MIN_HUD_SCALE);
+        config.display.poll_interval_secs = Some(MIN_POLL_INTERVAL_SECS);
+        config.display.max_lines = Some(MAX_TRUNCATE_MAX_LINES);
+
+        let settings = apply_config_file(default_display_settings(), &config);
+        assert_eq!(settings.hud_scale, MIN_HUD_SCALE);
+        assert_eq!(settings.poll_interval_secs, MIN_POLL_INTERVAL_SECS);
+        assert_eq!(settings.truncate_max_lines, MAX_TRUNCATE_MAX_LINES);
+    }
+
+    /// 設定ファイルに無いキーはデフォルト値のまま残ること。
+    #[test]
+    fn apply_config_file_keeps_defaults_for_absent_keys() {
+        let mut config = AppConfigFile::default();
+        config.display.hud_scale = Some(1.5);
+
+        let defaults = default_display_settings();
+        let settings = apply_config_file(defaults.clone(), &config);
+        assert_eq!(settings.hud_scale, 1.5);
+        assert_eq!(settings.poll_interval_secs, defaults.poll_interval_secs);
+        assert_eq!(settings.hud_emoji, defaults.hud_emoji);
+        assert_eq!(settings.language, defaults.language);
     }
 
     /// `as_str` が設定ファイルのキー名からずれると、`[saved]` が設定ファイルに無い名前を出す。

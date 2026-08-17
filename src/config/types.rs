@@ -63,7 +63,7 @@ impl HudBackgroundColor {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DisplaySettings {
     pub poll_interval_secs: f64,
     pub hud_duration_secs: f64,

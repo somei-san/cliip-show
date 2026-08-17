@@ -75,7 +75,51 @@ pub(crate) fn line_display_units(line: &str) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::truncate_text;
+    use super::{split_non_trailing_lines, truncate_text};
+
+    #[test]
+    fn split_removes_trailing_newline_and_crlf() {
+        assert_eq!(split_non_trailing_lines("a\nb\n"), vec!["a", "b"]);
+        assert_eq!(split_non_trailing_lines("a\r\nb\r\n"), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn split_removes_trailing_whitespace_only_lines() {
+        assert_eq!(split_non_trailing_lines("a\n  \n\n"), vec!["a"]);
+    }
+
+    /// 中間の空行は表示上意味がある（段落の区切り）ので残ること。
+    #[test]
+    fn split_keeps_interior_empty_lines() {
+        assert_eq!(split_non_trailing_lines("a\n\nb"), vec!["a", "", "b"]);
+    }
+
+    /// 空文字・空白のみでも空 Vec にはならない（HUD は常に 1 行分のレイアウトを持つ前提）。
+    #[test]
+    fn split_yields_a_single_empty_line_for_blank_input() {
+        assert_eq!(split_non_trailing_lines(""), vec![""]);
+        assert_eq!(split_non_trailing_lines("   \n\n"), vec![""]);
+    }
+
+    /// max_width が省略記号 "..." の 3 文字以下でもパニックせず、幅内に収まること。
+    #[test]
+    fn tiny_max_width_yields_partial_ellipsis() {
+        assert_eq!(truncate_text("abcdefg", 3, 5), "...");
+        assert_eq!(truncate_text("abcdefg", 2, 5), "..");
+        assert_eq!(truncate_text("abcdefg", 1, 5), ".");
+    }
+
+    /// ちょうど max_width の行は切り詰められないこと（境界の off-by-one 検出）。
+    #[test]
+    fn exact_width_line_is_kept_unchanged() {
+        assert_eq!(truncate_text("abcde", 5, 5), "abcde");
+    }
+
+    /// 行数超過の省略記号付与後も、最終行が max_width を超えないこと。
+    #[test]
+    fn ellipsis_for_dropped_lines_respects_max_width() {
+        assert_eq!(truncate_text("abcde\nfghij\nklmno", 5, 2), "abcde\nfg...");
+    }
 
     #[test]
     fn truncates_single_long_line() {
