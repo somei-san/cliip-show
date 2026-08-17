@@ -24,7 +24,7 @@ pub enum Lang {
 pub enum Msg {
     MenuSettings,
     MenuPause,
-    MenuSupport,
+    MenuAbout,
     MenuQuit,
     MenuEdit,
     MenuCut,
@@ -39,6 +39,8 @@ pub enum Msg {
     LoginPromptSuppress,
 
     SettingsTitle,
+    TabSettings,
+    TabSupport,
     SettingsStartAtLogin,
     LabelPollInterval,
     LabelHudDuration,
@@ -56,6 +58,11 @@ pub enum Msg {
     ButtonPreview,
     ButtonSave,
 
+    SupportBuyBeer,
+    SupportMessage,
+    /// About パネルのクレジット欄。
+    AboutDescription,
+
     EmojiTooLong,
     EmojiNotEmoji,
 
@@ -67,7 +74,7 @@ pub fn text(lang: Lang, msg: Msg) -> &'static str {
     let (ja, en) = match msg {
         Msg::MenuSettings => ("設定…", "Settings…"),
         Msg::MenuPause => ("一時停止", "Pause"),
-        Msg::MenuSupport => ("ビールを奢る…", "Buy me a beer…"),
+        Msg::MenuAbout => ("cliip-show について", "About cliip-show"),
         Msg::MenuQuit => ("cliip-show を終了", "Quit cliip-show"),
         Msg::MenuEdit => ("編集", "Edit"),
         Msg::MenuCut => ("切り取り", "Cut"),
@@ -88,6 +95,8 @@ pub fn text(lang: Lang, msg: Msg) -> &'static str {
         Msg::LoginPromptSuppress => ("今後表示しない", "Don’t ask again"),
 
         Msg::SettingsTitle => ("cliip-show 設定", "cliip-show Settings"),
+        Msg::TabSettings => ("設定", "Settings"),
+        Msg::TabSupport => ("寄付", "Support"),
         Msg::SettingsStartAtLogin => ("ログイン時に自動起動", "Start at login"),
         Msg::LabelPollInterval => ("ポーリング間隔（秒）", "Polling interval (sec)"),
         Msg::LabelHudDuration => ("表示時間（秒）", "Display duration (sec)"),
@@ -107,6 +116,15 @@ pub fn text(lang: Lang, msg: Msg) -> &'static str {
         Msg::ButtonPreview => ("お試し表示", "Preview"),
         Msg::ButtonSave => ("保存", "Save"),
 
+        Msg::SupportBuyBeer => ("ビールを奢る…", "Buy me a beer…"),
+        Msg::SupportMessage => (
+            "cliip-show はすべての機能を無償で提供しています。\nビールを奢ってもらえると開発の励みになります 🍺",
+            "cliip-show is free, with every feature included.\nBuying me a beer keeps the work going 🍺",
+        ),
+        Msg::AboutDescription => (
+            "コピーした内容を画面中央に表示する macOS の常駐アプリ 🥜",
+            "A macOS menu bar app that shows what you just copied 🥜",
+        ),
         Msg::EmojiTooLong => ("絵文字1文字だけ入力できます", "Enter a single emoji"),
         Msg::EmojiNotEmoji => ("絵文字を入力してください", "Enter an emoji"),
 

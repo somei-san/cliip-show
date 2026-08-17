@@ -1,9 +1,8 @@
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{class, msg_send, sel};
-use objc2_foundation::NSSize;
 
 use crate::i18n::{self, Lang, Msg};
-use crate::objc_helpers::nsstring_from_str;
+use crate::objc_helpers::{nsstring_from_str, template_image_from_png};
 
 const NS_VARIABLE_STATUS_ITEM_LENGTH: f64 = -1.0;
 
@@ -27,7 +26,7 @@ pub struct StatusItemHandles {
     pub status_item: *mut AnyObject,
     pub pause_item: *mut AnyObject,
     pub settings_item: *mut AnyObject,
-    pub support_item: *mut AnyObject,
+    pub about_item: *mut AnyObject,
     pub quit_item: *mut AnyObject,
 }
 
@@ -86,15 +85,12 @@ pub unsafe fn create_status_item(delegate: &AnyObject, lang: Lang) -> StatusItem
     let separator: *mut AnyObject = msg_send![class!(NSMenuItem), separatorItem];
     let () = msg_send![menu, addItem: separator];
 
-    let support_item = make_menu_item(
+    let about_item = make_menu_item(
         delegate,
-        i18n::text(lang, Msg::MenuSupport),
-        sel!(openSupportPage:),
+        i18n::text(lang, Msg::MenuAbout),
+        sel!(showAboutPanel:),
     );
-    let () = msg_send![menu, addItem: support_item];
-
-    let separator: *mut AnyObject = msg_send![class!(NSMenuItem), separatorItem];
-    let () = msg_send![menu, addItem: separator];
+    let () = msg_send![menu, addItem: about_item];
 
     let quit_item = make_menu_item(delegate, i18n::text(lang, Msg::MenuQuit), sel!(quitApp:));
     let () = msg_send![menu, addItem: quit_item];
@@ -105,7 +101,7 @@ pub unsafe fn create_status_item(delegate: &AnyObject, lang: Lang) -> StatusItem
         status_item,
         pause_item,
         settings_item,
-        support_item,
+        about_item,
         quit_item,
     }
 }
@@ -127,37 +123,17 @@ unsafe fn make_menu_item(delegate: &AnyObject, title: &str, action: Sel) -> *mut
 }
 
 /// status item の button にピーナッツのアイコンを設定する。
-///
-/// `setTemplate: true` にすると描画色は無視され、アルファだけがマスクとして使われる。
-/// macOS がメニューバーの濃淡に応じて白黒を決めるので、ライト/ダークに自動追従する。
 unsafe fn set_status_icon(status_item: *mut AnyObject) {
     let button: *mut AnyObject = msg_send![status_item, button];
     if button.is_null() {
         return;
     }
 
-    // *const u8 のままだと ObjC 側で char* と解釈され、`const void *` を期待する
-    // dataWithBytes:length: と型が食い違う
-    let bytes = PEANUT_TEMPLATE_PNG.as_ptr() as *const std::ffi::c_void;
-    let data: *mut AnyObject = msg_send![
-        class!(NSData),
-        dataWithBytes: bytes
-        length: PEANUT_TEMPLATE_PNG.len()
-    ];
-    let image: *mut AnyObject = msg_send![class!(NSImage), alloc];
-    let image: *mut AnyObject = msg_send![image, initWithData: data];
+    let image = template_image_from_png(PEANUT_TEMPLATE_PNG, STATUS_ICON_SIZE);
     if image.is_null() {
         eprintln!("warning: failed to load menu bar icon");
         return;
     }
-
-    // 素材は実寸より大きい。表示サイズを指定すると Retina でも元の解像度から縮小される。
-    let size = NSSize {
-        width: STATUS_ICON_SIZE,
-        height: STATUS_ICON_SIZE,
-    };
-    let () = msg_send![image, setSize: size];
-    let () = msg_send![image, setTemplate: true];
     let () = msg_send![button, setImage: image];
     let () = msg_send![image, release];
 }
@@ -286,10 +262,7 @@ pub unsafe fn apply_language(handles: &MenuHandles, lang: Lang) {
         i18n::text(lang, Msg::MenuSettings),
     );
     set_title(handles.status.pause_item, i18n::text(lang, Msg::MenuPause));
-    set_title(
-        handles.status.support_item,
-        i18n::text(lang, Msg::MenuSupport),
-    );
+    set_title(handles.status.about_item, i18n::text(lang, Msg::MenuAbout));
     set_title(handles.status.quit_item, i18n::text(lang, Msg::MenuQuit));
     set_title(handles.edit.edit_menu_item, i18n::text(lang, Msg::MenuEdit));
     set_title(handles.edit.edit_menu, i18n::text(lang, Msg::MenuEdit));

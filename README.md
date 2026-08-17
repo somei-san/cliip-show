@@ -26,6 +26,7 @@ When a copy carries both text and an image (browsers and spreadsheets usually do
 The menu bar icon gives you:
 - Settings…: opens the settings window (see [Settings](#settings))
 - Pause: stops the HUD, with a checkmark while it is on. Anything copied while paused stays unshown after you resume
+- About cliip-show: shows the version and a link to the repository
 - Quit cliip-show
 
 ## Requirements
@@ -46,7 +47,7 @@ You can switch that on and off any time from "Start at login" in the settings wi
 
 ## Settings
 
-Open the settings window from "Settings…" in the menu bar. It is the only way to change settings.
+Open the settings window from "Settings…" in the menu bar. It is the only way to change settings. The window has two tabs, "Settings" and "Support"; every setting lives under "Settings".
 
 Changes are not saved as you make them. The buttons at the bottom decide what happens:
 - Save: writes the changes to the file and applies them to the HUD (Enter does the same)
@@ -108,7 +109,7 @@ Config file:
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/somei)
 
-The same link is in the menu bar under "Buy me a beer…".
+The same link is in the settings window under the "Support" tab.
 
 ## About the name
 

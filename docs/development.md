@@ -39,11 +39,11 @@ cargo bundle --release
 open target/release/bundle/osx/cliip-show.app
 ```
 
-## メニューバーアイコンの素材を更新する
+## アイコンの素材を更新する
 
-`assets/peanut-template.svg` を差し替えたときは、`assets/peanut-template.png` を作り直します。この PNG を `src/menu.rs` が `include_bytes!` で埋め込み、テンプレート画像として描画します。
+`assets/*-template.svg` を差し替えたときは、同名の PNG を作り直します。この PNG を `src/menu.rs`（メニューバー常駐アイコン）と `src/settings_window.rs`（設定ウィンドウのタブ）が `include_bytes!` で埋め込み、テンプレート画像として描画します。素材を増やすときも `-template.svg` で終わる名前で `assets/` に置きます。
 
-`scripts/build_menu_icon.sh` を実行すると、SVG から PNG を生成します。
+`scripts/build_menu_icon.sh` を実行すると、`assets/` にあるすべての SVG から PNG を生成します。
 
 ```bash
 ./scripts/build_menu_icon.sh
@@ -53,7 +53,7 @@ open target/release/bundle/osx/cliip-show.app
 
 - 塗りを純黒に置換してから描画する。元の塗りが中間色のままだとアルファが最大値に届かず、アイコンが薄く表示されます
 - 白背景で描かれたものを、輝度からアルファへ変換する。テンプレート画像はアルファだけを使うため、これで素材になります
-- 図形の外接矩形が canvas の中心に来るよう平行移動する。SVG の canvas と図形の位置関係はそのままだと偏っていることがあり、メニューバーで上下左右にずれて見えます
+- 図形の外接矩形が canvas の中心に来るよう平行移動する。SVG の canvas と図形の位置関係はそのままだと偏っていることがあり、表示したときに上下左右にずれて見えます
 
 出力後、不透明ピクセル数と外接矩形の中心を表示します。中心が (0.5, 0.5) から離れている場合や不透明ピクセルが 0 の場合は生成に失敗しています。
 
