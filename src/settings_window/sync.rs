@@ -190,21 +190,15 @@ unsafe fn sync_paired_value(
     }
 }
 
+/// `settingChanged:` の `sender` から現在値を文字列で読み出す。field と stepper のペアだけは
+/// どちらが `sender` かで読み出し元が変わり、もう一方への同期も伴うため個別に扱う。
+/// それ以外のコントロールは `sender` 自身が入力元なので `raw_value_for_key` と同じ読み方になる。
 unsafe fn raw_value_for_control(
     key: ConfigKey,
     sender: *mut AnyObject,
     controls: &SettingsControls,
 ) -> Option<String> {
     match key {
-        ConfigKey::PollIntervalSecs
-        | ConfigKey::HudDurationSecs
-        | ConfigKey::HudFadeDurationSecs
-        | ConfigKey::HudScale => {
-            let value: f64 = msg_send![sender, doubleValue];
-            // スライダーは連続値を返すため、そのまま文字列化すると 1.0700000000000001 のような
-            // 値が設定ファイルに残る。値ラベルの表示と同じ桁で丸めて揃える。
-            Some(format!("{value:.2}"))
-        }
         ConfigKey::MaxCharsPerLine => sync_paired_value(
             sender,
             controls.max_chars_per_line_field,
@@ -218,18 +212,7 @@ unsafe fn raw_value_for_control(
             controls.hud_image_max_height_field,
             controls.hud_image_max_height_stepper,
         ),
-        ConfigKey::HudPosition | ConfigKey::HudBackgroundColor => {
-            let title: *mut AnyObject = msg_send![sender, titleOfSelectedItem];
-            nsstring_to_string(title)
-        }
-        // 言語は表示ラベルが設定値と別なので、タイトルではなく選択位置から引く。
-        ConfigKey::Language => {
-            selected_language_value(sender).map(|value| value.as_str().to_string())
-        }
-        ConfigKey::HudEmoji => {
-            let value: *mut AnyObject = msg_send![sender, stringValue];
-            nsstring_to_string(value)
-        }
+        _ => raw_value_for_key(key, sender),
     }
 }
 
@@ -519,6 +502,8 @@ unsafe fn raw_value_for_key(key: ConfigKey, control: *mut AnyObject) -> Option<S
         | ConfigKey::HudFadeDurationSecs
         | ConfigKey::HudScale => {
             let value: f64 = msg_send![control, doubleValue];
+            // スライダーは連続値を返すため、そのまま文字列化すると 1.0700000000000001 のような
+            // 値が設定ファイルに残る。値ラベルの表示と同じ桁で丸めて揃える。
             Some(format!("{value:.2}"))
         }
         ConfigKey::HudPosition | ConfigKey::HudBackgroundColor => {

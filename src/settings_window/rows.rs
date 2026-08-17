@@ -18,12 +18,9 @@ pub(super) const SETTINGS_STYLE_MASK: usize = 1 | 2;
 pub(super) const SETTINGS_WINDOW_WIDTH: f64 = 520.0;
 const SETTINGS_ROW_HEIGHT: f64 = 34.0;
 const SETTINGS_ROW_COUNT: usize = 10;
-// HUD の見た目を決める上記10行とは別に、区切り行を挟んで言語とログイン項目を末尾に置く。
-// この2つは下書き→保存のモデルに乗らず、操作した瞬間に保存・反映する。
-pub(super) const SETTINGS_DIVIDER_ROW_INDEX: usize = SETTINGS_ROW_COUNT;
-pub(super) const SETTINGS_LANGUAGE_ROW_INDEX: usize = SETTINGS_ROW_COUNT + 1;
-pub(super) const SETTINGS_LOGIN_ITEM_ROW_INDEX: usize = SETTINGS_ROW_COUNT + 2;
-const SETTINGS_TOTAL_ROW_COUNT: usize = SETTINGS_ROW_COUNT + 3;
+// HUD の見た目を決める上記10行とは別に、区切り行・言語・ログイン項目の 3 行を末尾に置く。
+// 各行の番号は build_settings_window が出現順に払い出す。
+pub(super) const SETTINGS_TOTAL_ROW_COUNT: usize = SETTINGS_ROW_COUNT + 3;
 const SETTINGS_TOP_MARGIN: f64 = 20.0;
 const SETTINGS_BOTTOM_MARGIN: f64 = 20.0;
 // ウィンドウ下部、行の並びとは別に「デフォルトに戻す」「お試し表示」「保存」ボタンを置くための領域

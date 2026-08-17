@@ -18,8 +18,7 @@ use crate::objc_helpers::{nsstring_from_str, template_image_from_png};
 use super::rows::{
     add_button_row, add_divider_row, add_field_row, add_language_row, add_login_item_row,
     add_popup_row, add_slider_row, add_stepper_row, make_button, make_label, make_pane_view,
-    SETTINGS_DIVIDER_ROW_INDEX, SETTINGS_LANGUAGE_ROW_INDEX, SETTINGS_LOGIN_ITEM_ROW_INDEX,
-    SETTINGS_PANE_HEIGHT, SETTINGS_STYLE_MASK, SETTINGS_WINDOW_WIDTH,
+    SETTINGS_PANE_HEIGHT, SETTINGS_STYLE_MASK, SETTINGS_TOTAL_ROW_COUNT, SETTINGS_WINDOW_WIDTH,
 };
 use super::{LocalizedControl, LocalizedKind, SettingsControls};
 
@@ -153,6 +152,18 @@ unsafe fn make_tab_icon(png: &[u8]) -> *mut AnyObject {
     padded
 }
 
+/// 設定タブの行番号を出現順に払い出す。行を挿入したとき、後続の呼び出しの番号を
+/// 手で振り直さなくて済むようにする。
+struct RowCounter(usize);
+
+impl RowCounter {
+    fn next(&mut self) -> usize {
+        let index = self.0;
+        self.0 += 1;
+        index
+    }
+}
+
 /// ペインを 1 つのタブとして登録する。`NSTabViewController` は選択中のタブの
 /// `preferredContentSize` に合わせてウィンドウの高さを変える。
 #[allow(clippy::too_many_arguments)]
@@ -243,11 +254,12 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
     });
 
     let content_view = make_pane_view(SETTINGS_PANE_HEIGHT);
+    let mut row = RowCounter(0);
 
     let (poll_interval_slider, poll_interval_value_label) = add_slider_row(
         content_view,
         delegate,
-        0,
+        row.next(),
         lang,
         Msg::LabelPollInterval,
         ConfigKey::PollIntervalSecs,
@@ -259,7 +271,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
     let (hud_duration_slider, hud_duration_value_label) = add_slider_row(
         content_view,
         delegate,
-        1,
+        row.next(),
         lang,
         Msg::LabelHudDuration,
         ConfigKey::HudDurationSecs,
@@ -271,7 +283,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
     let (hud_fade_duration_slider, hud_fade_duration_value_label) = add_slider_row(
         content_view,
         delegate,
-        2,
+        row.next(),
         lang,
         Msg::LabelHudFadeDuration,
         ConfigKey::HudFadeDurationSecs,
@@ -283,7 +295,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
     let (hud_scale_slider, hud_scale_value_label) = add_slider_row(
         content_view,
         delegate,
-        3,
+        row.next(),
         lang,
         Msg::LabelHudScale,
         ConfigKey::HudScale,
@@ -295,7 +307,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
     let (max_chars_per_line_field, max_chars_per_line_stepper) = add_stepper_row(
         content_view,
         delegate,
-        4,
+        row.next(),
         lang,
         Msg::LabelMaxCharsPerLine,
         ConfigKey::MaxCharsPerLine,
@@ -307,7 +319,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
     let (max_lines_field, max_lines_stepper) = add_stepper_row(
         content_view,
         delegate,
-        5,
+        row.next(),
         lang,
         Msg::LabelMaxLines,
         ConfigKey::MaxLines,
@@ -319,7 +331,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
     let (hud_image_max_height_field, hud_image_max_height_stepper) = add_stepper_row(
         content_view,
         delegate,
-        6,
+        row.next(),
         lang,
         Msg::LabelHudImageMaxHeight,
         ConfigKey::HudImageMaxHeight,
@@ -331,7 +343,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
     let hud_position_popup = add_popup_row(
         content_view,
         delegate,
-        7,
+        row.next(),
         lang,
         Msg::LabelHudPosition,
         ConfigKey::HudPosition,
@@ -342,7 +354,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
     let hud_background_color_popup = add_popup_row(
         content_view,
         delegate,
-        8,
+        row.next(),
         lang,
         Msg::LabelHudBackgroundColor,
         ConfigKey::HudBackgroundColor,
@@ -353,18 +365,19 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
     let (hud_emoji_field, hud_emoji_message_label) = add_field_row(
         content_view,
         delegate,
-        9,
+        row.next(),
         lang,
         Msg::LabelHudEmoji,
         ConfigKey::HudEmoji,
         &placeholder.hud_emoji,
         &mut localized,
     );
-    add_divider_row(content_view, SETTINGS_DIVIDER_ROW_INDEX);
+    // 区切りから下（言語・ログイン項目）は下書き→保存のモデルに乗らず、操作した瞬間に保存・反映する
+    add_divider_row(content_view, row.next());
     let language_popup = add_language_row(
         content_view,
         delegate,
-        SETTINGS_LANGUAGE_ROW_INDEX,
+        row.next(),
         lang,
         placeholder.language,
         &mut localized,
@@ -372,11 +385,13 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
     let login_item_toggle = add_login_item_row(
         content_view,
         delegate,
-        SETTINGS_LOGIN_ITEM_ROW_INDEX,
+        row.next(),
         lang,
         crate::login_item::is_enabled(),
         &mut localized,
     );
+    // 行数が定数からずれると SETTINGS_PANE_HEIGHT と row_bottom_y の前提が崩れ、行がはみ出す
+    debug_assert_eq!(row.0, SETTINGS_TOTAL_ROW_COUNT);
 
     add_button_row(content_view, delegate, lang, &mut localized);
 
