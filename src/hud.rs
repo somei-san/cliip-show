@@ -39,14 +39,25 @@ const HUD_BORDER_WIDTH: f64 = 1.0;
 const HUD_ICON_FONT_SIZE: f64 = 18.0;
 const HUD_TEXT_FONT_SIZE: f64 = 18.0;
 
+/// HUD ウィンドウの外形。テキスト・画像どちらの内容でも使う。
+/// `icon_y` はテキストの行高を下限にした位置合わせを含む
+/// （画像でもアイコンの縦位置がテキスト表示時とずれないようにするため）。
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct HudLayoutMetrics {
+pub struct HudFrameMetrics {
     pub width: f64,
-    pub text_width: f64,
     pub height: f64,
+    pub icon_y: f64,
+}
+
+/// テキスト表示専用のレイアウト。`text_width` は最小幅由来、`text_height` は行高由来の
+/// 下限を含むため、テキスト以外の内容のフレームに流用してはいけない。
+/// 画像レイアウトが誤って参照できないよう、外形（`HudFrameMetrics`）と型を分けている。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HudTextMetrics {
+    pub frame: HudFrameMetrics,
+    pub text_width: f64,
     pub text_height: f64,
     pub label_y: f64,
-    pub icon_y: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -92,6 +103,12 @@ fn icon_reserve(dims: &HudDimensions, has_icon: bool) -> f64 {
     }
 }
 
+/// 内容（テキスト・画像）の左右に付く固定幅。左右パディングとアイコン列の合計で、
+/// 「HUD 全幅 − この値 = 内容に使える幅」の関係が全レイアウト計算で共通に成り立つ。
+fn horizontal_chrome_width(dims: &HudDimensions, has_icon: bool) -> f64 {
+    dims.horizontal_padding * 2.0 + icon_reserve(dims, has_icon)
+}
+
 /// ボーダーカラーの (white, alpha) を返す。
 /// app.rs のホットリロード時にも同じ値を使うため一元管理する。
 pub fn hud_border_white_alpha(color: HudBackgroundColor) -> (f64, f64) {
@@ -131,8 +148,7 @@ pub fn fit_thumbnail_size(
     let max_height = (max_height_setting as f64 * clamped_scale)
         .min(dims.max_height - dims.vertical_padding * 2.0)
         .max(1.0);
-    let max_width =
-        (dims.max_width - (dims.horizontal_padding * 2.0 + icon_reserve(&dims, has_icon))).max(1.0);
+    let max_width = (dims.max_width - horizontal_chrome_width(&dims, has_icon)).max(1.0);
 
     let has_usable_size = image_width.is_finite()
         && image_height.is_finite()
@@ -272,7 +288,7 @@ pub unsafe fn create_hud_window(
             y: (default_height - dims.line_height_estimate) / 2.0,
         },
         size: NSSize {
-            width: default_width - (dims.horizontal_padding * 2.0 + icon_reserve(&dims, has_icon)),
+            width: default_width - horizontal_chrome_width(&dims, has_icon),
             height: dims.line_height_estimate,
         },
     };
@@ -413,10 +429,9 @@ pub unsafe fn layout_hud(
     let has_icon = !settings.hud_emoji.is_empty();
     let clamped_width = measure_text_natural_width(label, settings.hud_scale, has_icon)
         .clamp(dims.min_width, dims.max_width);
-    let text_width =
-        clamped_width - (dims.horizontal_padding * 2.0 + icon_reserve(&dims, has_icon));
+    let text_width = clamped_width - horizontal_chrome_width(&dims, has_icon);
     let measured_text_height = measure_text_height(label, text_width, settings.hud_scale);
-    let metrics = compute_hud_layout_metrics_with_scale(
+    let metrics = compute_hud_text_metrics(
         clamped_width,
         measured_text_height,
         settings.hud_scale,
@@ -426,7 +441,7 @@ pub unsafe fn layout_hud(
     let icon_rect = NSRect {
         origin: NSPoint {
             x: dims.horizontal_padding,
-            y: metrics.icon_y,
+            y: metrics.frame.icon_y,
         },
         size: NSSize {
             width: dims.icon_width,
@@ -447,15 +462,18 @@ pub unsafe fn layout_hud(
     let () = msg_send![icon_label, setHidden: !has_icon];
     let () = msg_send![icon_label, setFrame: icon_rect];
     let () = msg_send![label, setFrame: label_rect];
-    position_window(window, metrics.width, metrics.height, settings.hud_position);
+    position_window(
+        window,
+        metrics.frame.width,
+        metrics.frame.height,
+        settings.hud_position,
+    );
 }
 
 /// サムネイル寸法に合わせて HUD のサイズ・位置・画像ビューのフレームを再計算して適用する。
 ///
-/// `compute_hud_layout_metrics_with_scale` からはウィンドウの `width`・`height` と `icon_y` だけを使う。
-/// `text_width`・`text_height` はテキスト専用の下限（最小幅・行高）が入っており、
-/// そのまま画像ビューのフレームにすると小さい画像が引き伸ばされたり、
-/// 細い画像がアイコンから離れて中央寄せになる。
+/// 画像ビューのフレームはサムネイル寸法そのままで、外形は `HudFrameMetrics` から取る
+/// （テキスト専用の下限入りフィールドは型ごと存在しない）。
 ///
 /// # Safety
 /// - `window`・`icon_label`・`image_view` はいずれも有効な ObjC オブジェクトであること。
@@ -470,9 +488,8 @@ pub unsafe fn layout_hud_image(
     let dims = hud_dimensions(settings.hud_scale);
     let has_icon = !settings.hud_emoji.is_empty();
     let (thumbnail_width, thumbnail_height) = thumbnail_size;
-    let natural_width =
-        thumbnail_width + dims.horizontal_padding * 2.0 + icon_reserve(&dims, has_icon);
-    let metrics = compute_hud_layout_metrics_with_scale(
+    let natural_width = thumbnail_width + horizontal_chrome_width(&dims, has_icon);
+    let frame = compute_hud_frame_metrics(
         natural_width,
         thumbnail_height,
         settings.hud_scale,
@@ -482,7 +499,7 @@ pub unsafe fn layout_hud_image(
     let icon_rect = NSRect {
         origin: NSPoint {
             x: dims.horizontal_padding,
-            y: metrics.icon_y,
+            y: frame.icon_y,
         },
         size: NSSize {
             width: dims.icon_width,
@@ -492,7 +509,7 @@ pub unsafe fn layout_hud_image(
     let image_rect = NSRect {
         origin: NSPoint {
             x: dims.horizontal_padding + icon_reserve(&dims, has_icon),
-            y: (metrics.height - thumbnail_height) / 2.0,
+            y: (frame.height - thumbnail_height) / 2.0,
         },
         size: NSSize {
             width: thumbnail_width,
@@ -503,7 +520,7 @@ pub unsafe fn layout_hud_image(
     let () = msg_send![icon_label, setHidden: !has_icon];
     let () = msg_send![icon_label, setFrame: icon_rect];
     let () = msg_send![image_view, setFrame: image_rect];
-    position_window(window, metrics.width, metrics.height, settings.hud_position);
+    position_window(window, frame.width, frame.height, settings.hud_position);
 }
 
 /// NSTextField のテキスト内容を1行で表示したときの自然幅（HUD 全幅）を返す。
@@ -527,7 +544,7 @@ pub unsafe fn measure_text_natural_width(label: *mut AnyObject, scale: f64, has_
     };
     let size: NSSize = msg_send![cell, cellSizeForBounds: bounds];
     let text_content_width = size.width.ceil();
-    text_content_width + dims.horizontal_padding * 2.0 + icon_reserve(&dims, has_icon)
+    text_content_width + horizontal_chrome_width(&dims, has_icon)
 }
 
 /// NSTextField のテキスト内容を `text_width` 幅で折り返したときの高さを返す。
@@ -554,22 +571,22 @@ pub unsafe fn measure_text_height(label: *mut AnyObject, text_width: f64, scale:
 }
 
 #[cfg(test)]
-pub(crate) fn compute_hud_layout_metrics(
+pub(crate) fn compute_hud_text_metrics_default(
     width: f64,
     measured_text_height: f64,
-) -> HudLayoutMetrics {
-    compute_hud_layout_metrics_with_scale(width, measured_text_height, DEFAULT_HUD_SCALE, true)
+) -> HudTextMetrics {
+    compute_hud_text_metrics(width, measured_text_height, DEFAULT_HUD_SCALE, true)
 }
 
-pub fn compute_hud_layout_metrics_with_scale(
+pub(crate) fn compute_hud_text_metrics(
     width: f64,
     measured_text_height: f64,
     scale: f64,
     has_icon: bool,
-) -> HudLayoutMetrics {
+) -> HudTextMetrics {
     let dims = hud_dimensions(scale);
     let width = width.clamp(dims.min_width, dims.max_width);
-    let text_width = width - (dims.horizontal_padding * 2.0 + icon_reserve(&dims, has_icon));
+    let text_width = width - horizontal_chrome_width(&dims, has_icon);
     let measured_text_height = measured_text_height
         .min((dims.max_height - dims.vertical_padding * 2.0).max(dims.line_height_estimate));
     let height = (measured_text_height + dims.vertical_padding * 2.0)
@@ -582,14 +599,29 @@ pub fn compute_hud_layout_metrics_with_scale(
         .max(dims.vertical_padding)
         .min(height - dims.icon_height - dims.vertical_padding);
 
-    HudLayoutMetrics {
-        width,
+    HudTextMetrics {
+        frame: HudFrameMetrics {
+            width,
+            height,
+            icon_y,
+        },
         text_width,
-        height,
         text_height,
         label_y,
-        icon_y,
     }
+}
+
+/// 画像など非テキスト内容用の外形計算。外形はテキストと同じ式で決める
+/// （アイコンの縦位置は行高を下限にして揃える）が、テキスト専用フィールドを
+/// 持たない型で返すことで、下限入りの `text_width` / `text_height` を
+/// 内容のフレームに流用する誤りを防ぐ。
+pub(crate) fn compute_hud_frame_metrics(
+    natural_width: f64,
+    content_height: f64,
+    scale: f64,
+    has_icon: bool,
+) -> HudFrameMetrics {
+    compute_hud_text_metrics(natural_width, content_height, scale, has_icon).frame
 }
 
 #[cfg(test)]
@@ -607,16 +639,15 @@ pub(crate) fn hud_width_for_text_with_scale(text: &str, scale: f64, has_icon: bo
         .map(|line| crate::text::line_display_units(line))
         .fold(1.0f64, f64::max);
 
-    (max_units * dims.char_width_estimate
-        + dims.horizontal_padding * 2.0
-        + icon_reserve(&dims, has_icon))
-    .clamp(dims.min_width, dims.max_width)
+    (max_units * dims.char_width_estimate + horizontal_chrome_width(&dims, has_icon))
+        .clamp(dims.min_width, dims.max_width)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        compute_hud_layout_metrics, fit_thumbnail_size, hud_origin_for_frame, hud_width_for_text,
+        compute_hud_frame_metrics, compute_hud_text_metrics_default, fit_thumbnail_size,
+        horizontal_chrome_width, hud_dimensions, hud_origin_for_frame, hud_width_for_text,
     };
     use crate::config::{HudPosition, DEFAULT_HUD_IMAGE_MAX_HEIGHT, DEFAULT_HUD_SCALE};
     use objc2_foundation::{NSPoint, NSRect, NSSize};
@@ -717,15 +748,15 @@ ascii_very_long: 902.0";
         let snapshot = cases
             .iter()
             .map(|(name, width, measured)| {
-                let metrics = compute_hud_layout_metrics(*width, *measured);
+                let metrics = compute_hud_text_metrics_default(*width, *measured);
                 format!(
                     "{name}: w={:.1} text_w={:.1} h={:.1} text_h={:.1} label_y={:.1} icon_y={:.1}",
-                    metrics.width,
+                    metrics.frame.width,
                     metrics.text_width,
-                    metrics.height,
+                    metrics.frame.height,
                     metrics.text_height,
                     metrics.label_y,
-                    metrics.icon_y
+                    metrics.frame.icon_y
                 )
             })
             .collect::<Vec<_>>()
@@ -738,6 +769,23 @@ overflow: w=600.0 text_w=531.8 h=308.0 text_h=286.0 label_y=11.0 icon_y=272.8
 narrow_clamped: w=220.0 text_w=151.8 h=57.2 text_h=24.2 label_y=16.5 icon_y=16.5";
 
         assert_eq!(snapshot, expected);
+    }
+
+    /// 画像経路の外形計算。VRT の image_tiny ベースライン（16x16・既定設定）が固定している
+    /// 2 つの挙動を張る: 細い画像でも幅は最小幅までクランプされること、内容が行高より
+    /// 低くてもアイコンの縦位置は行高を下限にして揃えること。
+    #[test]
+    fn frame_metrics_keep_icon_alignment_for_short_content() {
+        let dims = hud_dimensions(DEFAULT_HUD_SCALE);
+        let natural_width = 16.0 + horizontal_chrome_width(&dims, true);
+        let frame = compute_hud_frame_metrics(natural_width, 16.0, DEFAULT_HUD_SCALE, true);
+        assert_eq!(
+            format!(
+                "w={:.1} h={:.1} icon_y={:.1}",
+                frame.width, frame.height, frame.icon_y
+            ),
+            "w=220.0 h=57.2 icon_y=16.5"
+        );
     }
 
     #[test]
