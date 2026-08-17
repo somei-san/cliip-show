@@ -1,7 +1,9 @@
 use std::fmt::Write as _;
 
 use crate::config::show_config;
-use crate::png::{generate_diff_png, render_hud_image_png, render_hud_png};
+use crate::png::{
+    generate_diff_png, render_hud_image_png, render_hud_png, render_settings_png, SettingsPane,
+};
 
 /// `--image-fixture` の `<W>x<H>` をパースする。
 fn parse_image_fixture_size(raw: &str) -> Option<(usize, usize)> {
@@ -82,6 +84,58 @@ fn parse_render_hud_args(args: impl Iterator<Item = String>) -> Result<RenderHud
         content,
         output_path,
     })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct SettingsPngArgs {
+    pane: SettingsPane,
+    output_path: String,
+}
+
+/// `--render-settings-png` に続くオプションを解析する。Err の扱いは `parse_render_hud_args` と同じ。
+fn parse_settings_png_args(args: impl Iterator<Item = String>) -> Result<SettingsPngArgs, String> {
+    let mut args = args;
+    let mut pane: Option<SettingsPane> = None;
+    let mut output_path: Option<String> = None;
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--pane" => {
+                let Some(value) = args.next() else {
+                    return Err("Missing value for --pane".to_string());
+                };
+                pane = Some(match value.as_str() {
+                    "settings" => SettingsPane::Settings,
+                    "support" => SettingsPane::Support,
+                    unknown => {
+                        return Err(format!(
+                            "Invalid value for --pane: {unknown} (expected settings or support)"
+                        ));
+                    }
+                });
+            }
+            "--output" => {
+                let Some(value) = args.next() else {
+                    return Err("Missing value for --output".to_string());
+                };
+                output_path = Some(value);
+            }
+            unknown => {
+                return Err(format!(
+                    "Unknown option for --render-settings-png: {unknown}"
+                ));
+            }
+        }
+    }
+
+    let Some(pane) = pane else {
+        return Err("--pane is required for --render-settings-png".to_string());
+    };
+    let Some(output_path) = output_path else {
+        return Err("--output is required for --render-settings-png".to_string());
+    };
+
+    Ok(SettingsPngArgs { pane, output_path })
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -168,6 +222,10 @@ pub fn handle_cli_flags() -> bool {
             let _ = writeln!(
                 help,
                 "  --render-hud-png --image-fixture <W>x<H> --output <PATH>    Render image HUD snapshot PNG and exit"
+            );
+            let _ = writeln!(
+                help,
+                "  --render-settings-png --pane <settings|support> --output <PATH>    Render settings window pane PNG and exit"
             );
             let _ = writeln!(
                 help,
@@ -264,6 +322,21 @@ pub fn handle_cli_flags() -> bool {
             }
             true
         }
+        "--render-settings-png" => {
+            let parsed = match parse_settings_png_args(args) {
+                Ok(parsed) => parsed,
+                Err(message) => {
+                    eprintln!("{message}");
+                    std::process::exit(2);
+                }
+            };
+
+            if let Err(error) = render_settings_png(parsed.pane, &parsed.output_path) {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+            true
+        }
         "--diff-png" => {
             let parsed = match parse_diff_png_args(args) {
                 Ok(parsed) => parsed,
@@ -303,8 +376,9 @@ pub fn handle_cli_flags() -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_diff_png_args, parse_image_fixture_size, parse_render_hud_args, DiffPngArgs,
-        RenderContent, RenderHudArgs,
+        parse_diff_png_args, parse_image_fixture_size, parse_render_hud_args,
+        parse_settings_png_args, DiffPngArgs, RenderContent, RenderHudArgs, SettingsPane,
+        SettingsPngArgs,
     };
 
     fn args(list: &[&str]) -> impl Iterator<Item = String> {
@@ -504,6 +578,39 @@ mod tests {
         assert_eq!(
             parse_diff_png_args(args(&["--output"])),
             Err("Missing value for --output".to_string())
+        );
+    }
+
+    #[test]
+    fn settings_args_accept_pane_and_output() {
+        let parsed =
+            parse_settings_png_args(args(&["--pane", "support", "--output", "/tmp/s.png"]));
+        assert_eq!(
+            parsed,
+            Ok(SettingsPngArgs {
+                pane: SettingsPane::Support,
+                output_path: "/tmp/s.png".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn settings_args_reject_invalid_or_missing_options() {
+        assert_eq!(
+            parse_settings_png_args(args(&["--pane", "about", "--output", "/tmp/s.png"])),
+            Err("Invalid value for --pane: about (expected settings or support)".to_string())
+        );
+        assert_eq!(
+            parse_settings_png_args(args(&["--output", "/tmp/s.png"])),
+            Err("--pane is required for --render-settings-png".to_string())
+        );
+        assert_eq!(
+            parse_settings_png_args(args(&["--pane", "settings"])),
+            Err("--output is required for --render-settings-png".to_string())
+        );
+        assert_eq!(
+            parse_settings_png_args(args(&["--panes", "settings"])),
+            Err("Unknown option for --render-settings-png: --panes".to_string())
         );
     }
 

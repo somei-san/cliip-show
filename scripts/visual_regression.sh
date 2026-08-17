@@ -32,9 +32,10 @@ failed=0
 
 render_and_compare() {
   local id="$1"
-  local content_flag="$2"
-  local content_value="$3"
-  shift 3
+  local mode_flag="$2"
+  local content_flag="$3"
+  local content_value="$4"
+  shift 4
 
   local current="$ARTIFACT_DIR/${id}.current.png"
   local baseline="$BASELINE_DIR/${id}.png"
@@ -65,7 +66,7 @@ render_and_compare() {
       cmd+=("$override")
     done
   fi
-  cmd+=("$BIN" --render-hud-png "$content_flag" "$content_value" --output "$current")
+  cmd+=("$BIN" "$mode_flag" "$content_flag" "$content_value" --output "$current")
   "${cmd[@]}"
 
   if $UPDATE; then
@@ -127,7 +128,7 @@ run_case() {
   local id="$1"
   local text="$2"
   shift 2
-  render_and_compare "$id" --text "$text" "$@"
+  render_and_compare "$id" --render-hud-png --text "$text" "$@"
 }
 
 # サイズは <W>x<H>。バイナリ側が決定的な市松模様を生成するのでフィクスチャ画像ファイルは不要
@@ -135,7 +136,16 @@ run_image_case() {
   local id="$1"
   local size="$2"
   shift 2
-  render_and_compare "$id" --image-fixture "$size" "$@"
+  render_and_compare "$id" --render-hud-png --image-fixture "$size" "$@"
+}
+
+# 設定ウィンドウのペイン（settings | support）。タブバーは contentView の外なので写らない。
+# 言語は必ず CLIIP_SHOW_LANGUAGE で固定して呼ぶこと（auto は実行マシンの言語に依存する）
+run_settings_case() {
+  local id="$1"
+  local pane="$2"
+  shift 2
+  render_and_compare "$id" --render-settings-png --pane "$pane" "$@"
 }
 
 run_case \
@@ -326,6 +336,27 @@ run_image_case \
   "no_emoji_image" \
   "320x180" \
   "CLIIP_SHOW_HUD_EMOJI="
+
+# Settings window panes (row layout, control placement, localized labels)
+run_settings_case \
+  "settings_pane_ja" \
+  "settings" \
+  "CLIIP_SHOW_LANGUAGE=ja"
+
+run_settings_case \
+  "settings_pane_en" \
+  "settings" \
+  "CLIIP_SHOW_LANGUAGE=en"
+
+run_settings_case \
+  "support_pane_ja" \
+  "support" \
+  "CLIIP_SHOW_LANGUAGE=ja"
+
+run_settings_case \
+  "support_pane_en" \
+  "support" \
+  "CLIIP_SHOW_LANGUAGE=en"
 
 if $UPDATE; then
   echo "visual regression baseline updated"

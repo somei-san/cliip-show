@@ -190,10 +190,12 @@ pub(super) extern "C" fn open_support_page(_: &AnyObject, _: Sel, _: *mut AnyObj
 
 #[cfg(test)]
 mod tests {
-    use super::SUPPORT_URL;
+    use super::{about_credits, REPOSITORY_URL, SUPPORT_URL};
+    use crate::i18n::{self, Lang, Msg};
+    use crate::objc_helpers::nsstring_to_string;
     use objc2::runtime::AnyObject;
     use objc2::{class, msg_send};
-    use objc2_foundation::NSString;
+    use objc2_foundation::{NSRange, NSString};
 
     /// 開く URL が壊れていると `NSURL` が nil を返し、何も起きない。
     #[test]
@@ -202,6 +204,47 @@ mod tests {
             let url_string = NSString::from_str(SUPPORT_URL);
             let url: *mut AnyObject = msg_send![class!(NSURL), URLWithString: &*url_string];
             assert!(!url.is_null(), "{SUPPORT_URL} is not a valid URL");
+        }
+    }
+
+    /// About パネル自体はシステム所有で VRT が撮れないため、渡す中身をここで固定する。
+    /// 説明文＋リポジトリ URL の 2 行構成で、URL の先頭にリンク属性が付いていること。
+    #[test]
+    fn about_credits_link_the_repository_in_both_languages() {
+        unsafe {
+            for lang in [Lang::Ja, Lang::En] {
+                let credits = about_credits(lang);
+                assert!(!credits.is_null());
+
+                let ns: *mut AnyObject = msg_send![credits, string];
+                let text = nsstring_to_string(ns).expect("credits text");
+                assert!(
+                    text.contains(i18n::text(lang, Msg::AboutDescription)),
+                    "description missing ({lang:?}): {text}"
+                );
+                assert!(
+                    text.ends_with(REPOSITORY_URL),
+                    "repository URL missing ({lang:?}): {text}"
+                );
+
+                let link_location = text
+                    .split('\n')
+                    .next()
+                    .unwrap_or_default()
+                    .encode_utf16()
+                    .count()
+                    + 1;
+                let link_key = NSString::from_str(super::NS_LINK_ATTRIBUTE_NAME);
+                let url: *mut AnyObject = msg_send![
+                    credits,
+                    attribute: &*link_key
+                    atIndex: link_location
+                    effectiveRange: std::ptr::null_mut::<NSRange>()
+                ];
+                assert!(!url.is_null(), "link attribute missing ({lang:?})");
+
+                let () = msg_send![credits, release];
+            }
         }
     }
 }

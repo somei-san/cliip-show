@@ -27,8 +27,8 @@ HUD を実機で見るなら `./scripts/local_check.sh`（オプションは `do
   ```bash
   ./scripts/visual_regression.sh --update
   ```
-- VRT が撮るのは HUD の contentView だけ。設定ウィンドウとメニューバーは対象外
-- VRT のケースは `CLIIP_SHOW_*` 環境変数で設定を上書きして作る（`scripts/visual_regression.sh` の `run_case`）
+- VRT が撮るのは HUD の contentView と設定ウィンドウの各ペイン（`run_settings_case`。タブバーは contentView の外なので写らない）。メニューバーと About パネルは対象外（システム所有の表面で view を PNG 化できない。About は渡す中身を UT で固定している）
+- VRT のケースは `CLIIP_SHOW_*` 環境変数で設定を上書きして作る（`scripts/visual_regression.sh` の `run_case`）。設定ウィンドウのケースは `CLIIP_SHOW_LANGUAGE` を必ず明示する（`auto` は実行マシンの言語に依存し、ローカルと CI でベースラインが食い違う）
 - `Cargo.toml` の `edition` を変えたら `.claude/settings.json` の rustfmt フック（`--edition` を直書き）も同期する。ズレるとフックの整形結果を CI の `cargo fmt --check` が拒否する
 
 ## ドキュメント

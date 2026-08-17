@@ -98,6 +98,73 @@ pub fn render_hud_image_png(
     }
 }
 
+/// `--render-settings-png` で撮る設定ウィンドウのペイン。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsPane {
+    Settings,
+    Support,
+}
+
+/// 設定ウィンドウの指定ペインのスナップショット PNG を書き出す（VRT 用）。
+///
+/// 表示言語は他のレンダリングと同じく実効設定から解決する。VRT から使うときは
+/// `CLIIP_SHOW_LANGUAGE` を必ず明示すること（`auto` は実行マシンのシステム言語に
+/// 依存し、ローカルと CI でベースラインが食い違う）。
+///
+/// タブバーはウィンドウのツールバー領域（contentView の外）にあるため写らない。
+pub fn render_settings_png(pane: SettingsPane, output_path: &str) -> Result<(), AppError> {
+    unsafe {
+        let _app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        let settings = display_settings();
+        let lang = crate::i18n::resolve(settings.language);
+
+        // アクションは一切発火させないので、AppState 未初期化の素の delegate でよい
+        let delegate: *mut AnyObject = msg_send![crate::app::get_delegate_class(), new];
+        let controls = crate::settings_window::build_settings_window(&*delegate, lang);
+        if controls.window.is_null() {
+            let () = msg_send![delegate, release];
+            return Err(AppError::RenderFailed(
+                "failed to create settings window".to_string(),
+            ));
+        }
+        // プレースホルダ（既定値）のままではなく、環境変数まで効かせた実効設定を写す
+        crate::settings_window::sync_controls_from_settings(&controls, &settings);
+
+        let tab_index: isize = match pane {
+            SettingsPane::Settings => 0,
+            SettingsPane::Support => 1,
+        };
+        let tab_controller: *mut AnyObject = msg_send![controls.window, contentViewController];
+        let () = msg_send![tab_controller, setSelectedTabViewItemIndex: tab_index];
+
+        // 実行マシンのライト/ダーク設定でベースラインが割れないよう、外観をライトに固定する。
+        // 画面に出さないウィンドウは外観が解決されず、ダーク環境では白文字が透明背景に
+        // 載って消えた状態で描画される
+        let aqua_name = NSString::from_str("NSAppearanceNameAqua");
+        let aqua: *mut AnyObject = msg_send![class!(NSAppearance), appearanceNamed: &*aqua_name];
+        if !aqua.is_null() {
+            let () = msg_send![controls.window, setAppearance: aqua];
+        }
+
+        // contentView は透明で、ウィンドウ背景は contentView の外にあるため PNG に写らない。
+        // ラベルの黒文字が読めるよう、不透明な明色を背景に敷く
+        let content_view: *mut AnyObject = msg_send![controls.window, contentView];
+        let () = msg_send![content_view, setWantsLayer: true];
+        let layer: *mut AnyObject = msg_send![content_view, layer];
+        let bg: *mut AnyObject =
+            msg_send![class!(NSColor), colorWithCalibratedWhite: 0.93f64 alpha: 1.0f64];
+        let cg_color: *mut std::ffi::c_void = msg_send![bg, CGColor];
+        let () = msg_send![layer, setBackgroundColor: cg_color];
+
+        // ウィンドウを画面に出さないため、レイアウトを明示的に確定させる
+        let () = msg_send![content_view, layoutSubtreeIfNeeded];
+
+        let result = write_window_png(controls.window, output_path);
+        let () = msg_send![delegate, release];
+        result
+    }
+}
+
 /// VRT 用の決定的な市松模様ビットマップを NSImage として生成する。
 ///
 /// 外部の PNG ファイルを読み込ませないのは、色プロファイルやデコーダの差で
