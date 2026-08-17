@@ -17,8 +17,9 @@ use crate::objc_helpers::template_image_from_png;
 
 use super::rows::{
     add_button_row, add_divider_row, add_field_row, add_language_row, add_login_item_row,
-    add_popup_row, add_slider_row, add_stepper_row, make_button, make_label, make_pane_view,
-    SETTINGS_PANE_HEIGHT, SETTINGS_STYLE_MASK, SETTINGS_TOTAL_ROW_COUNT, SETTINGS_WINDOW_WIDTH,
+    add_popup_row, add_slider_row, add_stepper_row, document_height, make_button, make_label,
+    make_pane_view, make_scroll_view, SETTINGS_PANE_HEIGHT, SETTINGS_STYLE_MASK,
+    SETTINGS_TOTAL_ROW_COUNT, SETTINGS_WINDOW_WIDTH,
 };
 use super::{LocalizedControl, LocalizedKind, SettingsControls};
 
@@ -258,10 +259,11 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
     });
 
     let content_view = make_pane_view(SETTINGS_PANE_HEIGHT);
+    let document_view = make_pane_view(document_height());
     let mut row = RowCounter(0);
 
     let (poll_interval_slider, poll_interval_value_label) = add_slider_row(
-        content_view,
+        document_view,
         delegate,
         row.next(),
         lang,
@@ -273,7 +275,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         &mut localized,
     );
     let (hud_duration_slider, hud_duration_value_label) = add_slider_row(
-        content_view,
+        document_view,
         delegate,
         row.next(),
         lang,
@@ -285,7 +287,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         &mut localized,
     );
     let (hud_fade_duration_slider, hud_fade_duration_value_label) = add_slider_row(
-        content_view,
+        document_view,
         delegate,
         row.next(),
         lang,
@@ -297,7 +299,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         &mut localized,
     );
     let (hud_scale_slider, hud_scale_value_label) = add_slider_row(
-        content_view,
+        document_view,
         delegate,
         row.next(),
         lang,
@@ -309,7 +311,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         &mut localized,
     );
     let (max_chars_per_line_field, max_chars_per_line_stepper) = add_stepper_row(
-        content_view,
+        document_view,
         delegate,
         row.next(),
         lang,
@@ -321,7 +323,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         &mut localized,
     );
     let (max_lines_field, max_lines_stepper) = add_stepper_row(
-        content_view,
+        document_view,
         delegate,
         row.next(),
         lang,
@@ -333,7 +335,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         &mut localized,
     );
     let (hud_image_max_height_field, hud_image_max_height_stepper) = add_stepper_row(
-        content_view,
+        document_view,
         delegate,
         row.next(),
         lang,
@@ -345,7 +347,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         &mut localized,
     );
     let hud_position_popup = add_popup_row(
-        content_view,
+        document_view,
         delegate,
         row.next(),
         lang,
@@ -356,7 +358,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         &mut localized,
     );
     let hud_background_color_popup = add_popup_row(
-        content_view,
+        document_view,
         delegate,
         row.next(),
         lang,
@@ -367,6 +369,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         &mut localized,
     );
     let (hud_emoji_field, hud_emoji_message_label) = add_field_row(
+        document_view,
         content_view,
         delegate,
         row.next(),
@@ -377,9 +380,9 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         &mut localized,
     );
     // 区切りから下（言語・ログイン項目）は下書き→保存のモデルに乗らず、操作した瞬間に保存・反映する
-    add_divider_row(content_view, row.next());
+    add_divider_row(document_view, row.next());
     let language_popup = add_language_row(
-        content_view,
+        document_view,
         delegate,
         row.next(),
         lang,
@@ -387,15 +390,20 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         &mut localized,
     );
     let login_item_toggle = add_login_item_row(
-        content_view,
+        document_view,
         delegate,
         row.next(),
         lang,
         crate::login_item::is_enabled(),
         &mut localized,
     );
-    // 行数が定数からずれると SETTINGS_PANE_HEIGHT と row_bottom_y の前提が崩れ、行がはみ出す
+    // 行数が定数からずれると document_height と row_bottom_y の前提が崩れ、行がはみ出す
     debug_assert_eq!(row.0, SETTINGS_TOTAL_ROW_COUNT);
+
+    let scroll_view = make_scroll_view(document_view);
+    let () = msg_send![document_view, release];
+    let () = msg_send![content_view, addSubview: scroll_view];
+    let () = msg_send![scroll_view, release];
 
     add_button_row(content_view, delegate, lang, &mut localized);
 
@@ -480,5 +488,17 @@ mod tests {
         assert!(class!(NSViewController).responds_to(sel!(setView:)));
         assert!(class!(NSViewController).responds_to(sel!(setPreferredContentSize:)));
         assert!(class!(NSWindow).responds_to(sel!(setContentViewController:)));
+    }
+
+    /// 設定タブをスクロール化する NSScrollView / documentView 側のセレクタも同じ理由で突き合わせる。
+    #[test]
+    fn appkit_responds_to_scroll_selectors() {
+        assert!(class!(NSScrollView).responds_to(sel!(setBorderType:)));
+        assert!(class!(NSScrollView).responds_to(sel!(setDrawsBackground:)));
+        assert!(class!(NSScrollView).responds_to(sel!(setHasVerticalScroller:)));
+        assert!(class!(NSScrollView).responds_to(sel!(setHasHorizontalScroller:)));
+        assert!(class!(NSScrollView).responds_to(sel!(setAutohidesScrollers:)));
+        assert!(class!(NSScrollView).responds_to(sel!(setDocumentView:)));
+        assert!(class!(NSView).responds_to(sel!(scrollPoint:)));
     }
 }
