@@ -42,6 +42,10 @@ jobs:
           # ローカル既定（120）より緩い値。GitHub ランナーは手元の実機とフォント
           # レンダリングが微妙に違い、文字境界のアンチエイリアスに差分が乗るため
           MAX_DIFF_PERMILLE: 160
+          # 設定ペインも同様に緩める。日本語グリフのラスタライズ差が実測 35〜65‰ 乗るため、
+          # ローカル既定（30）の「ja/en 取り違えの検出」は CI では成立しない。
+          # その検証はベースラインを生成したローカルでの実行が担い、CI は配置の粗い退行だけ見る
+          SETTINGS_MAX_DIFF_PERMILLE: 100
       - name: Upload visual artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
