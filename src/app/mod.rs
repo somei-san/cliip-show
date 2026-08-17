@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::ptr;
 use std::sync::{Mutex, Once};
 use std::time::SystemTime;
@@ -6,26 +6,19 @@ use std::time::SystemTime;
 use objc2::declare::ClassBuilder;
 use objc2::runtime::{AnyClass, AnyObject, Sel};
 use objc2::{class, msg_send, sel};
-use objc2_foundation::NSSize;
 
-use crate::config::{
-    apply_config_file, apply_env_overrides, default_display_settings, display_settings,
-    load_config_file, DisplaySettings,
-};
-use crate::error::AppError;
-use crate::hud::{
-    create_hud_window, fit_thumbnail_size, hud_background_rgba, hud_border_white_alpha, layout_hud,
-    layout_hud_image,
-};
+use crate::config::{display_settings, DisplaySettings};
+use crate::hud::create_hud_window;
 use crate::i18n;
 use crate::menu::MenuHandles;
-use crate::objc_helpers::nsstring_from_str;
 use crate::settings_window::SettingsControls;
-use crate::text::truncate_text;
 
+mod config_reload;
+mod hud_show;
 mod panels;
 
-pub const FADE_TICK_INTERVAL_SECS: f64 = 1.0 / 60.0;
+pub(crate) use config_reload::{apply_settings_now, display_settings_from_file};
+pub(crate) use hud_show::{present_hud, show_sample_image_content, show_text_content};
 
 pub struct AppState {
     pub last_change_count: isize,
@@ -56,7 +49,7 @@ pub struct AppState {
 // ここで明示的に実装する。
 unsafe impl Send for AppState {}
 
-pub(crate) static APP_STATE: Mutex<Option<AppState>> = Mutex::new(None);
+static APP_STATE: Mutex<Option<AppState>> = Mutex::new(None);
 
 pub fn get_delegate_class() -> &'static AnyClass {
     static ONCE: Once = Once::new();
@@ -75,7 +68,10 @@ pub fn get_delegate_class() -> &'static AnyClass {
             poll_pasteboard as extern "C" fn(_, _, _),
         );
         builder.add_method(sel!(hideHud:), hide_hud as extern "C" fn(_, _, _));
-        builder.add_method(sel!(fadeTick:), fade_tick as extern "C" fn(_, _, _));
+        builder.add_method(
+            sel!(fadeTick:),
+            hud_show::fade_tick as extern "C" fn(_, _, _),
+        );
         builder.add_method(sel!(togglePause:), toggle_pause as extern "C" fn(_, _, _));
         builder.add_method(sel!(quitApp:), quit_app as extern "C" fn(_, _, _));
         builder.add_method(sel!(openSettings:), open_settings as extern "C" fn(_, _, _));
@@ -206,249 +202,6 @@ unsafe fn schedule_poll_timer(delegate: *const AnyObject, interval: f64) -> *mut
     ]
 }
 
-// poll_pasteboard が呼ばれるたびにカウントし、この回数ごとに mtime チェックを行う
-// デフォルト poll_interval_secs=0.3 × 10 = 約3秒ごと
-const CONFIG_CHECK_EVERY_N_POLLS: u32 = 10;
-
-/// 設定ファイルを読み込み、既定値・環境変数オーバーライドを適用した `DisplaySettings` を返す。
-/// ファイル監視の再読み込み（`reload_config_if_changed`）とウィンドウを閉じたときの
-/// 再読み込み（`window_will_close`）の両方から使う。
-pub(crate) fn display_settings_from_file(path: &Path) -> Result<DisplaySettings, AppError> {
-    let (config, _) = load_config_file(path)?;
-    let base = default_display_settings();
-    Ok(apply_env_overrides(apply_config_file(base, &config)))
-}
-
-unsafe fn reload_config_if_changed(state: &mut AppState) {
-    let Some(ref path) = state.config_path else {
-        return;
-    };
-    state.config_check_counter += 1;
-    if state.config_check_counter < CONFIG_CHECK_EVERY_N_POLLS {
-        return;
-    }
-    state.config_check_counter = 0;
-    let current_mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
-    if current_mtime == state.config_mtime {
-        return;
-    }
-    let new_settings = match display_settings_from_file(path) {
-        Ok(settings) => settings,
-        Err(err) => {
-            eprintln!("warning: config reload failed, keeping current settings: {err}");
-            return;
-        }
-    };
-    state.config_mtime = current_mtime;
-
-    apply_settings_now(state, new_settings);
-    eprintln!("config reloaded");
-}
-
-/// 新しい設定を state に反映する。ファイル監視の再読み込み・設定ウィンドウからの変更の両方から呼ばれる。
-///
-/// # Safety
-/// - `APP_STATE` をロックしないこと（呼び出し側が既にロックを保持している）。
-/// - AppKit のメインスレッドから呼ぶこと。
-pub(crate) unsafe fn apply_settings_now(state: &mut AppState, new_settings: DisplaySettings) {
-    // hud_emoji が変わったらアイコンラベルを即時更新
-    if new_settings.hud_emoji != state.settings.hud_emoji {
-        let emoji = nsstring_from_str(&new_settings.hud_emoji);
-        let () = msg_send![state.icon_label, setStringValue: emoji];
-        let () = msg_send![emoji, release];
-    }
-
-    // hud_background_color が変わったら背景レイヤーを即時更新
-    if new_settings.hud_background_color != state.settings.hud_background_color {
-        let content_view: *mut AnyObject = msg_send![state.window, contentView];
-        if content_view.is_null() {
-            eprintln!("warning: contentView is null; skipping background color update");
-        } else {
-            let layer: *mut AnyObject = msg_send![content_view, layer];
-            if layer.is_null() {
-                eprintln!("warning: layer is null; skipping background color update");
-            } else {
-                let (r, g, b, a) = hud_background_rgba(new_settings.hud_background_color);
-                let bg: *mut AnyObject =
-                    msg_send![class!(NSColor), colorWithCalibratedRed: r green: g blue: b alpha: a];
-                let cg_color: *mut std::ffi::c_void = msg_send![bg, CGColor];
-                let () = msg_send![layer, setBackgroundColor: cg_color];
-                let (border_white, border_alpha) =
-                    hud_border_white_alpha(new_settings.hud_background_color);
-                let border_obj: *mut AnyObject = msg_send![class!(NSColor), colorWithCalibratedWhite: border_white alpha: border_alpha];
-                let border_cg: *mut std::ffi::c_void = msg_send![border_obj, CGColor];
-                let () = msg_send![layer, setBorderColor: border_cg];
-            }
-        }
-    }
-
-    // 間隔は NSTimer の生成時にしか渡せないため、変わったら張り替える
-    let poll_changed =
-        (new_settings.poll_interval_secs - state.settings.poll_interval_secs).abs() > 1e-9;
-    if poll_changed {
-        if !state.poll_timer.is_null() {
-            let () = msg_send![state.poll_timer, invalidate];
-        }
-        state.poll_timer = schedule_poll_timer(state.delegate, new_settings.poll_interval_secs);
-    }
-
-    let language_changed = new_settings.language != state.settings.language;
-    state.settings = new_settings;
-
-    // language が変わったら設定ウィンドウとメニューの文言を即時更新。
-    // ファイル監視の再読み込みと設定ウィンドウの言語ポップアップのどちらの経路もここを
-    // 通るため、更新箇所は一箇所で済む。
-    //
-    // ここで触るのは非編集ラベルと NSButton/NSMenuItem/NSMenu/NSWindow のタイトルだけで
-    // action もテキスト編集のデリゲート通知も発火しないため、APP_STATE のロックを
-    // 保持したまま呼んでも再入は起きない。
-    if language_changed {
-        let lang = i18n::resolve(state.settings.language);
-        crate::settings_window::apply_language(&state.settings_controls, lang);
-        crate::menu::apply_language(&state.menu_handles, lang);
-        // 外部から言語が変わったときはポップアップの選択も追随させる。文言の差し替えは
-        // 選択位置を動かさないため、これが無いと選択だけ古い値を指したままになる。
-        crate::settings_window::sync_language_popup(
-            &state.settings_controls,
-            state.settings.language,
-        );
-        // 絵文字の検証メッセージは内容が動的で `localized` に載せられないため、個別に描き直す。
-        if !state.settings_controls.hud_emoji_field.is_null() {
-            crate::settings_window::update_emoji_validation_message(state);
-        }
-        // draft は「保存」で丸ごと書き戻されるため、古い言語で上書きしないようここでも揃える。
-        state.settings_controls.draft.language = state.settings.language;
-    }
-}
-
-pub(crate) unsafe fn show_text_content(state: &mut AppState, text: &str) {
-    let truncated = truncate_text(
-        text,
-        state.settings.truncate_max_width,
-        state.settings.truncate_max_lines,
-    );
-    let message = nsstring_from_str(&truncated);
-    let () = msg_send![state.label, setStringValue: message];
-    let () = msg_send![message, release];
-
-    let () = msg_send![state.image_view, setImage: ptr::null_mut::<AnyObject>()];
-    let () = msg_send![state.image_view, setHidden: true];
-    let () = msg_send![state.label, setHidden: false];
-
-    layout_hud(
-        state.window,
-        state.icon_label,
-        state.label,
-        state.settings.clone(),
-    );
-}
-
-/// ペーストボードに載っている画像を NSImage として取り出す。画像が無ければ null を返す。
-///
-/// PNG・TIFF・JPEG・file-url のいずれも `initWithPasteboard:` が処理するため、型ごとの分岐は持たない。
-///
-/// # Safety
-/// - `pasteboard` は有効な NSPasteboard であること。
-/// - 戻り値は所有権 +1。呼び出し側が `release` すること。
-unsafe fn image_from_pasteboard(pasteboard: *mut AnyObject) -> *mut AnyObject {
-    let image: *mut AnyObject = msg_send![class!(NSImage), alloc];
-    msg_send![image, initWithPasteboard: pasteboard]
-}
-
-/// `image` を HUD の画像ビューにセットしてレイアウトを更新する共通処理。
-/// 呼び出し側から所有権（+1）を引き継ぎ、ここで `release` する。
-unsafe fn set_hud_image(state: &mut AppState, image: *mut AnyObject) {
-    let size: NSSize = msg_send![image, size];
-    let thumbnail = fit_thumbnail_size(
-        size.width,
-        size.height,
-        state.settings.hud_image_max_height,
-        state.settings.hud_scale,
-        !state.settings.hud_emoji.is_empty(),
-    );
-
-    // NSImageView が retain するので、こちらが持っていた所有権は手放す
-    let () = msg_send![state.image_view, setImage: image];
-    let () = msg_send![image, release];
-
-    let () = msg_send![state.label, setHidden: true];
-    let () = msg_send![state.image_view, setHidden: false];
-
-    layout_hud_image(
-        state.window,
-        state.icon_label,
-        state.image_view,
-        thumbnail,
-        state.settings.clone(),
-    );
-}
-
-/// クリップボードの画像を HUD にセットできたら `true` を返す。
-unsafe fn show_image_content(state: &mut AppState) -> bool {
-    let image = image_from_pasteboard(state.pasteboard);
-    if image.is_null() {
-        return false;
-    }
-    set_hud_image(state, image);
-    true
-}
-
-/// 直接渡した NSImage を HUD にセットする。お試し表示のサンプル画像用（ペーストボードを経由しない）。
-///
-/// # Safety
-/// - `image` は有効な NSImage への所有権 +1 のポインタであること（内部で `release` する）。
-/// - AppKit のメインスレッドから呼ぶこと。
-pub(crate) unsafe fn show_sample_image_content(state: &mut AppState, image: *mut AnyObject) {
-    set_hud_image(state, image);
-}
-
-/// フェード中なら止めてアルファを戻し、HUD を最前面に出して自動非表示タイマーを再設定する。
-/// `show_text_content`/`show_image_content` で内容をセットした後に呼ぶこと。
-pub(crate) unsafe fn present_hud(this: &AnyObject, state: &mut AppState) {
-    if !state.fade_timer.is_null() {
-        let () = msg_send![state.fade_timer, invalidate];
-        state.fade_timer = ptr::null_mut();
-    }
-    let () = msg_send![state.window, setAlphaValue: 1.0f64];
-
-    let () = msg_send![state.window, orderFrontRegardless];
-
-    if !state.hide_timer.is_null() {
-        let () = msg_send![state.hide_timer, invalidate];
-    }
-
-    let hide_timer: *mut AnyObject = msg_send![
-        class!(NSTimer),
-        scheduledTimerWithTimeInterval: state.settings.hud_duration_secs
-        target: this
-        selector: sel!(hideHud:)
-        userInfo: ptr::null_mut::<AnyObject>()
-        repeats: false
-    ];
-    state.hide_timer = hide_timer;
-}
-
-/// 現在のペーストボード内容を HUD に表示する。表示できる内容（テキストまたは画像）が
-/// 無ければ何もせず `false` を返す。
-pub(crate) unsafe fn present_pasteboard_content(this: &AnyObject, state: &mut AppState) -> bool {
-    let text_type = nsstring_from_str("public.utf8-plain-text");
-    let raw_text: *mut AnyObject = msg_send![state.pasteboard, stringForType: text_type];
-    let () = msg_send![text_type, release];
-
-    // ブラウザや表計算からのコピーは画像とテキストの両方を載せるため、テキストを先に見る
-    match crate::objc_helpers::nsstring_to_string(raw_text) {
-        Some(text) => show_text_content(state, &text),
-        None => {
-            if !show_image_content(state) {
-                return false;
-            }
-        }
-    }
-
-    present_hud(this, state);
-    true
-}
-
 extern "C" fn poll_pasteboard(this: &AnyObject, _: Sel, _: *mut AnyObject) {
     unsafe {
         // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
@@ -457,7 +210,7 @@ extern "C" fn poll_pasteboard(this: &AnyObject, _: Sel, _: *mut AnyObject) {
             return;
         };
 
-        reload_config_if_changed(state);
+        config_reload::reload_config_if_changed(state);
 
         let change_count: isize = msg_send![state.pasteboard, changeCount];
         if change_count == state.last_change_count {
@@ -471,7 +224,7 @@ extern "C" fn poll_pasteboard(this: &AnyObject, _: Sel, _: *mut AnyObject) {
             return;
         }
 
-        present_pasteboard_content(this, state);
+        hud_show::present_pasteboard_content(this, state);
     }
 }
 
@@ -710,83 +463,14 @@ extern "C" fn hide_hud(this: &AnyObject, _: Sel, _: *mut AnyObject) {
             return;
         };
 
-        if !state.hide_timer.is_null() {
-            let () = msg_send![state.hide_timer, invalidate];
-            state.hide_timer = ptr::null_mut();
-        }
-
-        let fade_duration = state.settings.hud_fade_duration_secs;
-        if fade_duration <= 0.0 {
-            // フェードなし: 即時非表示
-            if !state.fade_timer.is_null() {
-                let () = msg_send![state.fade_timer, invalidate];
-                state.fade_timer = ptr::null_mut();
-            }
-            let () = msg_send![state.window, orderOut: ptr::null_mut::<AnyObject>()];
-            return;
-        }
-
-        // フェードアウト開始
-        let total_fade_ticks = (fade_duration / FADE_TICK_INTERVAL_SECS).ceil() as u32;
-        state.fade_total_ticks = total_fade_ticks;
-        if !state.fade_timer.is_null() {
-            let () = msg_send![state.fade_timer, invalidate];
-            state.fade_timer = ptr::null_mut();
-        }
-        state.fade_ticks_elapsed = 0;
-
-        let fade_timer: *mut AnyObject = msg_send![
-            class!(NSTimer),
-            scheduledTimerWithTimeInterval: FADE_TICK_INTERVAL_SECS
-            target: this
-            selector: sel!(fadeTick:)
-            userInfo: ptr::null_mut::<AnyObject>()
-            repeats: true
-        ];
-        state.fade_timer = fade_timer;
-    }
-}
-
-extern "C" fn fade_tick(_: &AnyObject, _: Sel, timer: *mut AnyObject) {
-    unsafe {
-        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
-        let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
-        let Some(state) = guard.as_mut() else {
-            let () = msg_send![timer, invalidate];
-            return;
-        };
-
-        let window = state.window;
-        state.fade_ticks_elapsed += 1;
-
-        if state.fade_ticks_elapsed >= state.fade_total_ticks {
-            debug_assert!(!state.fade_timer.is_null());
-            let () = msg_send![timer, invalidate];
-            state.fade_timer = ptr::null_mut();
-            drop(guard);
-
-            let () = msg_send![window, setAlphaValue: 0.0f64];
-            let () = msg_send![window, orderOut: ptr::null_mut::<AnyObject>()];
-            let () = msg_send![window, setAlphaValue: 1.0f64];
-        } else {
-            let alpha = 1.0 - (state.fade_ticks_elapsed as f64 / state.fade_total_ticks as f64);
-            drop(guard);
-            let () = msg_send![window, setAlphaValue: alpha];
-        }
+        hud_show::hide_hud_now(this, state);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::get_delegate_class;
-    use super::image_from_pasteboard;
-    use super::FADE_TICK_INTERVAL_SECS;
-    use crate::config::DEFAULT_HUD_FADE_DURATION_SECS;
-    use crate::objc_helpers::nsstring_from_str;
-    use objc2::runtime::AnyObject;
-    use objc2::{class, msg_send, sel};
-    use objc2_foundation::NSSize;
-    use std::ptr;
+    use objc2::sel;
 
     /// メニュー項目やボタンが送るセレクタに応答しないと、クリックした瞬間に
     /// unrecognized selector で落ちる。セレクタ名は文字列なのでコンパイルでは
@@ -806,82 +490,5 @@ mod tests {
                 "delegate does not respond to {selector:?}"
             );
         }
-    }
-
-    /// 一般ペーストボード（ユーザーのクリップボード）を汚さないよう、専用の名前付きペーストボードを使う。
-    #[test]
-    fn image_from_pasteboard_reads_png_and_ignores_plain_text() {
-        unsafe {
-            let pasteboard: *mut AnyObject =
-                msg_send![class!(NSPasteboard), pasteboardWithUniqueName];
-            assert!(!pasteboard.is_null());
-
-            let text_type = nsstring_from_str("public.utf8-plain-text");
-            let types: *mut AnyObject = msg_send![class!(NSArray), arrayWithObject: text_type];
-            let _: isize =
-                msg_send![pasteboard, declareTypes: types owner: ptr::null_mut::<AnyObject>()];
-            let text = nsstring_from_str("no image here");
-            let _: bool = msg_send![pasteboard, setString: text forType: text_type];
-
-            let no_image = image_from_pasteboard(pasteboard);
-            assert!(
-                no_image.is_null(),
-                "text-only pasteboard must yield no image"
-            );
-            let () = msg_send![text, release];
-            let () = msg_send![text_type, release];
-
-            let png_type = nsstring_from_str("public.png");
-            let types: *mut AnyObject = msg_send![class!(NSArray), arrayWithObject: png_type];
-            let _: isize =
-                msg_send![pasteboard, declareTypes: types owner: ptr::null_mut::<AnyObject>()];
-            let png_path = nsstring_from_str(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/tests/visual/baseline/image_tiny.png"
-            ));
-            let png_data: *mut AnyObject =
-                msg_send![class!(NSData), dataWithContentsOfFile: png_path];
-            let () = msg_send![png_path, release];
-            assert!(!png_data.is_null(), "fixture PNG must be readable");
-            let _: bool = msg_send![pasteboard, setData: png_data forType: png_type];
-            let () = msg_send![png_type, release];
-
-            let image = image_from_pasteboard(pasteboard);
-            assert!(!image.is_null(), "PNG pasteboard must yield an image");
-            let size: NSSize = msg_send![image, size];
-            assert!(size.width > 0.0 && size.height > 0.0);
-            let () = msg_send![image, release];
-
-            let () = msg_send![pasteboard, releaseGlobally];
-        }
-    }
-
-    #[test]
-    fn fade_total_ticks_calculation_is_exact() {
-        // fade_duration=DEFAULT_HUD_FADE_DURATION_SECS, FADE_TICK_INTERVAL_SECS=1/60 → 18 ticks
-        let total = (DEFAULT_HUD_FADE_DURATION_SECS / FADE_TICK_INTERVAL_SECS).ceil() as u32;
-        assert_eq!(total, 18);
-    }
-
-    #[test]
-    fn fade_alpha_is_positive_at_penultimate_tick() {
-        let total: u32 = 18;
-        let elapsed: u32 = total - 1;
-        let alpha = 1.0 - (elapsed as f64 / total as f64);
-        assert!(alpha > 0.0, "alpha should be > 0.0, got {}", alpha);
-        assert!(
-            (alpha - 1.0 / total as f64).abs() < 1e-10,
-            "alpha should be approximately 1/total={}, got {}",
-            1.0 / total as f64,
-            alpha
-        );
-    }
-
-    #[test]
-    fn fade_alpha_is_half_at_midpoint() {
-        let total: u32 = 18;
-        let elapsed: u32 = 9;
-        let alpha = 1.0 - (elapsed as f64 / total as f64);
-        assert!((alpha - 0.5).abs() < 1e-10, "alpha={}", alpha);
     }
 }
