@@ -25,6 +25,9 @@ use crate::text::truncate_text;
 
 pub const FADE_TICK_INTERVAL_SECS: f64 = 1.0 / 60.0;
 
+/// メニューの「ビールを奢る…」から開く支援ページ。
+const SUPPORT_URL: &str = "https://buymeacoffee.com/somei";
+
 pub struct AppState {
     pub last_change_count: isize,
     pub pasteboard: *mut AnyObject,
@@ -77,6 +80,10 @@ pub fn get_delegate_class() -> &'static AnyClass {
         builder.add_method(sel!(togglePause:), toggle_pause as extern "C" fn(_, _, _));
         builder.add_method(sel!(quitApp:), quit_app as extern "C" fn(_, _, _));
         builder.add_method(sel!(openSettings:), open_settings as extern "C" fn(_, _, _));
+        builder.add_method(
+            sel!(openSupportPage:),
+            open_support_page as extern "C" fn(_, _, _),
+        );
         builder.add_method(
             sel!(settingChanged:),
             setting_changed as extern "C" fn(_, _, _),
@@ -758,6 +765,24 @@ extern "C" fn quit_app(_: &AnyObject, _: Sel, _: *mut AnyObject) {
     }
 }
 
+/// 支援ページを既定のブラウザで開く。URL は言語で変えない。
+extern "C" fn open_support_page(_: &AnyObject, _: Sel, _: *mut AnyObject) {
+    unsafe {
+        let url_string = nsstring_from_str(SUPPORT_URL);
+        let url: *mut AnyObject = msg_send![class!(NSURL), URLWithString: url_string];
+        let () = msg_send![url_string, release];
+        if url.is_null() {
+            eprintln!("warning: failed to build support URL: {SUPPORT_URL}");
+            return;
+        }
+        let workspace: *mut AnyObject = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let opened: bool = msg_send![workspace, openURL: url];
+        if !opened {
+            eprintln!("warning: failed to open support URL: {SUPPORT_URL}");
+        }
+    }
+}
+
 extern "C" fn hide_hud(this: &AnyObject, _: Sel, _: *mut AnyObject) {
     unsafe {
         // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
@@ -836,12 +861,42 @@ extern "C" fn fade_tick(_: &AnyObject, _: Sel, timer: *mut AnyObject) {
 mod tests {
     use super::image_from_pasteboard;
     use super::FADE_TICK_INTERVAL_SECS;
+    use super::{get_delegate_class, SUPPORT_URL};
     use crate::config::DEFAULT_HUD_FADE_DURATION_SECS;
     use crate::objc_helpers::nsstring_from_str;
     use objc2::runtime::AnyObject;
-    use objc2::{class, msg_send};
+    use objc2::{class, msg_send, sel};
     use objc2_foundation::NSSize;
     use std::ptr;
+
+    /// メニュー項目が送るセレクタに応答しないと、クリックした瞬間に unrecognized selector で
+    /// 落ちる。セレクタ名は文字列なのでコンパイルでは食い違いを検出できない。
+    #[test]
+    fn delegate_responds_to_menu_selectors() {
+        let class = get_delegate_class();
+        for selector in [
+            sel!(openSettings:),
+            sel!(togglePause:),
+            sel!(openSupportPage:),
+            sel!(quitApp:),
+        ] {
+            assert!(
+                class.responds_to(selector),
+                "delegate does not respond to {selector:?}"
+            );
+        }
+    }
+
+    /// メニューから開く URL が壊れていると `NSURL` が nil を返し、何も起きない。
+    #[test]
+    fn support_url_is_a_valid_url() {
+        unsafe {
+            let url_string = nsstring_from_str(SUPPORT_URL);
+            let url: *mut AnyObject = msg_send![class!(NSURL), URLWithString: url_string];
+            let () = msg_send![url_string, release];
+            assert!(!url.is_null(), "{SUPPORT_URL} is not a valid URL");
+        }
+    }
 
     /// 一般ペーストボード（ユーザーのクリップボード）を汚さないよう、専用の名前付きペーストボードを使う。
     #[test]

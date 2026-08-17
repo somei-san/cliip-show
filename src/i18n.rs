@@ -24,6 +24,7 @@ pub enum Lang {
 pub enum Msg {
     MenuSettings,
     MenuPause,
+    MenuSupport,
     MenuQuit,
     MenuEdit,
     MenuCut,
@@ -66,6 +67,7 @@ pub fn text(lang: Lang, msg: Msg) -> &'static str {
     let (ja, en) = match msg {
         Msg::MenuSettings => ("設定…", "Settings…"),
         Msg::MenuPause => ("一時停止", "Pause"),
+        Msg::MenuSupport => ("ビールを奢る…", "Buy me a beer…"),
         Msg::MenuQuit => ("cliip-show を終了", "Quit cliip-show"),
         Msg::MenuEdit => ("編集", "Edit"),
         Msg::MenuCut => ("切り取り", "Cut"),

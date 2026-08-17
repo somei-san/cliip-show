@@ -27,6 +27,7 @@ pub struct StatusItemHandles {
     pub status_item: *mut AnyObject,
     pub pause_item: *mut AnyObject,
     pub settings_item: *mut AnyObject,
+    pub support_item: *mut AnyObject,
     pub quit_item: *mut AnyObject,
 }
 
@@ -85,6 +86,16 @@ pub unsafe fn create_status_item(delegate: &AnyObject, lang: Lang) -> StatusItem
     let separator: *mut AnyObject = msg_send![class!(NSMenuItem), separatorItem];
     let () = msg_send![menu, addItem: separator];
 
+    let support_item = make_menu_item(
+        delegate,
+        i18n::text(lang, Msg::MenuSupport),
+        sel!(openSupportPage:),
+    );
+    let () = msg_send![menu, addItem: support_item];
+
+    let separator: *mut AnyObject = msg_send![class!(NSMenuItem), separatorItem];
+    let () = msg_send![menu, addItem: separator];
+
     let quit_item = make_menu_item(delegate, i18n::text(lang, Msg::MenuQuit), sel!(quitApp:));
     let () = msg_send![menu, addItem: quit_item];
 
@@ -94,6 +105,7 @@ pub unsafe fn create_status_item(delegate: &AnyObject, lang: Lang) -> StatusItem
         status_item,
         pause_item,
         settings_item,
+        support_item,
         quit_item,
     }
 }
@@ -274,6 +286,10 @@ pub unsafe fn apply_language(handles: &MenuHandles, lang: Lang) {
         i18n::text(lang, Msg::MenuSettings),
     );
     set_title(handles.status.pause_item, i18n::text(lang, Msg::MenuPause));
+    set_title(
+        handles.status.support_item,
+        i18n::text(lang, Msg::MenuSupport),
+    );
     set_title(handles.status.quit_item, i18n::text(lang, Msg::MenuQuit));
     set_title(handles.edit.edit_menu_item, i18n::text(lang, Msg::MenuEdit));
     set_title(handles.edit.edit_menu, i18n::text(lang, Msg::MenuEdit));
