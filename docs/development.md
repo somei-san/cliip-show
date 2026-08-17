@@ -83,7 +83,7 @@ open target/release/bundle/osx/cliip-show.app
 
 ## アイコンの素材を更新する
 
-`assets/*-template.svg` を差し替えたときは、同名の PNG を作り直します。この PNG を `src/menu.rs`（メニューバー常駐アイコン）と `src/settings_window.rs`（設定ウィンドウのタブ）が `include_bytes!` で埋め込み、テンプレート画像として描画します。素材を増やすときも `-template.svg` で終わる名前で `assets/` に置きます。
+`assets/*-template.svg` を差し替えたときは、同名の PNG を作り直します。この PNG を `src/menu.rs`（メニューバー常駐アイコン）と `src/settings_window/build.rs`（設定ウィンドウのタブ）が `include_bytes!` で埋め込み、テンプレート画像として描画します。素材を増やすときも `-template.svg` で終わる名前で `assets/` に置きます。
 
 `scripts/build_menu_icon.sh` を実行すると、`assets/` にあるすべての SVG から PNG を生成します。
 
@@ -101,7 +101,7 @@ open target/release/bundle/osx/cliip-show.app
 
 ## ビジュアルリグレッションテスト
 
-HUDの描画結果をPNGで比較します。
+HUDと設定ウィンドウの各ペインの描画結果をPNGで比較します。
 
 ### 実行方法
 
@@ -117,6 +117,7 @@ HUDの描画結果をPNGで比較します。
 
 - デフォルト設定での表示
 - 設定プロファイルごとの表示（例: `max_lines=2`, `max_chars_per_line=24`）
+- 設定ウィンドウのペイン（設定・寄付 × 日本語・英語。タブバーはウィンドウのツールバー領域にあるため写りません）
 
 ### 生成物
 
@@ -128,6 +129,7 @@ HUDの描画結果をPNGで比較します。
 
 - 判定はピクセル差分率で行います
 - 既定の許容値は `MAX_DIFF_PERMILLE=120`（12%）です
+- 設定ウィンドウのペインは差分の面積比が小さいため、別枠の `SETTINGS_MAX_DIFF_PERMILLE=30` で判定します。言語取り違えの検出はベースラインを生成したマシンでの実行が担い、CI は日本語グリフのラスタライズ差を吸収する緩い値で配置の退行だけ見ます（`ci.yml` 参照）
 - 必要に応じて環境変数で調整できます
 
 ```bash

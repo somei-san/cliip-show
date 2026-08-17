@@ -5,24 +5,8 @@ use objc2::runtime::AnyObject;
 use objc2::{class, msg_send};
 use objc2_foundation::NSSize;
 
-const UTF8_ENCODING: usize = 4;
-
-/// `&str` から NSString を生成して返す。
-///
-/// # Safety
-/// 返されたポインタは `alloc/init` で手動管理されるため、
-/// 呼び出し側が `msg_send![ptr, release]` で解放する責任を持つ。
-pub unsafe fn nsstring_from_str(value: &str) -> *mut AnyObject {
-    let ns_string: *mut AnyObject = msg_send![class!(NSString), alloc];
-    msg_send![
-        ns_string,
-        initWithBytes: value.as_ptr() as *const c_void
-        length: value.len()
-        encoding: UTF8_ENCODING
-    ]
-}
-
 /// NSString ポインタを Rust の `String` に変換して返す。`value` が null の場合は `None`。
+/// 生成側は `objc2_foundation::NSString::from_str`（RAII）を使うこと。
 ///
 /// # Safety
 /// `value` は有効な NSString インスタンスか null ポインタであること。

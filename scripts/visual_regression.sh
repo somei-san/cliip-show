@@ -25,6 +25,9 @@ rm -f "$ARTIFACT_DIR"/*.png
 cargo build >/dev/null
 BIN="$ROOT_DIR/target/debug/cliip-show"
 MAX_DIFF_PERMILLE="${MAX_DIFF_PERMILLE:-120}" # 120/1000 = 12%
+# 設定ウィンドウのペインは HUD より差分の面積比が小さい（ja/en の文言全取り替えでも
+# 実測 40〜65‰）ため、HUD 用の許容値では文言の退行を検出できない。別枠で厳しくする
+SETTINGS_MAX_DIFF_PERMILLE="${SETTINGS_MAX_DIFF_PERMILLE:-30}"
 VRT_CONFIG_PATH="$ARTIFACT_DIR/vrt-config.toml"
 rm -f "$VRT_CONFIG_PATH"
 
@@ -32,9 +35,10 @@ failed=0
 
 render_and_compare() {
   local id="$1"
-  local content_flag="$2"
-  local content_value="$3"
-  shift 3
+  local mode_flag="$2"
+  local content_flag="$3"
+  local content_value="$4"
+  shift 4
 
   local current="$ARTIFACT_DIR/${id}.current.png"
   local baseline="$BASELINE_DIR/${id}.png"
@@ -65,7 +69,7 @@ render_and_compare() {
       cmd+=("$override")
     done
   fi
-  cmd+=("$BIN" --render-hud-png "$content_flag" "$content_value" --output "$current")
+  cmd+=("$BIN" "$mode_flag" "$content_flag" "$content_value" --output "$current")
   "${cmd[@]}"
 
   if $UPDATE; then
@@ -105,19 +109,20 @@ render_and_compare() {
     return
   fi
 
+  local tolerance="${CASE_MAX_DIFF_PERMILLE:-$MAX_DIFF_PERMILLE}"
   if [[ "$diff_pixels" -eq 0 ]]; then
     rm -f "$diff"
     echo "ok: $id"
   else
-    if (( diff_pixels * 1000 <= total_pixels * MAX_DIFF_PERMILLE )); then
-      echo "ok: $id (within tolerance ${diff_pixels}/${total_pixels}, max=${MAX_DIFF_PERMILLE}/1000)"
+    if (( diff_pixels * 1000 <= total_pixels * tolerance )); then
+      echo "ok: $id (within tolerance ${diff_pixels}/${total_pixels}, max=${tolerance}/1000)"
       rm -f "$diff"
     else
       echo "ng: $id" >&2
       echo "  baseline: $baseline" >&2
       echo "  current : $current" >&2
       echo "  diff    : $diff" >&2
-      echo "  pixels  : ${diff_pixels}/${total_pixels} (max=${MAX_DIFF_PERMILLE}/1000)" >&2
+      echo "  pixels  : ${diff_pixels}/${total_pixels} (max=${tolerance}/1000)" >&2
       failed=1
     fi
   fi
@@ -127,7 +132,7 @@ run_case() {
   local id="$1"
   local text="$2"
   shift 2
-  render_and_compare "$id" --text "$text" "$@"
+  render_and_compare "$id" --render-hud-png --text "$text" "$@"
 }
 
 # サイズは <W>x<H>。バイナリ側が決定的な市松模様を生成するのでフィクスチャ画像ファイルは不要
@@ -135,7 +140,17 @@ run_image_case() {
   local id="$1"
   local size="$2"
   shift 2
-  render_and_compare "$id" --image-fixture "$size" "$@"
+  render_and_compare "$id" --render-hud-png --image-fixture "$size" "$@"
+}
+
+# 設定ウィンドウのペイン（settings | support）。タブバーは contentView の外なので写らない。
+# 言語は必ず CLIIP_SHOW_LANGUAGE で固定して呼ぶこと（auto は実行マシンの言語に依存する）
+run_settings_case() {
+  local id="$1"
+  local pane="$2"
+  shift 2
+  CASE_MAX_DIFF_PERMILLE="$SETTINGS_MAX_DIFF_PERMILLE" \
+    render_and_compare "$id" --render-settings-png --pane "$pane" "$@"
 }
 
 run_case \
@@ -326,6 +341,27 @@ run_image_case \
   "no_emoji_image" \
   "320x180" \
   "CLIIP_SHOW_HUD_EMOJI="
+
+# Settings window panes (row layout, control placement, localized labels)
+run_settings_case \
+  "settings_pane_ja" \
+  "settings" \
+  "CLIIP_SHOW_LANGUAGE=ja"
+
+run_settings_case \
+  "settings_pane_en" \
+  "settings" \
+  "CLIIP_SHOW_LANGUAGE=en"
+
+run_settings_case \
+  "support_pane_ja" \
+  "support" \
+  "CLIIP_SHOW_LANGUAGE=ja"
+
+run_settings_case \
+  "support_pane_en" \
+  "support" \
+  "CLIIP_SHOW_LANGUAGE=en"
 
 if $UPDATE; then
   echo "visual regression baseline updated"

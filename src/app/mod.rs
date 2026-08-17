@@ -1,0 +1,497 @@
+use std::path::PathBuf;
+use std::ptr;
+use std::sync::{Mutex, Once};
+use std::time::SystemTime;
+
+use objc2::declare::ClassBuilder;
+use objc2::runtime::{AnyClass, AnyObject, Sel};
+use objc2::{class, msg_send, sel};
+
+use crate::config::{display_settings, DisplaySettings};
+use crate::hud::create_hud_window;
+use crate::i18n;
+use crate::menu::MenuHandles;
+use crate::settings_window::SettingsControls;
+
+mod config_reload;
+mod hud_show;
+mod panels;
+
+pub(crate) use config_reload::{apply_settings_now, display_settings_from_file};
+pub(crate) use hud_show::{present_hud, show_sample_image_content, show_text_content};
+
+pub struct AppState {
+    pub last_change_count: isize,
+    pub pasteboard: *mut AnyObject,
+    pub window: *mut AnyObject,
+    pub icon_label: *mut AnyObject,
+    pub label: *mut AnyObject,
+    pub image_view: *mut AnyObject,
+    pub hide_timer: *mut AnyObject,
+    pub fade_timer: *mut AnyObject,
+    pub fade_ticks_elapsed: u32,
+    pub fade_total_ticks: u32,
+    pub settings: DisplaySettings,
+    pub config_path: Option<PathBuf>,
+    pub config_mtime: Option<SystemTime>,
+    pub config_check_counter: u32,
+    pub paused: bool,
+    pub menu_handles: MenuHandles,
+    pub settings_controls: SettingsControls,
+    pub poll_timer: *mut AnyObject,
+    /// タイマーの張り替えに使う AppDelegate。アプリの生存期間中有効。
+    pub delegate: *mut AnyObject,
+}
+
+// SAFETY: AppState は APP_STATE の Mutex で排他制御されており、
+// 実際の AppKit 操作はすべてメインスレッドのタイマーコールバック内でのみ行われる。
+// Mutex<Option<AppState>> が Sync であるためにはラップする型が Send である必要があり、
+// ここで明示的に実装する。
+unsafe impl Send for AppState {}
+
+static APP_STATE: Mutex<Option<AppState>> = Mutex::new(None);
+
+pub fn get_delegate_class() -> &'static AnyClass {
+    static ONCE: Once = Once::new();
+    static mut CLASS: *const AnyClass = ptr::null();
+
+    ONCE.call_once(|| unsafe {
+        let mut builder = ClassBuilder::new("ClipboardHudAppDelegate", class!(NSObject))
+            .expect("delegate class creation failed");
+
+        builder.add_method(
+            sel!(applicationDidFinishLaunching:),
+            application_did_finish_launching as extern "C" fn(_, _, _),
+        );
+        builder.add_method(
+            sel!(pollPasteboard:),
+            poll_pasteboard as extern "C" fn(_, _, _),
+        );
+        builder.add_method(sel!(hideHud:), hide_hud as extern "C" fn(_, _, _));
+        builder.add_method(
+            sel!(fadeTick:),
+            hud_show::fade_tick as extern "C" fn(_, _, _),
+        );
+        builder.add_method(sel!(togglePause:), toggle_pause as extern "C" fn(_, _, _));
+        builder.add_method(sel!(quitApp:), quit_app as extern "C" fn(_, _, _));
+        builder.add_method(sel!(openSettings:), open_settings as extern "C" fn(_, _, _));
+        builder.add_method(
+            sel!(openSupportPage:),
+            panels::open_support_page as extern "C" fn(_, _, _),
+        );
+        builder.add_method(
+            sel!(showAboutPanel:),
+            panels::show_about_panel as extern "C" fn(_, _, _),
+        );
+        builder.add_method(
+            sel!(settingChanged:),
+            setting_changed as extern "C" fn(_, _, _),
+        );
+        builder.add_method(
+            sel!(resetSettings:),
+            reset_settings as extern "C" fn(_, _, _),
+        );
+        builder.add_method(
+            sel!(previewSettings:),
+            preview_settings as extern "C" fn(_, _, _),
+        );
+        builder.add_method(sel!(saveSettings:), save_settings as extern "C" fn(_, _, _));
+        builder.add_method(
+            sel!(toggleLoginItem:),
+            toggle_login_item as extern "C" fn(_, _, _),
+        );
+        builder.add_method(
+            sel!(windowWillClose:),
+            window_will_close as extern "C" fn(_, _, _),
+        );
+        builder.add_method(
+            sel!(controlTextDidChange:),
+            control_text_did_change as extern "C" fn(_, _, _),
+        );
+
+        let class = builder.register();
+        CLASS = class as *const AnyClass;
+    });
+
+    unsafe { &*CLASS }
+}
+
+extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut AnyObject) {
+    unsafe {
+        let settings = display_settings();
+        // メインメニュー・メニューバーの初期表示言語は、起動時点の設定ファイルの言語設定から決める
+        let lang = i18n::resolve(settings.language);
+
+        // メインメニューを持たないと、設定ウィンドウ等のテキストフィールドで Cmd+V 等の
+        // 標準ショートカットが responder chain に届かない
+        let edit_handles = crate::menu::install_main_menu(lang);
+
+        let pasteboard: *mut AnyObject = msg_send![class!(NSPasteboard), generalPasteboard];
+        let last_change_count: isize = msg_send![pasteboard, changeCount];
+
+        let (window, icon_label, label, image_view) = create_hud_window(settings.clone());
+        if window.is_null() {
+            eprintln!("fatal: failed to create HUD window");
+            std::process::exit(1);
+        }
+
+        let status_handles = crate::menu::create_status_item(this, lang);
+        let menu_handles = MenuHandles {
+            status: status_handles,
+            edit: edit_handles,
+        };
+
+        // パスが解決できない場合もパスだけは保持し、後でファイルが作成されても検知できるようにする
+        let config_path = crate::config::config_file_path().ok();
+        let config_mtime = config_path
+            .as_ref()
+            .and_then(|p| std::fs::metadata(p).ok())
+            .and_then(|m| m.modified().ok());
+
+        let poll_timer = schedule_poll_timer(this, settings.poll_interval_secs);
+
+        // Homebrew の LaunchAgent が残っていると、アプリ自身が管理する LaunchAgent と
+        // 二重起動する。他者が置いたものを勝手に消さず、停止を促すだけに留める。
+        if crate::login_item::homebrew_agent_path().is_some_and(|p| p.exists()) {
+            eprintln!(
+                "warning: Homebrew login item settings remain. Run `brew services stop cliip-show` to avoid running twice."
+            );
+        }
+
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+        *APP_STATE.lock().expect("APP_STATE lock poisoned") = Some(AppState {
+            last_change_count,
+            pasteboard,
+            window,
+            icon_label,
+            label,
+            image_view,
+            hide_timer: ptr::null_mut(),
+            fade_timer: ptr::null_mut(),
+            fade_ticks_elapsed: 0,
+            fade_total_ticks: 0,
+            settings,
+            config_path,
+            config_mtime,
+            config_check_counter: 0,
+            paused: false,
+            menu_handles,
+            settings_controls: SettingsControls::default(),
+            poll_timer,
+            delegate: this as *const AnyObject as *mut AnyObject,
+        });
+
+        // runModal は実行ループを止めるため、他の経路がロック待ちで固まらないよう
+        // APP_STATE のロックを手放した後（上の代入文で既に解放済み）に呼ぶ。
+        panels::prompt_login_item_if_needed(lang);
+    }
+}
+
+/// ペーストボード監視のタイマーを張る。
+///
+/// # Safety
+/// AppKit のメインスレッドから呼ぶこと。
+unsafe fn schedule_poll_timer(delegate: *const AnyObject, interval: f64) -> *mut AnyObject {
+    msg_send![
+        class!(NSTimer),
+        scheduledTimerWithTimeInterval: interval
+        target: delegate
+        selector: sel!(pollPasteboard:)
+        userInfo: ptr::null_mut::<AnyObject>()
+        repeats: true
+    ]
+}
+
+extern "C" fn poll_pasteboard(this: &AnyObject, _: Sel, _: *mut AnyObject) {
+    unsafe {
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+        let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+        let Some(state) = guard.as_mut() else {
+            return;
+        };
+
+        config_reload::reload_config_if_changed(state);
+
+        let change_count: isize = msg_send![state.pasteboard, changeCount];
+        if change_count == state.last_change_count {
+            return;
+        }
+        state.last_change_count = change_count;
+
+        // 一時停止中も changeCount の追随だけは続ける。再開直後に古いコピー内容が
+        // 表示されてしまうのを防ぐため。
+        if state.paused {
+            return;
+        }
+
+        hud_show::present_pasteboard_content(this, state);
+    }
+}
+
+extern "C" fn open_settings(this: &AnyObject, _: Sel, _: *mut AnyObject) {
+    unsafe {
+        let window = {
+            // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+            let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+            let Some(state) = guard.as_mut() else {
+                return;
+            };
+
+            if state.settings_controls.window.is_null() {
+                let lang = i18n::resolve(state.settings.language);
+                state.settings_controls = crate::settings_window::build_settings_window(this, lang);
+            }
+            // 下書きは開くたびに現在の実効設定へ合わせる。ファイル監視の再読み込み等で
+            // state.settings が外部から変わっていても、開き直せば食い違わない。
+            state.settings_controls.draft = state.settings.clone();
+            crate::settings_window::sync_controls_from_settings(
+                &state.settings_controls,
+                &state.settings,
+            );
+            // ログイン項目は設定ファイルではなく OS 側の状態なので、下書きとは別に毎回同期する。
+            crate::settings_window::sync_login_item_toggle(&state.settings_controls);
+            state.settings_controls.window
+        };
+
+        // accessory アプリはウィンドウを前面に出すだけではキー入力を受け取れない
+        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        let () = msg_send![app, activateIgnoringOtherApps: true];
+        let () = msg_send![window, makeKeyAndOrderFront: ptr::null_mut::<AnyObject>()];
+
+        // AppKit は key view loop の先頭のテキストフィールドを自動で first responder に
+        // するため、開いた直後に特定の入力欄が選択された状態になる。これを外す。
+        // 確定に伴い settingChanged: が飛びうるので、ロックを手放してから呼ぶ。
+        let _: bool = msg_send![window, makeFirstResponder: ptr::null_mut::<AnyObject>()];
+    }
+}
+
+extern "C" fn setting_changed(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
+    unsafe {
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+        let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+        let Some(state) = guard.as_mut() else {
+            return;
+        };
+
+        crate::settings_window::apply_setting_change(state, sender);
+    }
+}
+
+/// ログイン項目トグルの `toggleLoginItem:`。他の設定と違い下書きを経由せず、
+/// チェックした瞬間に `login_item::enable`/`disable` を実行して OS の状態を変える。
+extern "C" fn toggle_login_item(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
+    unsafe {
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+        let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+        let Some(state) = guard.as_mut() else {
+            return;
+        };
+
+        let checked: isize = msg_send![sender, state];
+        let result = if checked != 0 {
+            crate::login_item::enable()
+        } else {
+            crate::login_item::disable()
+        };
+
+        if let Err(error) = result {
+            eprintln!("warning: {error}");
+            // 失敗したのにチェックだけ付いた状態を避け、実際の状態に表示を戻す。
+            crate::settings_window::sync_login_item_toggle(&state.settings_controls);
+        }
+    }
+}
+
+extern "C" fn reset_settings(_: &AnyObject, _: Sel, _: *mut AnyObject) {
+    unsafe {
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+        let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+        let Some(state) = guard.as_mut() else {
+            return;
+        };
+
+        crate::settings_window::reset_settings(state);
+    }
+}
+
+extern "C" fn preview_settings(this: &AnyObject, _: Sel, sender: *mut AnyObject) {
+    unsafe {
+        commit_pending_field_edit(view_window(sender));
+
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+        let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+        let Some(state) = guard.as_mut() else {
+            return;
+        };
+
+        crate::settings_window::preview_settings(this, state);
+    }
+}
+
+extern "C" fn save_settings(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
+    unsafe {
+        commit_pending_field_edit(view_window(sender));
+
+        let window = {
+            // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+            let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+            let Some(state) = guard.as_mut() else {
+                return;
+            };
+            if !crate::settings_window::save_settings(state) {
+                return;
+            }
+            state.settings_controls.window
+        };
+
+        // windowWillClose: が APP_STATE をロックするため、ガードを手放してから閉じる
+        if !window.is_null() {
+            let () = msg_send![window, performClose: ptr::null_mut::<AnyObject>()];
+        }
+    }
+}
+
+/// ボタン（`NSView`）が属する `NSWindow` を返す。`view` が null なら null を返す。
+unsafe fn view_window(view: *mut AnyObject) -> *mut AnyObject {
+    if view.is_null() {
+        return ptr::null_mut();
+    }
+    msg_send![view, window]
+}
+
+/// 編集中のテキストフィールドがあれば確定させ、下書きに反映されていない入力を残さない。
+/// `makeFirstResponder:` はフィールドの `settingChanged:` を同期的に発火させうるため、
+/// `APP_STATE` をロックする前に呼ぶこと（ロック中に呼ぶと再入でハングしうる）。
+unsafe fn commit_pending_field_edit(window: *mut AnyObject) {
+    if window.is_null() {
+        return;
+    }
+    let _: bool = msg_send![window, makeFirstResponder: ptr::null_mut::<AnyObject>()];
+}
+
+/// 設定ウィンドウを閉じたときに呼ぶ。保存せずに「お試し表示」した場合、設定ファイルの内容と
+/// HUD の挙動がずれたまま残るのを防ぐため、ファイルを読み直して適用し直す。
+extern "C" fn window_will_close(_: &AnyObject, _: Sel, notification: *mut AnyObject) {
+    unsafe {
+        // 閉じる操作自体が編集中フィールドの確定を伴う場合があるため、ロック前に済ませておく
+        let window: *mut AnyObject = if notification.is_null() {
+            ptr::null_mut()
+        } else {
+            msg_send![notification, object]
+        };
+        commit_pending_field_edit(window);
+
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+        let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+        let Some(state) = guard.as_mut() else {
+            return;
+        };
+
+        let Some(path) = state.config_path.clone() else {
+            return;
+        };
+        let new_settings = match display_settings_from_file(&path) {
+            Ok(settings) => settings,
+            Err(err) => {
+                eprintln!("warning: config reload failed, keeping current settings: {err}");
+                return;
+            }
+        };
+        apply_settings_now(state, new_settings);
+        state.config_mtime = std::fs::metadata(&path)
+            .ok()
+            .and_then(|m| m.modified().ok());
+    }
+}
+
+/// 絵文字フィールドの入力中バリデーション表示を更新する。
+///
+/// `sync_controls_from_settings` 等がロック保持中にこのフィールドへ `setStringValue:` すると、
+/// それがこの通知を同期的に誘発して再入しうる。`try_lock` で失敗時は何もせず戻ることで、
+/// プログラム側の更新中の再入ハングを避ける（その場合は更新側が表示の同期を担う）。
+extern "C" fn control_text_did_change(_: &AnyObject, _: Sel, notification: *mut AnyObject) {
+    unsafe {
+        let Ok(mut guard) = APP_STATE.try_lock() else {
+            return;
+        };
+        let Some(state) = guard.as_mut() else {
+            return;
+        };
+
+        let object: *mut AnyObject = if notification.is_null() {
+            ptr::null_mut()
+        } else {
+            msg_send![notification, object]
+        };
+        if object != state.settings_controls.hud_emoji_field {
+            return;
+        }
+
+        crate::settings_window::update_emoji_validation_message(state);
+    }
+}
+
+extern "C" fn toggle_pause(_: &AnyObject, _: Sel, _: *mut AnyObject) {
+    unsafe {
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+        let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+        let Some(state) = guard.as_mut() else {
+            return;
+        };
+
+        state.paused = !state.paused;
+        crate::menu::apply_paused_state(
+            state.menu_handles.status.status_item,
+            state.menu_handles.status.pause_item,
+            state.paused,
+        );
+    }
+}
+
+extern "C" fn quit_app(_: &AnyObject, _: Sel, _: *mut AnyObject) {
+    unsafe {
+        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        let () = msg_send![app, terminate: ptr::null_mut::<AnyObject>()];
+    }
+}
+
+extern "C" fn hide_hud(this: &AnyObject, _: Sel, _: *mut AnyObject) {
+    unsafe {
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+        let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+        let Some(state) = guard.as_mut() else {
+            return;
+        };
+
+        hud_show::hide_hud_now(this, state);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::get_delegate_class;
+    use objc2::sel;
+
+    /// メニュー項目やボタン・タイマーが送るセレクタに応答しないと、発火した瞬間に
+    /// unrecognized selector で落ちる。セレクタ名は文字列なのでコンパイルでは
+    /// 食い違いを検出できない。特に hideHud: / fadeTick: は登録（mod.rs）と送信
+    /// （hud_show.rs）が別ファイルで、片方だけ触る編集が起きやすい。
+    #[test]
+    fn delegate_responds_to_menu_selectors() {
+        let class = get_delegate_class();
+        for selector in [
+            sel!(openSettings:),
+            sel!(togglePause:),
+            sel!(openSupportPage:),
+            sel!(showAboutPanel:),
+            sel!(quitApp:),
+            sel!(hideHud:),
+            sel!(fadeTick:),
+        ] {
+            assert!(
+                class.responds_to(selector),
+                "delegate does not respond to {selector:?}"
+            );
+        }
+    }
+}
