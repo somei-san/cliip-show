@@ -2,13 +2,12 @@ use std::ptr;
 
 use objc2::runtime::AnyObject;
 use objc2::{class, msg_send};
-use objc2_foundation::{NSPoint, NSRect, NSSize};
+use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
 use crate::config::{
     DisplaySettings, HudBackgroundColor, HudPosition, DEFAULT_HUD_SCALE, MAX_HUD_SCALE,
     MIN_HUD_SCALE,
 };
-use crate::objc_helpers::nsstring_from_str;
 
 pub const BORDERLESS_MASK: usize = 0;
 pub const BACKING_BUFFERED: isize = 2;
@@ -278,9 +277,8 @@ pub unsafe fn create_hud_window(
         let () = msg_send![icon_label, setFont: system_font];
     }
 
-    let emoji = nsstring_from_str(&settings.hud_emoji);
-    let () = msg_send![icon_label, setStringValue: emoji];
-    let () = msg_send![emoji, release];
+    let emoji = NSString::from_str(&settings.hud_emoji);
+    let () = msg_send![icon_label, setStringValue: &*emoji];
 
     let label_rect = NSRect {
         origin: NSPoint {
@@ -309,11 +307,10 @@ pub unsafe fn create_hud_window(
     let white: *mut AnyObject = msg_send![class!(NSColor), whiteColor];
     let () = msg_send![label, setTextColor: white];
 
-    let menlo_name = nsstring_from_str("Menlo");
+    let menlo_name = NSString::from_str("Menlo");
     let text_font_size = (HUD_TEXT_FONT_SIZE * clamped_scale).clamp(10.0, 44.0);
     let font: *mut AnyObject =
-        msg_send![class!(NSFont), fontWithName: menlo_name size: text_font_size];
-    let () = msg_send![menlo_name, release];
+        msg_send![class!(NSFont), fontWithName: &*menlo_name size: text_font_size];
     if !font.is_null() {
         let () = msg_send![label, setFont: font];
     }
@@ -325,9 +322,8 @@ pub unsafe fn create_hud_window(
         let () = msg_send![cell, setLineBreakMode: NS_LINE_BREAK_BY_WORD_WRAPPING];
     }
 
-    let default_text = nsstring_from_str("Clipboard text");
-    let () = msg_send![label, setStringValue: default_text];
-    let () = msg_send![default_text, release];
+    let default_text = NSString::from_str("Clipboard text");
+    let () = msg_send![label, setStringValue: &*default_text];
 
     let image_view: *mut AnyObject = msg_send![class!(NSImageView), alloc];
     let image_view: *mut AnyObject = msg_send![image_view, initWithFrame: label_rect];

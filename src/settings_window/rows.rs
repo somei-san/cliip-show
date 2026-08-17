@@ -4,11 +4,10 @@ use std::sync::Once;
 use objc2::declare::ClassBuilder;
 use objc2::runtime::{AnyClass, AnyObject, Sel};
 use objc2::{class, msg_send, sel};
-use objc2_foundation::{NSPoint, NSRect, NSSize};
+use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
 use crate::config::{ConfigKey, LanguageSetting};
 use crate::i18n::{self, Lang, Msg};
-use crate::objc_helpers::nsstring_from_str;
 
 use super::{config_key_to_tag, LocalizedControl, LocalizedKind};
 
@@ -115,9 +114,8 @@ pub(super) unsafe fn make_label(text: &str, frame: NSRect) -> *mut AnyObject {
 }
 
 pub(super) unsafe fn set_string_value(control: *mut AnyObject, text: &str) {
-    let ns = nsstring_from_str(text);
-    let () = msg_send![control, setStringValue: ns];
-    let () = msg_send![ns, release];
+    let ns = NSString::from_str(text);
+    let () = msg_send![control, setStringValue: &*ns];
 }
 
 unsafe fn make_slider(
@@ -193,9 +191,8 @@ unsafe fn make_language_popup(
     let popup: *mut AnyObject = msg_send![class!(NSPopUpButton), alloc];
     let popup: *mut AnyObject = msg_send![popup, initWithFrame: frame pullsDown: false];
     for setting in i18n::LANGUAGE_CHOICES {
-        let ns = nsstring_from_str(i18n::language_label(lang, setting));
-        let () = msg_send![popup, addItemWithTitle: ns];
-        let () = msg_send![ns, release];
+        let ns = NSString::from_str(i18n::language_label(lang, setting));
+        let () = msg_send![popup, addItemWithTitle: &*ns];
     }
     select_language_item(popup, selected);
     let () = msg_send![popup, setTag: tag];
@@ -226,9 +223,8 @@ unsafe fn make_popup(
     let popup: *mut AnyObject = msg_send![class!(NSPopUpButton), alloc];
     let popup: *mut AnyObject = msg_send![popup, initWithFrame: frame pullsDown: false];
     for item in items {
-        let ns = nsstring_from_str(item);
-        let () = msg_send![popup, addItemWithTitle: ns];
-        let () = msg_send![ns, release];
+        let ns = NSString::from_str(item);
+        let () = msg_send![popup, addItemWithTitle: &*ns];
     }
     select_popup_item(popup, selected);
     let () = msg_send![popup, setTag: tag];
@@ -238,9 +234,8 @@ unsafe fn make_popup(
 }
 
 pub(super) unsafe fn select_popup_item(popup: *mut AnyObject, title: &str) {
-    let ns = nsstring_from_str(title);
-    let () = msg_send![popup, selectItemWithTitle: ns];
-    let () = msg_send![ns, release];
+    let ns = NSString::from_str(title);
+    let () = msg_send![popup, selectItemWithTitle: &*ns];
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -679,15 +674,13 @@ pub(super) unsafe fn make_button(
 ) -> *mut AnyObject {
     let button: *mut AnyObject = msg_send![class!(NSButton), alloc];
     let button: *mut AnyObject = msg_send![button, initWithFrame: frame];
-    let title_ns = nsstring_from_str(title);
-    let () = msg_send![button, setTitle: title_ns];
-    let () = msg_send![title_ns, release];
+    let title_ns = NSString::from_str(title);
+    let () = msg_send![button, setTitle: &*title_ns];
     let () = msg_send![button, setTarget: delegate];
     let () = msg_send![button, setAction: action];
     if !key_equivalent.is_empty() {
-        let key_ns = nsstring_from_str(key_equivalent);
-        let () = msg_send![button, setKeyEquivalent: key_ns];
-        let () = msg_send![key_ns, release];
+        let key_ns = NSString::from_str(key_equivalent);
+        let () = msg_send![button, setKeyEquivalent: &*key_ns];
     }
     button
 }

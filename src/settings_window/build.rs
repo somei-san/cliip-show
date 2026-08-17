@@ -2,7 +2,7 @@ use std::ptr;
 
 use objc2::runtime::AnyObject;
 use objc2::{class, msg_send, sel};
-use objc2_foundation::{NSPoint, NSRect, NSSize};
+use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
 use crate::config::{
     default_display_settings, ConfigKey, MAX_HUD_DURATION_SECS, MAX_HUD_FADE_DURATION_SECS,
@@ -13,7 +13,7 @@ use crate::config::{
 };
 use crate::hud::BACKING_BUFFERED;
 use crate::i18n::{self, Lang, Msg};
-use crate::objc_helpers::{nsstring_from_str, template_image_from_png};
+use crate::objc_helpers::template_image_from_png;
 
 use super::rows::{
     add_button_row, add_divider_row, add_field_row, add_language_row, add_login_item_row,
@@ -190,9 +190,8 @@ unsafe fn add_pane_tab(
 
     let item: *mut AnyObject =
         msg_send![class!(NSTabViewItem), tabViewItemWithViewController: controller];
-    let label = nsstring_from_str(i18n::text(lang, label_msg));
-    let () = msg_send![item, setLabel: label];
-    let () = msg_send![label, release];
+    let label = NSString::from_str(i18n::text(lang, label_msg));
+    let () = msg_send![item, setLabel: &*label];
 
     let icon = make_tab_icon(icon_png);
     if icon.is_null() {
@@ -242,9 +241,8 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
     ];
     // 閉じても解放させず、AppState に持ったポインタを再利用して開き直す
     let () = msg_send![window, setReleasedWhenClosed: false];
-    let title = nsstring_from_str(i18n::text(lang, Msg::SettingsTitle));
-    let () = msg_send![window, setTitle: title];
-    let () = msg_send![title, release];
+    let title = NSString::from_str(i18n::text(lang, Msg::SettingsTitle));
+    let () = msg_send![window, setTitle: &*title];
     // 保存せずに閉じたときに設定ファイルの内容へ戻すため windowWillClose: を受け取る
     let () = msg_send![window, setDelegate: delegate];
     localized.push(LocalizedControl {

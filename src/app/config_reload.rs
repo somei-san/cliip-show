@@ -2,6 +2,7 @@ use std::path::Path;
 
 use objc2::runtime::AnyObject;
 use objc2::{class, msg_send};
+use objc2_foundation::NSString;
 
 use crate::config::{
     apply_config_file, apply_env_overrides, default_display_settings, load_config_file,
@@ -10,7 +11,6 @@ use crate::config::{
 use crate::error::AppError;
 use crate::hud::{hud_background_rgba, hud_border_white_alpha};
 use crate::i18n;
-use crate::objc_helpers::nsstring_from_str;
 
 use super::AppState;
 
@@ -61,9 +61,8 @@ pub(super) unsafe fn reload_config_if_changed(state: &mut AppState) {
 pub(crate) unsafe fn apply_settings_now(state: &mut AppState, new_settings: DisplaySettings) {
     // hud_emoji が変わったらアイコンラベルを即時更新
     if new_settings.hud_emoji != state.settings.hud_emoji {
-        let emoji = nsstring_from_str(&new_settings.hud_emoji);
-        let () = msg_send![state.icon_label, setStringValue: emoji];
-        let () = msg_send![emoji, release];
+        let emoji = NSString::from_str(&new_settings.hud_emoji);
+        let () = msg_send![state.icon_label, setStringValue: &*emoji];
     }
 
     // hud_background_color が変わったら背景レイヤーを即時更新

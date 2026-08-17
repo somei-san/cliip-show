@@ -1,8 +1,9 @@
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{class, msg_send, sel};
+use objc2_foundation::NSString;
 
 use crate::i18n::{self, Lang, Msg};
-use crate::objc_helpers::{nsstring_from_str, template_image_from_png};
+use crate::objc_helpers::template_image_from_png;
 
 const NS_VARIABLE_STATUS_ITEM_LENGTH: f64 = -1.0;
 
@@ -107,17 +108,15 @@ pub unsafe fn create_status_item(delegate: &AnyObject, lang: Lang) -> StatusItem
 }
 
 unsafe fn make_menu_item(delegate: &AnyObject, title: &str, action: Sel) -> *mut AnyObject {
-    let title_str = nsstring_from_str(title);
-    let key_equivalent = nsstring_from_str("");
+    let title_str = NSString::from_str(title);
+    let key_equivalent = NSString::from_str("");
     let item: *mut AnyObject = msg_send![class!(NSMenuItem), alloc];
     let item: *mut AnyObject = msg_send![
         item,
-        initWithTitle: title_str
+        initWithTitle: &*title_str
         action: action
-        keyEquivalent: key_equivalent
+        keyEquivalent: &*key_equivalent
     ];
-    let () = msg_send![title_str, release];
-    let () = msg_send![key_equivalent, release];
     let () = msg_send![item, setTarget: delegate];
     item
 }
@@ -158,10 +157,9 @@ pub unsafe fn install_main_menu(lang: Lang) -> EditMenuHandles {
 
     let edit_title = i18n::text(lang, Msg::MenuEdit);
     let edit_menu_item = make_container_menu_item(edit_title);
-    let edit_menu_title = nsstring_from_str(edit_title);
+    let edit_menu_title = NSString::from_str(edit_title);
     let edit_menu: *mut AnyObject = msg_send![class!(NSMenu), alloc];
-    let edit_menu: *mut AnyObject = msg_send![edit_menu, initWithTitle: edit_menu_title];
-    let () = msg_send![edit_menu_title, release];
+    let edit_menu: *mut AnyObject = msg_send![edit_menu, initWithTitle: &*edit_menu_title];
 
     // cut:/copy:/paste:/selectAll: は responder chain に流す標準アクションのため target は
     // nil のまま（setTarget を呼ばない）。alloc/init 直後の NSMenuItem は target が既に nil。
@@ -195,9 +193,8 @@ pub unsafe fn install_main_menu(lang: Lang) -> EditMenuHandles {
 unsafe fn make_container_menu_item(title: &str) -> *mut AnyObject {
     let item: *mut AnyObject = msg_send![class!(NSMenuItem), alloc];
     let item: *mut AnyObject = msg_send![item, init];
-    let title_str = nsstring_from_str(title);
-    let () = msg_send![item, setTitle: title_str];
-    let () = msg_send![title_str, release];
+    let title_str = NSString::from_str(title);
+    let () = msg_send![item, setTitle: &*title_str];
     item
 }
 
@@ -207,17 +204,15 @@ unsafe fn make_responder_menu_item(
     action: Sel,
     key_equivalent: &str,
 ) -> *mut AnyObject {
-    let title_str = nsstring_from_str(title);
-    let key_equivalent_str = nsstring_from_str(key_equivalent);
+    let title_str = NSString::from_str(title);
+    let key_equivalent_str = NSString::from_str(key_equivalent);
     let item: *mut AnyObject = msg_send![class!(NSMenuItem), alloc];
     let item: *mut AnyObject = msg_send![
         item,
-        initWithTitle: title_str
+        initWithTitle: &*title_str
         action: action
-        keyEquivalent: key_equivalent_str
+        keyEquivalent: &*key_equivalent_str
     ];
-    let () = msg_send![title_str, release];
-    let () = msg_send![key_equivalent_str, release];
     item
 }
 
@@ -277,7 +272,6 @@ pub unsafe fn apply_language(handles: &MenuHandles, lang: Lang) {
 
 /// `NSMenuItem`／`NSMenu` の `setTitle:` 呼び出しをまとめた共通処理。
 unsafe fn set_title(item: *mut AnyObject, text: &str) {
-    let ns = nsstring_from_str(text);
-    let () = msg_send![item, setTitle: ns];
-    let () = msg_send![ns, release];
+    let ns = NSString::from_str(text);
+    let () = msg_send![item, setTitle: &*ns];
 }

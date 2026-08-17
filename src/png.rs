@@ -1,11 +1,10 @@
 use objc2::runtime::AnyObject;
 use objc2::{class, msg_send};
-use objc2_foundation::{NSPoint, NSRect, NSSize};
+use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
 use crate::config::display_settings;
 use crate::error::AppError;
 use crate::hud::{create_hud_window, fit_thumbnail_size, layout_hud, layout_hud_image};
-use crate::objc_helpers::nsstring_from_str;
 use crate::text::truncate_text;
 
 const BITMAP_IMAGE_FILE_TYPE_PNG: usize = 4;
@@ -50,9 +49,8 @@ pub fn render_hud_png(text: &str, output_path: &str) -> Result<(), AppError> {
             settings.truncate_max_width,
             settings.truncate_max_lines,
         );
-        let message = nsstring_from_str(&truncated);
-        let () = msg_send![label, setStringValue: message];
-        let () = msg_send![message, release];
+        let message = NSString::from_str(&truncated);
+        let () = msg_send![label, setStringValue: &*message];
         layout_hud(window, icon_label, label, settings);
 
         write_window_png(window, output_path)
@@ -186,7 +184,7 @@ pub(crate) unsafe fn create_preview_sample_image() -> Result<*mut AnyObject, App
 /// 現在の描画コンテキスト（`create_preview_sample_image` の `lockFocus` 中）に
 /// 中央寄せ・白ボールド・影付きで "Sample" を描く。市松模様の上でも視認できるようにするため。
 unsafe fn draw_preview_sample_label(canvas_width: f64, canvas_height: f64) {
-    let text = nsstring_from_str("Sample");
+    let text = NSString::from_str("Sample");
 
     let shadow: *mut AnyObject = msg_send![class!(NSShadow), alloc];
     let shadow: *mut AnyObject = msg_send![shadow, init];
@@ -205,7 +203,7 @@ unsafe fn draw_preview_sample_label(canvas_width: f64, canvas_height: f64) {
     let () = msg_send![attributes, setObject: white forKey: NSForegroundColorAttributeName];
     let () = msg_send![attributes, setObject: shadow forKey: NSShadowAttributeName];
 
-    let text_size: NSSize = msg_send![text, sizeWithAttributes: attributes];
+    let text_size: NSSize = msg_send![&*text, sizeWithAttributes: attributes];
     let text_rect = NSRect {
         origin: NSPoint {
             x: ((canvas_width - text_size.width) / 2.0).max(0.0),
@@ -213,9 +211,8 @@ unsafe fn draw_preview_sample_label(canvas_width: f64, canvas_height: f64) {
         },
         size: text_size,
     };
-    let () = msg_send![text, drawInRect: text_rect withAttributes: attributes];
+    let () = msg_send![&*text, drawInRect: text_rect withAttributes: attributes];
 
-    let () = msg_send![text, release];
     let () = msg_send![shadow, release];
 }
 
@@ -257,9 +254,8 @@ unsafe fn write_window_png(window: *mut AnyObject, output_path: &str) -> Result<
         ));
     }
 
-    let output_path_ns = nsstring_from_str(output_path);
-    let success: bool = msg_send![data, writeToFile: output_path_ns atomically: true];
-    let () = msg_send![output_path_ns, release];
+    let output_path_ns = NSString::from_str(output_path);
+    let success: bool = msg_send![data, writeToFile: &*output_path_ns atomically: true];
     let () = msg_send![bitmap, release];
     let () = msg_send![window, close];
 
@@ -278,10 +274,11 @@ pub fn generate_diff_png(
     output_path: &str,
 ) -> Result<DiffSummary, AppError> {
     unsafe {
-        let baseline_path_ns = nsstring_from_str(baseline_path);
-        let baseline_rep: *mut AnyObject =
-            msg_send![class!(NSBitmapImageRep), imageRepWithContentsOfFile: baseline_path_ns];
-        let () = msg_send![baseline_path_ns, release];
+        let baseline_path_ns = NSString::from_str(baseline_path);
+        let baseline_rep: *mut AnyObject = msg_send![
+            class!(NSBitmapImageRep),
+            imageRepWithContentsOfFile: &*baseline_path_ns
+        ];
         if baseline_rep.is_null() {
             return Err(AppError::RenderFailed(format!(
                 "failed to load baseline PNG: {baseline_path}"
@@ -290,10 +287,11 @@ pub fn generate_diff_png(
         // imageRepWithContentsOfFile: は autoreleased を返すため、明示的に retain して所有権を確保
         let _: *mut AnyObject = msg_send![baseline_rep, retain];
 
-        let current_path_ns = nsstring_from_str(current_path);
-        let current_rep: *mut AnyObject =
-            msg_send![class!(NSBitmapImageRep), imageRepWithContentsOfFile: current_path_ns];
-        let () = msg_send![current_path_ns, release];
+        let current_path_ns = NSString::from_str(current_path);
+        let current_rep: *mut AnyObject = msg_send![
+            class!(NSBitmapImageRep),
+            imageRepWithContentsOfFile: &*current_path_ns
+        ];
         if current_rep.is_null() {
             let () = msg_send![baseline_rep, release];
             return Err(AppError::RenderFailed(format!(
@@ -460,9 +458,8 @@ pub fn generate_diff_png(
             ));
         }
 
-        let output_path_ns = nsstring_from_str(output_path);
-        let success: bool = msg_send![data, writeToFile: output_path_ns atomically: true];
-        let () = msg_send![output_path_ns, release];
+        let output_path_ns = NSString::from_str(output_path);
+        let success: bool = msg_send![data, writeToFile: &*output_path_ns atomically: true];
         let () = msg_send![baseline_rep, release];
         let () = msg_send![current_rep, release];
         let () = msg_send![diff_rep, release];
@@ -485,9 +482,8 @@ unsafe fn color_components(color: *mut AnyObject) -> Option<(f64, f64, f64, f64)
         return None;
     }
 
-    let device_rgb_name = nsstring_from_str("NSDeviceRGBColorSpace");
-    let rgb_color: *mut AnyObject = msg_send![color, colorUsingColorSpaceName: device_rgb_name];
-    let () = msg_send![device_rgb_name, release];
+    let device_rgb_name = NSString::from_str("NSDeviceRGBColorSpace");
+    let rgb_color: *mut AnyObject = msg_send![color, colorUsingColorSpaceName: &*device_rgb_name];
     if rgb_color.is_null() {
         return None;
     }
@@ -523,7 +519,7 @@ pub fn create_bitmap_rep_for_bounds(bounds: NSRect) -> Result<*mut AnyObject, Ap
     let height = bounds.size.height.ceil().max(1.0) as isize;
     unsafe {
         let bitmap: *mut AnyObject = msg_send![class!(NSBitmapImageRep), alloc];
-        let color_space = nsstring_from_str("NSCalibratedRGBColorSpace");
+        let color_space = NSString::from_str("NSCalibratedRGBColorSpace");
         let bitmap: *mut AnyObject = msg_send![
             bitmap,
             initWithBitmapDataPlanes: std::ptr::null_mut::<*mut u8>()
@@ -533,11 +529,10 @@ pub fn create_bitmap_rep_for_bounds(bounds: NSRect) -> Result<*mut AnyObject, Ap
             samplesPerPixel: 4isize
             hasAlpha: true
             isPlanar: false
-            colorSpaceName: color_space
+            colorSpaceName: &*color_space
             bytesPerRow: 0isize
             bitsPerPixel: 0isize
         ];
-        let () = msg_send![color_space, release];
 
         if bitmap.is_null() {
             return Err(AppError::RenderFailed(
@@ -555,13 +550,12 @@ mod tests {
 
     use objc2::msg_send;
     use objc2::runtime::AnyObject;
-    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
     use super::{
         create_bitmap_rep_for_bounds, generate_diff_png, BITMAP_IMAGE_FILE_TYPE_PNG,
         PIXEL_CHANNEL_TOLERANCE,
     };
-    use crate::objc_helpers::nsstring_from_str;
 
     /// テストごとに独立したディレクトリを使う（cargo test は並列実行のため共有すると干渉する）。
     /// 名前には連番も混ぜ、`test_name` をコピペで重複させても並列テスト同士が
@@ -630,21 +624,19 @@ mod tests {
             properties: properties
         ];
         assert!(!png.is_null());
-        let path_ns = nsstring_from_str(path);
-        let success: bool = msg_send![png, writeToFile: path_ns atomically: true];
-        let () = msg_send![path_ns, release];
+        let path_ns = NSString::from_str(path);
+        let success: bool = msg_send![png, writeToFile: &*path_ns atomically: true];
         let () = msg_send![rep, release];
         assert!(success, "failed to write test PNG: {path}");
     }
 
     /// PNG から 1 ピクセルを読み戻す。diff PNG の成果物検証用。
     unsafe fn read_png_pixel(path: &str, x: usize, y: usize) -> [u8; 4] {
-        let path_ns = nsstring_from_str(path);
+        let path_ns = NSString::from_str(path);
         let rep: *mut AnyObject = msg_send![
             objc2::class!(NSBitmapImageRep),
-            imageRepWithContentsOfFile: path_ns
+            imageRepWithContentsOfFile: &*path_ns
         ];
-        let () = msg_send![path_ns, release];
         assert!(!rep.is_null(), "failed to load PNG: {path}");
         let _: *mut AnyObject = msg_send![rep, retain];
 

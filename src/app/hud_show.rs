@@ -2,10 +2,9 @@ use std::ptr;
 
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{class, msg_send, sel};
-use objc2_foundation::NSSize;
+use objc2_foundation::{NSSize, NSString};
 
 use crate::hud::{fit_thumbnail_size, layout_hud, layout_hud_image};
-use crate::objc_helpers::nsstring_from_str;
 use crate::text::truncate_text;
 
 use super::{AppState, APP_STATE};
@@ -18,9 +17,8 @@ pub(crate) unsafe fn show_text_content(state: &mut AppState, text: &str) {
         state.settings.truncate_max_width,
         state.settings.truncate_max_lines,
     );
-    let message = nsstring_from_str(&truncated);
-    let () = msg_send![state.label, setStringValue: message];
-    let () = msg_send![message, release];
+    let message = NSString::from_str(&truncated);
+    let () = msg_send![state.label, setStringValue: &*message];
 
     let () = msg_send![state.image_view, setImage: ptr::null_mut::<AnyObject>()];
     let () = msg_send![state.image_view, setHidden: true];
@@ -122,9 +120,8 @@ pub(crate) unsafe fn present_hud(this: &AnyObject, state: &mut AppState) {
 /// 現在のペーストボード内容を HUD に表示する。表示できる内容（テキストまたは画像）が
 /// 無ければ何もせず `false` を返す。
 pub(super) unsafe fn present_pasteboard_content(this: &AnyObject, state: &mut AppState) -> bool {
-    let text_type = nsstring_from_str("public.utf8-plain-text");
-    let raw_text: *mut AnyObject = msg_send![state.pasteboard, stringForType: text_type];
-    let () = msg_send![text_type, release];
+    let text_type = NSString::from_str("public.utf8-plain-text");
+    let raw_text: *mut AnyObject = msg_send![state.pasteboard, stringForType: &*text_type];
 
     // ブラウザや表計算からのコピーは画像とテキストの両方を載せるため、テキストを先に見る
     match crate::objc_helpers::nsstring_to_string(raw_text) {
@@ -221,10 +218,9 @@ pub(super) extern "C" fn fade_tick(_: &AnyObject, _: Sel, timer: *mut AnyObject)
 mod tests {
     use super::{image_from_pasteboard, FADE_TICK_INTERVAL_SECS};
     use crate::config::DEFAULT_HUD_FADE_DURATION_SECS;
-    use crate::objc_helpers::nsstring_from_str;
     use objc2::runtime::AnyObject;
     use objc2::{class, msg_send};
-    use objc2_foundation::NSSize;
+    use objc2_foundation::{NSSize, NSString};
     use std::ptr;
 
     /// 一般ペーストボード（ユーザーのクリップボード）を汚さないよう、専用の名前付きペーストボードを使う。
@@ -235,35 +231,31 @@ mod tests {
                 msg_send![class!(NSPasteboard), pasteboardWithUniqueName];
             assert!(!pasteboard.is_null());
 
-            let text_type = nsstring_from_str("public.utf8-plain-text");
-            let types: *mut AnyObject = msg_send![class!(NSArray), arrayWithObject: text_type];
+            let text_type = NSString::from_str("public.utf8-plain-text");
+            let types: *mut AnyObject = msg_send![class!(NSArray), arrayWithObject: &*text_type];
             let _: isize =
                 msg_send![pasteboard, declareTypes: types owner: ptr::null_mut::<AnyObject>()];
-            let text = nsstring_from_str("no image here");
-            let _: bool = msg_send![pasteboard, setString: text forType: text_type];
+            let text = NSString::from_str("no image here");
+            let _: bool = msg_send![pasteboard, setString: &*text forType: &*text_type];
 
             let no_image = image_from_pasteboard(pasteboard);
             assert!(
                 no_image.is_null(),
                 "text-only pasteboard must yield no image"
             );
-            let () = msg_send![text, release];
-            let () = msg_send![text_type, release];
 
-            let png_type = nsstring_from_str("public.png");
-            let types: *mut AnyObject = msg_send![class!(NSArray), arrayWithObject: png_type];
+            let png_type = NSString::from_str("public.png");
+            let types: *mut AnyObject = msg_send![class!(NSArray), arrayWithObject: &*png_type];
             let _: isize =
                 msg_send![pasteboard, declareTypes: types owner: ptr::null_mut::<AnyObject>()];
-            let png_path = nsstring_from_str(concat!(
+            let png_path = NSString::from_str(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/tests/visual/baseline/image_tiny.png"
             ));
             let png_data: *mut AnyObject =
-                msg_send![class!(NSData), dataWithContentsOfFile: png_path];
-            let () = msg_send![png_path, release];
+                msg_send![class!(NSData), dataWithContentsOfFile: &*png_path];
             assert!(!png_data.is_null(), "fixture PNG must be readable");
-            let _: bool = msg_send![pasteboard, setData: png_data forType: png_type];
-            let () = msg_send![png_type, release];
+            let _: bool = msg_send![pasteboard, setData: png_data forType: &*png_type];
 
             let image = image_from_pasteboard(pasteboard);
             assert!(!image.is_null(), "PNG pasteboard must yield an image");

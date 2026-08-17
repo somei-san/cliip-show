@@ -1,6 +1,6 @@
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{class, msg_send};
-use objc2_foundation::NSRange;
+use objc2_foundation::{NSRange, NSString};
 
 use crate::i18n::{self, Lang, Msg};
 use crate::objc_helpers::nsstring_from_str;
@@ -41,29 +41,24 @@ pub(super) unsafe fn prompt_login_item_if_needed(lang: Lang) {
     let alert: *mut AnyObject = msg_send![class!(NSAlert), alloc];
     let alert: *mut AnyObject = msg_send![alert, init];
 
-    let message = nsstring_from_str(i18n::text(lang, Msg::LoginPromptMessage));
-    let () = msg_send![alert, setMessageText: message];
-    let () = msg_send![message, release];
+    let message = NSString::from_str(i18n::text(lang, Msg::LoginPromptMessage));
+    let () = msg_send![alert, setMessageText: &*message];
 
-    let informative = nsstring_from_str(i18n::text(lang, Msg::LoginPromptDetail));
-    let () = msg_send![alert, setInformativeText: informative];
-    let () = msg_send![informative, release];
+    let informative = NSString::from_str(i18n::text(lang, Msg::LoginPromptDetail));
+    let () = msg_send![alert, setInformativeText: &*informative];
 
     // 最初に追加したボタンが既定（Enterで発火）になる
-    let enable_title = nsstring_from_str(i18n::text(lang, Msg::LoginPromptEnable));
-    let _: *mut AnyObject = msg_send![alert, addButtonWithTitle: enable_title];
-    let () = msg_send![enable_title, release];
+    let enable_title = NSString::from_str(i18n::text(lang, Msg::LoginPromptEnable));
+    let _: *mut AnyObject = msg_send![alert, addButtonWithTitle: &*enable_title];
 
-    let later_title = nsstring_from_str(i18n::text(lang, Msg::LoginPromptLater));
-    let _: *mut AnyObject = msg_send![alert, addButtonWithTitle: later_title];
-    let () = msg_send![later_title, release];
+    let later_title = NSString::from_str(i18n::text(lang, Msg::LoginPromptLater));
+    let _: *mut AnyObject = msg_send![alert, addButtonWithTitle: &*later_title];
 
     let () = msg_send![alert, setShowsSuppressionButton: true];
     let suppression_button: *mut AnyObject = msg_send![alert, suppressionButton];
     if !suppression_button.is_null() {
-        let title = nsstring_from_str(i18n::text(lang, Msg::LoginPromptSuppress));
-        let () = msg_send![suppression_button, setTitle: title];
-        let () = msg_send![title, release];
+        let title = NSString::from_str(i18n::text(lang, Msg::LoginPromptSuppress));
+        let () = msg_send![suppression_button, setTitle: &*title];
     }
 
     const NS_ALERT_FIRST_BUTTON_RETURN: isize = 1000;
@@ -137,10 +132,9 @@ unsafe fn about_credits(lang: Lang) -> *mut AnyObject {
         "{}\n{REPOSITORY_URL}",
         i18n::text(lang, Msg::AboutDescription)
     );
-    let text_ns = nsstring_from_str(&text);
+    let text_ns = NSString::from_str(&text);
     let credits: *mut AnyObject = msg_send![class!(NSMutableAttributedString), alloc];
-    let credits: *mut AnyObject = msg_send![credits, initWithString: text_ns];
-    let () = msg_send![text_ns, release];
+    let credits: *mut AnyObject = msg_send![credits, initWithString: &*text_ns];
 
     // URL の範囲だけリンクにする。NSRange が数えるのは Rust の文字数ではなく UTF-16 の要素数
     let first_line_len = text
@@ -153,19 +147,17 @@ unsafe fn about_credits(lang: Lang) -> *mut AnyObject {
         location: first_line_len + 1,
         length: REPOSITORY_URL.encode_utf16().count(),
     };
-    let link_key = nsstring_from_str(NS_LINK_ATTRIBUTE_NAME);
-    let url_ns = nsstring_from_str(REPOSITORY_URL);
-    let url: *mut AnyObject = msg_send![class!(NSURL), URLWithString: url_ns];
+    let link_key = NSString::from_str(NS_LINK_ATTRIBUTE_NAME);
+    let url_ns = NSString::from_str(REPOSITORY_URL);
+    let url: *mut AnyObject = msg_send![class!(NSURL), URLWithString: &*url_ns];
     if !url.is_null() {
         let () = msg_send![
             credits,
-            addAttribute: link_key
+            addAttribute: &*link_key
             value: url
             range: link_range
         ];
     }
-    let () = msg_send![link_key, release];
-    let () = msg_send![url_ns, release];
 
     credits
 }
@@ -173,9 +165,8 @@ unsafe fn about_credits(lang: Lang) -> *mut AnyObject {
 /// 支援ページを既定のブラウザで開く。URL は言語で変えない。
 pub(super) extern "C" fn open_support_page(_: &AnyObject, _: Sel, _: *mut AnyObject) {
     unsafe {
-        let url_string = nsstring_from_str(SUPPORT_URL);
-        let url: *mut AnyObject = msg_send![class!(NSURL), URLWithString: url_string];
-        let () = msg_send![url_string, release];
+        let url_string = NSString::from_str(SUPPORT_URL);
+        let url: *mut AnyObject = msg_send![class!(NSURL), URLWithString: &*url_string];
         if url.is_null() {
             eprintln!("warning: failed to build support URL: {SUPPORT_URL}");
             return;
@@ -191,17 +182,16 @@ pub(super) extern "C" fn open_support_page(_: &AnyObject, _: Sel, _: *mut AnyObj
 #[cfg(test)]
 mod tests {
     use super::SUPPORT_URL;
-    use crate::objc_helpers::nsstring_from_str;
     use objc2::runtime::AnyObject;
     use objc2::{class, msg_send};
+    use objc2_foundation::NSString;
 
     /// 開く URL が壊れていると `NSURL` が nil を返し、何も起きない。
     #[test]
     fn support_url_is_a_valid_url() {
         unsafe {
-            let url_string = nsstring_from_str(SUPPORT_URL);
-            let url: *mut AnyObject = msg_send![class!(NSURL), URLWithString: url_string];
-            let () = msg_send![url_string, release];
+            let url_string = NSString::from_str(SUPPORT_URL);
+            let url: *mut AnyObject = msg_send![class!(NSURL), URLWithString: &*url_string];
             assert!(!url.is_null(), "{SUPPORT_URL} is not a valid URL");
         }
     }

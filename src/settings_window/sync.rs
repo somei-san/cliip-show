@@ -1,5 +1,6 @@
 use objc2::msg_send;
 use objc2::runtime::AnyObject;
+use objc2_foundation::NSString;
 
 use crate::app::{
     apply_settings_now, present_hud, show_sample_image_content, show_text_content, AppState,
@@ -10,7 +11,7 @@ use crate::config::{
     LanguageSetting,
 };
 use crate::i18n::{self, Lang, Msg};
-use crate::objc_helpers::{nsstring_from_str, nsstring_to_string};
+use crate::objc_helpers::nsstring_to_string;
 use crate::png::create_preview_sample_image;
 
 use super::rows::{
@@ -60,9 +61,8 @@ unsafe fn retitle_language_popup(popup: *mut AnyObject, lang: Lang) {
         if item.is_null() {
             continue;
         }
-        let ns = nsstring_from_str(i18n::language_label(lang, *setting));
-        let () = msg_send![item, setTitle: ns];
-        let () = msg_send![ns, release];
+        let ns = NSString::from_str(i18n::language_label(lang, *setting));
+        let () = msg_send![item, setTitle: &*ns];
     }
 }
 
@@ -349,14 +349,12 @@ pub unsafe fn apply_language(controls: &SettingsControls, lang: Lang) {
         match entry.kind {
             LocalizedKind::StringValue => set_string_value(entry.control, text),
             LocalizedKind::Title => {
-                let ns = nsstring_from_str(text);
-                let () = msg_send![entry.control, setTitle: ns];
-                let () = msg_send![ns, release];
+                let ns = NSString::from_str(text);
+                let () = msg_send![entry.control, setTitle: &*ns];
             }
             LocalizedKind::TabLabel => {
-                let ns = nsstring_from_str(text);
-                let () = msg_send![entry.control, setLabel: ns];
-                let () = msg_send![ns, release];
+                let ns = NSString::from_str(text);
+                let () = msg_send![entry.control, setLabel: &*ns];
             }
         }
     }
