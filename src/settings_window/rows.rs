@@ -28,13 +28,27 @@ const SETTINGS_BUTTON_WIDTH: f64 = 130.0;
 const SETTINGS_BUTTON_HEIGHT: f64 = 24.0;
 const SETTINGS_BUTTON_GAP: f64 = 12.0;
 const SETTINGS_BUTTON_RIGHT_MARGIN: f64 = 20.0;
-/// 設定タブのペインの高さ。行数で決まるため項目を足すと伸びる（#29）。
+/// 設定タブのペインの高さ。固定。行が増えたら documentView がスクロールする（#29）。
 /// ウィンドウ自体の高さは `NSTabViewController` が選択中のペインに合わせて決める。
-pub(super) const SETTINGS_PANE_HEIGHT: f64 = SETTINGS_TOP_MARGIN
-    + SETTINGS_ROW_HEIGHT * SETTINGS_TOTAL_ROW_COUNT as f64
-    + SETTINGS_EMOJI_MESSAGE_HEIGHT
-    + SETTINGS_BUTTON_AREA_HEIGHT
-    + SETTINGS_BOTTOM_MARGIN;
+pub(super) const SETTINGS_PANE_HEIGHT: f64 = 542.0;
+/// ペイン下部、行スタックとは別に確保された絵文字メッセージ・ボタン領域の高さ。
+/// この帯は documentView に含めず、ペイン直下に固定表示する。
+const SETTINGS_FOOTER_HEIGHT: f64 =
+    SETTINGS_EMOJI_MESSAGE_HEIGHT + SETTINGS_BUTTON_AREA_HEIGHT + SETTINGS_BOTTOM_MARGIN;
+/// フッターを除いた、NSScrollView が占める領域の高さ。
+const SETTINGS_SCROLL_HEIGHT: f64 = SETTINGS_PANE_HEIGHT - SETTINGS_FOOTER_HEIGHT;
+
+/// 行数から documentView の高さを算出する。`SETTINGS_SCROLL_HEIGHT` を下回らないように
+/// する（`.max` を外すと、行数が減ったとき非 flipped の documentView がスクロール領域の
+/// 下端に張り付き、上部に空白ができる）。
+fn document_height_for(row_count: usize) -> f64 {
+    (SETTINGS_TOP_MARGIN + SETTINGS_ROW_HEIGHT * row_count as f64).max(SETTINGS_SCROLL_HEIGHT)
+}
+
+/// 行スタックを収める documentView の高さ。
+pub(super) fn document_height() -> f64 {
+    document_height_for(SETTINGS_TOTAL_ROW_COUNT)
+}
 
 const SETTINGS_LABEL_X: f64 = 20.0;
 const SETTINGS_LABEL_WIDTH: f64 = 270.0;
@@ -87,7 +101,7 @@ extern "C" fn background_mouse_down(this: &AnyObject, _: Sel, _: *mut AnyObject)
 }
 
 fn row_bottom_y(index: usize) -> f64 {
-    let row_top = SETTINGS_PANE_HEIGHT - SETTINGS_TOP_MARGIN - (index as f64) * SETTINGS_ROW_HEIGHT;
+    let row_top = document_height() - SETTINGS_TOP_MARGIN - (index as f64) * SETTINGS_ROW_HEIGHT;
     row_top - SETTINGS_ROW_HEIGHT
 }
 
@@ -240,7 +254,7 @@ pub(super) unsafe fn select_popup_item(popup: *mut AnyObject, title: &str) {
 
 #[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn add_slider_row(
-    content_view: *mut AnyObject,
+    document_view: *mut AnyObject,
     delegate: &AnyObject,
     index: usize,
     lang: Lang,
@@ -282,9 +296,9 @@ pub(super) unsafe fn add_slider_row(
     );
     let value_label = make_label(&format!("{value:.2}"), value_rect);
 
-    let () = msg_send![content_view, addSubview: label];
-    let () = msg_send![content_view, addSubview: slider];
-    let () = msg_send![content_view, addSubview: value_label];
+    let () = msg_send![document_view, addSubview: label];
+    let () = msg_send![document_view, addSubview: slider];
+    let () = msg_send![document_view, addSubview: value_label];
 
     localized.push(LocalizedControl {
         control: label,
@@ -297,7 +311,7 @@ pub(super) unsafe fn add_slider_row(
 
 #[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn add_stepper_row(
-    content_view: *mut AnyObject,
+    document_view: *mut AnyObject,
     delegate: &AnyObject,
     index: usize,
     lang: Lang,
@@ -340,9 +354,9 @@ pub(super) unsafe fn add_stepper_row(
         delegate,
     );
 
-    let () = msg_send![content_view, addSubview: label];
-    let () = msg_send![content_view, addSubview: field];
-    let () = msg_send![content_view, addSubview: stepper];
+    let () = msg_send![document_view, addSubview: label];
+    let () = msg_send![document_view, addSubview: field];
+    let () = msg_send![document_view, addSubview: stepper];
 
     localized.push(LocalizedControl {
         control: label,
@@ -355,7 +369,7 @@ pub(super) unsafe fn add_stepper_row(
 
 #[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn add_popup_row(
-    content_view: *mut AnyObject,
+    document_view: *mut AnyObject,
     delegate: &AnyObject,
     index: usize,
     lang: Lang,
@@ -388,8 +402,8 @@ pub(super) unsafe fn add_popup_row(
         delegate,
     );
 
-    let () = msg_send![content_view, addSubview: label];
-    let () = msg_send![content_view, addSubview: popup];
+    let () = msg_send![document_view, addSubview: label];
+    let () = msg_send![document_view, addSubview: popup];
 
     localized.push(LocalizedControl {
         control: label,
@@ -403,7 +417,7 @@ pub(super) unsafe fn add_popup_row(
 /// 言語専用のポップアップ行。表示ラベルと設定値が別なので `add_popup_row` とは
 /// ポップアップの作り方だけが違う。
 pub(super) unsafe fn add_language_row(
-    content_view: *mut AnyObject,
+    document_view: *mut AnyObject,
     delegate: &AnyObject,
     index: usize,
     lang: Lang,
@@ -433,8 +447,8 @@ pub(super) unsafe fn add_language_row(
         delegate,
     );
 
-    let () = msg_send![content_view, addSubview: label];
-    let () = msg_send![content_view, addSubview: popup];
+    let () = msg_send![document_view, addSubview: label];
+    let () = msg_send![document_view, addSubview: popup];
 
     localized.push(LocalizedControl {
         control: label,
@@ -448,9 +462,13 @@ pub(super) unsafe fn add_language_row(
 /// 絵文字フィールド専用の行。入力中バリデーションのため `controlTextDidChange:` を
 /// 受け取れるよう `setDelegate:` し、メッセージラベルを追加する。ラベルの位置は
 /// 行の並びではなくウィンドウ下端が基準（`SETTINGS_EMOJI_MESSAGE_HEIGHT`）。
+///
+/// 行（label/field）はスクロールする documentView（`document_view`）へ、
+/// メッセージラベルはスクロールしないペイン（`pane_view`）へ addSubview する。
 #[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn add_field_row(
-    content_view: *mut AnyObject,
+    document_view: *mut AnyObject,
+    pane_view: *mut AnyObject,
     delegate: &AnyObject,
     index: usize,
     lang: Lang,
@@ -492,9 +510,9 @@ pub(super) unsafe fn add_field_row(
     let red: *mut AnyObject = msg_send![class!(NSColor), systemRedColor];
     let () = msg_send![message_label, setTextColor: red];
 
-    let () = msg_send![content_view, addSubview: label];
-    let () = msg_send![content_view, addSubview: field];
-    let () = msg_send![content_view, addSubview: message_label];
+    let () = msg_send![document_view, addSubview: label];
+    let () = msg_send![document_view, addSubview: field];
+    let () = msg_send![pane_view, addSubview: message_label];
 
     localized.push(LocalizedControl {
         control: label,
@@ -513,7 +531,7 @@ const NS_CONTROL_SIZE_SMALL: usize = 1;
 
 /// 他の設定行（下書き→保存モデル）とログイン項目（OS へ即時反映）を見た目で区切るための
 /// 区切り線。新規の ObjC API を増やさないよう、罫線文字のラベルで表現する。
-pub(super) unsafe fn add_divider_row(content_view: *mut AnyObject, index: usize) {
+pub(super) unsafe fn add_divider_row(document_view: *mut AnyObject, index: usize) {
     let row_bottom = row_bottom_y(index);
     let rect = centered_rect(
         SETTINGS_LABEL_X,
@@ -524,13 +542,13 @@ pub(super) unsafe fn add_divider_row(content_view: *mut AnyObject, index: usize)
     let divider = make_label("────────────────────────────────────────────────────", rect);
     let gray: *mut AnyObject = msg_send![class!(NSColor), separatorColor];
     let () = msg_send![divider, setTextColor: gray];
-    let () = msg_send![content_view, addSubview: divider];
+    let () = msg_send![document_view, addSubview: divider];
 }
 
 /// ログイン時の自動起動の行。`enabled` は表示専用の初期値で、
 /// 実際の値はウィンドウを開くたびに `sync_login_item_toggle` が上書きする。
 pub(super) unsafe fn add_login_item_row(
-    content_view: *mut AnyObject,
+    document_view: *mut AnyObject,
     delegate: &AnyObject,
     index: usize,
     lang: Lang,
@@ -562,8 +580,8 @@ pub(super) unsafe fn add_login_item_row(
     let () = msg_send![toggle, setTarget: delegate];
     let () = msg_send![toggle, setAction: sel!(toggleLoginItem:)];
 
-    let () = msg_send![content_view, addSubview: label];
-    let () = msg_send![content_view, addSubview: toggle];
+    let () = msg_send![document_view, addSubview: label];
+    let () = msg_send![document_view, addSubview: toggle];
 
     localized.push(LocalizedControl {
         control: label,
@@ -594,6 +612,45 @@ pub(super) unsafe fn make_pane_view(height: f64) -> *mut AnyObject {
     };
     let view: *mut AnyObject = msg_send![background_view_class(), alloc];
     msg_send![view, initWithFrame: rect]
+}
+
+// NSBorderType: NSNoBorder
+const NS_NO_BORDER: usize = 0;
+
+/// 行スタック（`document_view`）をスクロール表示するための NSScrollView を作る。
+/// フレームはペイン内でフッターを除いた領域（`SETTINGS_FOOTER_HEIGHT` の上）に固定し、
+/// 初期スクロール位置は最上行（documentView の上端）に合わせる。
+pub(super) unsafe fn make_scroll_view(document_view: *mut AnyObject) -> *mut AnyObject {
+    let frame = NSRect {
+        origin: NSPoint {
+            x: 0.0,
+            y: SETTINGS_FOOTER_HEIGHT,
+        },
+        size: NSSize {
+            width: SETTINGS_WINDOW_WIDTH,
+            height: SETTINGS_SCROLL_HEIGHT,
+        },
+    };
+    let scroll: *mut AnyObject = msg_send![class!(NSScrollView), alloc];
+    let scroll: *mut AnyObject = msg_send![scroll, initWithFrame: frame];
+    let () = msg_send![scroll, setBorderType: NS_NO_BORDER];
+    let () = msg_send![scroll, setDrawsBackground: false];
+    let () = msg_send![scroll, setHasVerticalScroller: true];
+    let () = msg_send![scroll, setHasHorizontalScroller: false];
+    let () = msg_send![scroll, setAutohidesScrollers: true];
+    let () = msg_send![scroll, setDocumentView: document_view];
+    // document_height() を再計算せず、documentView 自身の実寸から上端を求める
+    // （高さの二重管理を避ける）。非 flipped の documentView では、可視領域の上端に
+    // documentView の上端を合わせる y はこの差分になる。
+    let document_frame: NSRect = msg_send![document_view, frame];
+    let () = msg_send![
+        document_view,
+        scrollPoint: NSPoint {
+            x: 0.0,
+            y: document_frame.size.height - SETTINGS_SCROLL_HEIGHT,
+        }
+    ];
+    scroll
 }
 
 /// ボタンは右寄せで、右端が「保存」になるよう逆順に座標を計算する。
@@ -683,4 +740,50 @@ pub(super) unsafe fn make_button(
         let () = msg_send![button, setKeyEquivalent: &*key_ns];
     }
     button
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        document_height, document_height_for, row_bottom_y, SETTINGS_FOOTER_HEIGHT,
+        SETTINGS_SCROLL_HEIGHT, SETTINGS_TOTAL_ROW_COUNT,
+    };
+
+    // documentView 相対の行座標にフッター高を足すと、スクロール化前のペイン絶対座標に
+    // 戻る。行スタックとフッターの取り違え（80pt ずれ）が起きるとここで落ちる
+    #[test]
+    fn row_bottom_y_plus_footer_matches_pre_scroll_first_row_top() {
+        assert_eq!(row_bottom_y(0) + SETTINGS_FOOTER_HEIGHT, 488.0);
+    }
+
+    #[test]
+    fn row_bottom_y_plus_footer_matches_pre_scroll_last_row_bottom() {
+        assert_eq!(
+            row_bottom_y(SETTINGS_TOTAL_ROW_COUNT - 1) + SETTINGS_FOOTER_HEIGHT,
+            80.0
+        );
+    }
+
+    #[test]
+    fn row_bottom_y_reaches_document_bottom_for_last_row() {
+        assert_eq!(row_bottom_y(SETTINGS_TOTAL_ROW_COUNT - 1), 0.0);
+    }
+
+    // 行を足してこれが落ちたらスクロールが現れる = 設定ペインのベースライン更新と
+    // documentView 撮影モードの追加が必要。あわせて絵文字バリデーションメッセージの
+    // 置き場所（フッター固定のままか、フィールド直下に移すか）も決めること
+    #[test]
+    fn document_height_still_fits_without_scrolling() {
+        assert_eq!(document_height(), SETTINGS_SCROLL_HEIGHT);
+    }
+
+    #[test]
+    fn document_height_for_grows_past_scroll_height_when_rows_overflow() {
+        assert!(document_height_for(SETTINGS_TOTAL_ROW_COUNT + 5) > SETTINGS_SCROLL_HEIGHT);
+    }
+
+    #[test]
+    fn document_height_for_clamps_to_scroll_height_when_rows_are_few() {
+        assert_eq!(document_height_for(1), SETTINGS_SCROLL_HEIGHT);
+    }
 }
