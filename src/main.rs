@@ -3,13 +3,18 @@ fn main() {
         return;
     }
 
-    if let Err(error) = cliip_show::login_item::repair_stale_plist() {
-        eprintln!("warning: {error}");
-    }
-
     unsafe {
         use objc2::runtime::AnyObject;
         use objc2::{class, msg_send};
+
+        // すぐ終える側が LaunchAgent の plist を書き換えないよう、修復より先に見る
+        if cliip_show::single_instance::activate_existing_instance() {
+            return;
+        }
+
+        if let Err(error) = cliip_show::login_item::repair_stale_plist() {
+            eprintln!("warning: {error}");
+        }
 
         let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
         if app.is_null() {
