@@ -9,10 +9,11 @@ use super::types::{
     AppConfigFile, ConfigKey, DisplayConfigFile, DisplaySettings, HudPosition, LanguageSetting,
 };
 use super::{
-    DEFAULT_HUD_FADE_DURATION_SECS, DEFAULT_HUD_IMAGE_MAX_HEIGHT, DEFAULT_HUD_SCALE,
-    DEFAULT_TRUNCATE_MAX_LINES, DEFAULT_TRUNCATE_MAX_WIDTH, HUD_DURATION_SECS,
-    MAX_HUD_DURATION_SECS, MAX_HUD_FADE_DURATION_SECS, MAX_HUD_IMAGE_MAX_HEIGHT, MAX_HUD_SCALE,
-    MAX_POLL_INTERVAL_SECS, MAX_TRUNCATE_MAX_LINES, MAX_TRUNCATE_MAX_WIDTH, MIN_HUD_DURATION_SECS,
+    DEFAULT_HUD_BACKGROUND_OPACITY, DEFAULT_HUD_FADE_DURATION_SECS, DEFAULT_HUD_IMAGE_MAX_HEIGHT,
+    DEFAULT_HUD_SCALE, DEFAULT_TRUNCATE_MAX_LINES, DEFAULT_TRUNCATE_MAX_WIDTH, HUD_DURATION_SECS,
+    MAX_HUD_BACKGROUND_OPACITY, MAX_HUD_DURATION_SECS, MAX_HUD_FADE_DURATION_SECS,
+    MAX_HUD_IMAGE_MAX_HEIGHT, MAX_HUD_SCALE, MAX_POLL_INTERVAL_SECS, MAX_TRUNCATE_MAX_LINES,
+    MAX_TRUNCATE_MAX_WIDTH, MIN_HUD_BACKGROUND_OPACITY, MIN_HUD_DURATION_SECS,
     MIN_HUD_FADE_DURATION_SECS, MIN_HUD_IMAGE_MAX_HEIGHT, MIN_HUD_SCALE, MIN_POLL_INTERVAL_SECS,
     MIN_TRUNCATE_MAX_LINES, MIN_TRUNCATE_MAX_WIDTH, POLL_INTERVAL_SECS,
 };
@@ -27,6 +28,7 @@ pub fn default_display_settings() -> DisplaySettings {
         hud_position: HudPosition::Top,
         hud_scale: DEFAULT_HUD_SCALE,
         hud_background_color: HudBackgroundColor::default(),
+        hud_background_opacity: DEFAULT_HUD_BACKGROUND_OPACITY,
         hud_emoji: "📋".to_string(),
         hud_image_max_height: DEFAULT_HUD_IMAGE_MAX_HEIGHT,
         language: LanguageSetting::default(),
@@ -111,6 +113,15 @@ pub fn apply_config_file(base: DisplaySettings, config: &AppConfigFile) -> Displ
     if let Some(value) = config.display.hud_background_color {
         settings.hud_background_color = value;
     }
+    if let Some(value) = config.display.hud_background_opacity {
+        settings.hud_background_opacity = parse_f64_config_value(
+            value,
+            settings.hud_background_opacity,
+            MIN_HUD_BACKGROUND_OPACITY,
+            MAX_HUD_BACKGROUND_OPACITY,
+            "hud_background_opacity",
+        );
+    }
     if let Some(value) = &config.display.hud_emoji {
         settings.hud_emoji = parse_hud_emoji(value).unwrap_or(settings.hud_emoji);
     }
@@ -192,6 +203,14 @@ fn apply_env_overrides_with(
         settings.hud_background_color =
             parse_hud_background_color_setting(&value, settings.hud_background_color);
     }
+    if let Some(value) = read_env_option("CLIIP_SHOW_HUD_BACKGROUND_OPACITY") {
+        settings.hud_background_opacity = parse_f64_setting(
+            &value,
+            settings.hud_background_opacity,
+            MIN_HUD_BACKGROUND_OPACITY,
+            MAX_HUD_BACKGROUND_OPACITY,
+        );
+    }
     if let Some(value) = read_env_option("CLIIP_SHOW_HUD_EMOJI") {
         settings.hud_emoji = parse_hud_emoji(&value).unwrap_or(settings.hud_emoji);
     }
@@ -232,6 +251,7 @@ fn saved_value(config: &AppConfigFile, key: ConfigKey) -> Option<String> {
         ConfigKey::HudBackgroundColor => {
             display.hud_background_color.map(|v| v.as_str().to_string())
         }
+        ConfigKey::HudBackgroundOpacity => display.hud_background_opacity.map(|v| v.to_string()),
         ConfigKey::HudEmoji => display.hud_emoji.clone(),
         ConfigKey::HudImageMaxHeight => display.hud_image_max_height.map(|v| v.to_string()),
         ConfigKey::Language => display.language.map(|v| v.as_str().to_string()),
@@ -253,6 +273,10 @@ pub fn print_effective_settings(settings: DisplaySettings) {
         "hud_background_color = {}",
         settings.hud_background_color.as_str()
     );
+    println!(
+        "hud_background_opacity = {}",
+        settings.hud_background_opacity
+    );
     println!("hud_emoji = {}", settings.hud_emoji);
     println!("hud_image_max_height = {}", settings.hud_image_max_height);
     println!("language = {}", settings.language.as_str());
@@ -269,6 +293,7 @@ pub fn settings_to_config_file(settings: DisplaySettings) -> AppConfigFile {
             hud_position: Some(settings.hud_position),
             hud_scale: Some(settings.hud_scale),
             hud_background_color: Some(settings.hud_background_color),
+            hud_background_opacity: Some(settings.hud_background_opacity),
             hud_emoji: Some(settings.hud_emoji.clone()),
             hud_image_max_height: Some(settings.hud_image_max_height),
             language: Some(settings.language),
@@ -438,6 +463,7 @@ mod tests {
                 ConfigKey::HudPosition => "bottom",
                 ConfigKey::HudScale => "1.5",
                 ConfigKey::HudBackgroundColor => "blue",
+                ConfigKey::HudBackgroundOpacity => "0.5",
                 ConfigKey::HudEmoji => "🍺",
                 ConfigKey::HudImageMaxHeight => "80",
                 ConfigKey::Language => "ja",

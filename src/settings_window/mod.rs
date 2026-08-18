@@ -66,6 +66,8 @@ pub struct SettingsControls {
     pub hud_image_max_height_stepper: *mut AnyObject,
     pub hud_position_popup: *mut AnyObject,
     pub hud_background_color_popup: *mut AnyObject,
+    pub hud_background_opacity_slider: *mut AnyObject,
+    pub hud_background_opacity_value_label: *mut AnyObject,
     pub hud_emoji_field: *mut AnyObject,
     /// 絵文字欄の右隣のヘルプボタン（`?`）がクリックされたときに出す `NSPopover`。
     /// アプリの生存期間中保持し、`showEmojiHelp:` が使い回す。中身（`hud_emoji_help_label`）は
@@ -131,6 +133,8 @@ impl Default for SettingsControls {
             hud_image_max_height_stepper: ptr::null_mut(),
             hud_position_popup: ptr::null_mut(),
             hud_background_color_popup: ptr::null_mut(),
+            hud_background_opacity_slider: ptr::null_mut(),
+            hud_background_opacity_value_label: ptr::null_mut(),
             hud_emoji_field: ptr::null_mut(),
             hud_emoji_help_popover: ptr::null_mut(),
             hud_emoji_help_label: ptr::null_mut(),
@@ -158,6 +162,7 @@ pub fn config_key_to_tag(key: ConfigKey) -> isize {
         ConfigKey::HudEmoji => 8,
         ConfigKey::HudImageMaxHeight => 9,
         ConfigKey::Language => 10,
+        ConfigKey::HudBackgroundOpacity => 11,
     }
 }
 
@@ -174,6 +179,7 @@ pub fn tag_to_config_key(tag: isize) -> Option<ConfigKey> {
         8 => Some(ConfigKey::HudEmoji),
         9 => Some(ConfigKey::HudImageMaxHeight),
         10 => Some(ConfigKey::Language),
+        11 => Some(ConfigKey::HudBackgroundOpacity),
         _ => None,
     }
 }
@@ -193,7 +199,7 @@ mod tests {
     #[test]
     fn tag_to_config_key_rejects_unknown_tags() {
         assert_eq!(tag_to_config_key(-1), None);
-        assert_eq!(tag_to_config_key(11), None);
+        assert_eq!(tag_to_config_key(12), None);
         assert_eq!(tag_to_config_key(9999), None);
     }
 }

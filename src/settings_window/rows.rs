@@ -17,8 +17,8 @@ pub(super) const SETTINGS_STYLE_MASK: usize = 1 | 2;
 
 pub(super) const SETTINGS_WINDOW_WIDTH: f64 = 520.0;
 const SETTINGS_ROW_HEIGHT: f64 = 34.0;
-const SETTINGS_ROW_COUNT: usize = 10;
-// HUD の見た目を決める上記10行とは別に、区切り行・言語・ログイン項目の 3 行を末尾に置く。
+const SETTINGS_ROW_COUNT: usize = 11;
+// HUD の見た目を決める上記 11 行とは別に、区切り行・言語・ログイン項目の 3 行を末尾に置く。
 // 各行の番号は build_settings_window が出現順に払い出す。
 pub(super) const SETTINGS_TOTAL_ROW_COUNT: usize = SETTINGS_ROW_COUNT + 3;
 const SETTINGS_TOP_MARGIN: f64 = 20.0;
@@ -1079,38 +1079,29 @@ pub(super) unsafe fn make_button(
 #[cfg(test)]
 mod tests {
     use super::{
-        document_height, document_height_for, row_bottom_y, SETTINGS_FOOTER_HEIGHT,
-        SETTINGS_SCROLL_HEIGHT, SETTINGS_TOTAL_ROW_COUNT,
+        document_height, document_height_for, row_bottom_y, SETTINGS_SCROLL_HEIGHT,
+        SETTINGS_TOTAL_ROW_COUNT,
     };
 
-    // documentView 相対の行座標にフッター高を足すと、スクロール化前のペイン絶対座標に
-    // 戻る。行スタックとフッターの取り違え（80pt ずれ）が起きるとここで落ちる
+    // 行スタックの高さが SETTINGS_SCROLL_HEIGHT を超えると、設定タブは縦スクロールして
+    // 下の行を見せる（ウィンドウは伸ばさない）。
     #[test]
-    fn row_bottom_y_plus_footer_matches_pre_scroll_first_row_top() {
-        assert_eq!(row_bottom_y(0) + SETTINGS_FOOTER_HEIGHT, 488.0);
+    fn document_height_exceeds_scroll_height() {
+        assert_eq!(document_height(), 496.0);
+        assert!(document_height() > SETTINGS_SCROLL_HEIGHT);
     }
 
+    // documentView 内の先頭行の座標を固定する。行スタックとフッターの取り違えが
+    // 起きるとここで落ちる
     #[test]
-    fn row_bottom_y_plus_footer_matches_pre_scroll_last_row_bottom() {
-        assert_eq!(
-            row_bottom_y(SETTINGS_TOTAL_ROW_COUNT - 1) + SETTINGS_FOOTER_HEIGHT,
-            80.0
-        );
+    fn row_bottom_y_pins_the_first_row() {
+        assert_eq!(row_bottom_y(0), 442.0);
     }
 
-    // document_height() は SETTINGS_SCROLL_HEIGHT へ .max でクランプされるため、
-    // 行スタック自身の高さ（462pt）より 16pt 大きい。非 flipped の documentView は
-    // 上端を基準に積むため、この差分は最終行の下（documentView 下端）に空きとして残る。
+    // 最終行はちょうど documentView の下端に載る（負なら下へはみ出して見えなくなる）
     #[test]
-    fn row_bottom_y_leaves_clamp_gap_below_last_row() {
-        assert_eq!(row_bottom_y(SETTINGS_TOTAL_ROW_COUNT - 1), 16.0);
-    }
-
-    // 行を足してこれが落ちたらスクロールが現れる = 設定ペインのベースライン更新と
-    // documentView 撮影モードの追加が必要
-    #[test]
-    fn document_height_still_fits_without_scrolling() {
-        assert_eq!(document_height(), SETTINGS_SCROLL_HEIGHT);
+    fn row_bottom_y_puts_the_last_row_on_the_document_bottom() {
+        assert_eq!(row_bottom_y(SETTINGS_TOTAL_ROW_COUNT - 1), 0.0);
     }
 
     #[test]

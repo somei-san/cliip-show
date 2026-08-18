@@ -65,8 +65,11 @@ pub(crate) unsafe fn apply_settings_now(state: &mut AppState, new_settings: Disp
         let () = msg_send![state.icon_label, setStringValue: &*emoji];
     }
 
-    // hud_background_color が変わったら背景レイヤーを即時更新
-    if new_settings.hud_background_color != state.settings.hud_background_color {
+    // hud_background_color・hud_background_opacity が変わったら背景レイヤーを即時更新
+    let background_changed = new_settings.hud_background_color
+        != state.settings.hud_background_color
+        || new_settings.hud_background_opacity != state.settings.hud_background_opacity;
+    if background_changed {
         let content_view: *mut AnyObject = msg_send![state.window, contentView];
         if content_view.is_null() {
             eprintln!("warning: contentView is null; skipping background color update");
@@ -75,13 +78,18 @@ pub(crate) unsafe fn apply_settings_now(state: &mut AppState, new_settings: Disp
             if layer.is_null() {
                 eprintln!("warning: layer is null; skipping background color update");
             } else {
-                let (r, g, b, a) = hud_background_rgba(new_settings.hud_background_color);
+                let (r, g, b, a) = hud_background_rgba(
+                    new_settings.hud_background_color,
+                    new_settings.hud_background_opacity,
+                );
                 let bg: *mut AnyObject =
                     msg_send![class!(NSColor), colorWithCalibratedRed: r green: g blue: b alpha: a];
                 let cg_color: *mut std::ffi::c_void = msg_send![bg, CGColor];
                 let () = msg_send![layer, setBackgroundColor: cg_color];
-                let (border_white, border_alpha) =
-                    hud_border_white_alpha(new_settings.hud_background_color);
+                let (border_white, border_alpha) = hud_border_white_alpha(
+                    new_settings.hud_background_color,
+                    new_settings.hud_background_opacity,
+                );
                 let border_obj: *mut AnyObject = msg_send![class!(NSColor), colorWithCalibratedWhite: border_white alpha: border_alpha];
                 let border_cg: *mut std::ffi::c_void = msg_send![border_obj, CGColor];
                 let () = msg_send![layer, setBorderColor: border_cg];
