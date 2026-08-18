@@ -41,6 +41,8 @@ Cliip Show is not signed with an Apple Developer ID, so the cask clears the quar
 
 On first launch it asks whether to start at login, and you can toggle that any time under "Start at login" in the settings window.
 
+Launching it again while it is running opens the settings window instead of starting a second copy.
+
 ### Coming from the formula
 
 The formula is replaced by the cask, so uninstall it first:

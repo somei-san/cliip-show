@@ -53,6 +53,7 @@ UI 文言を README に書くときは `src/i18n.rs` の文言テーブルと一
 | `src/menu.rs` | メニューバー常駐アイコンとメインメニューの構築 |
 | `src/settings_window/` | 設定ウィンドウのUI（`mod.rs` 型定義・再エクスポート / `rows.rs` コントロール生成・配置 / `build.rs` ウィンドウ組み立て / `sync.rs` AppState との同期・操作 / `input_filter.rs` 数値フィールドの入力文字フィルタ（純関数） / `range_hint.rs` 数値欄の範囲ヒント popover 本文（有効範囲）の組み立て（純関数） / `tooltip.rs` コントロールのツールチップ文言の組み立て（純関数）） |
 | `src/login_item.rs` | LaunchAgent の plist 書き出し・解除（自動起動） |
+| `src/single_instance.rs` | 二重起動の検出と、既存インスタンスへの前面化依頼 |
 | `src/text.rs` | テキスト切り詰め処理 |
 | `src/png.rs` | PNG生成・差分計算（VRT用） |
 | `src/i18n.rs` | UI文言の言語ごとの表記と、表示言語の解決 |
