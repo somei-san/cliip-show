@@ -122,6 +122,11 @@ pub unsafe fn sync_controls_from_settings(
         controls.hud_scale_value_label,
         settings.hud_scale,
     );
+    sync_slider(
+        controls.hud_background_opacity_slider,
+        controls.hud_background_opacity_value_label,
+        settings.hud_background_opacity,
+    );
 
     sync_stepper_field(
         controls.max_chars_per_line_field,
@@ -630,7 +635,7 @@ pub unsafe fn save_settings(state: &mut AppState) -> bool {
 /// デフォルトボタン（保存）に先取りされる。保存・お試し表示の直前にここで読み直すことで、
 /// 未確定の入力の取りこぼしと、拒否された値がフィールドに残ることの両方を防ぐ。
 unsafe fn sync_draft_from_controls(controls: &mut SettingsControls) {
-    const KEYS: [ConfigKey; 10] = [
+    const KEYS: [ConfigKey; 11] = [
         ConfigKey::PollIntervalSecs,
         ConfigKey::HudDurationSecs,
         ConfigKey::HudFadeDurationSecs,
@@ -640,6 +645,7 @@ unsafe fn sync_draft_from_controls(controls: &mut SettingsControls) {
         ConfigKey::HudImageMaxHeight,
         ConfigKey::HudPosition,
         ConfigKey::HudBackgroundColor,
+        ConfigKey::HudBackgroundOpacity,
         ConfigKey::HudEmoji,
     ];
 
@@ -675,6 +681,7 @@ fn control_for_key(controls: &SettingsControls, key: ConfigKey) -> *mut AnyObjec
         ConfigKey::HudImageMaxHeight => controls.hud_image_max_height_field,
         ConfigKey::HudPosition => controls.hud_position_popup,
         ConfigKey::HudBackgroundColor => controls.hud_background_color_popup,
+        ConfigKey::HudBackgroundOpacity => controls.hud_background_opacity_slider,
         ConfigKey::HudEmoji => controls.hud_emoji_field,
         ConfigKey::Language => controls.language_popup,
     }
@@ -685,7 +692,8 @@ unsafe fn raw_value_for_key(key: ConfigKey, control: *mut AnyObject) -> Option<S
         ConfigKey::PollIntervalSecs
         | ConfigKey::HudDurationSecs
         | ConfigKey::HudFadeDurationSecs
-        | ConfigKey::HudScale => {
+        | ConfigKey::HudScale
+        | ConfigKey::HudBackgroundOpacity => {
             let value: f64 = msg_send![control, doubleValue];
             // スライダーは連続値を返すため、そのまま文字列化すると 1.0700000000000001 のような
             // 値が設定ファイルに残る。値ラベルの表示と同じ桁で丸めて揃える。
@@ -737,6 +745,12 @@ unsafe fn resync_controls_after_apply(
             set_string_value(
                 controls.hud_scale_value_label,
                 &format!("{:.2}", settings.hud_scale),
+            );
+        }
+        ConfigKey::HudBackgroundOpacity => {
+            set_string_value(
+                controls.hud_background_opacity_value_label,
+                &format!("{:.2}", settings.hud_background_opacity),
             );
         }
         ConfigKey::MaxCharsPerLine => sync_stepper_field(

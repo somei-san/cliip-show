@@ -73,6 +73,7 @@ pub struct DisplaySettings {
     pub hud_position: HudPosition,
     pub hud_scale: f64,
     pub hud_background_color: HudBackgroundColor,
+    pub hud_background_opacity: f64,
     pub hud_emoji: String,
     pub hud_image_max_height: usize,
     pub language: LanguageSetting,
@@ -94,6 +95,7 @@ pub struct DisplayConfigFile {
     pub hud_position: Option<HudPosition>,
     pub hud_scale: Option<f64>,
     pub hud_background_color: Option<HudBackgroundColor>,
+    pub hud_background_opacity: Option<f64>,
     pub hud_emoji: Option<String>,
     pub hud_image_max_height: Option<usize>,
     pub language: Option<LanguageSetting>,
@@ -109,6 +111,7 @@ pub enum ConfigKey {
     HudPosition,
     HudScale,
     HudBackgroundColor,
+    HudBackgroundOpacity,
     HudEmoji,
     HudImageMaxHeight,
     Language,
@@ -116,7 +119,7 @@ pub enum ConfigKey {
 
 impl ConfigKey {
     /// 設定ファイルに並ぶ順。キーを網羅して回りたい箇所はここを使う。
-    pub const ALL: [ConfigKey; 11] = [
+    pub const ALL: [ConfigKey; 12] = [
         ConfigKey::PollIntervalSecs,
         ConfigKey::HudDurationSecs,
         ConfigKey::HudFadeDurationSecs,
@@ -125,6 +128,7 @@ impl ConfigKey {
         ConfigKey::HudPosition,
         ConfigKey::HudScale,
         ConfigKey::HudBackgroundColor,
+        ConfigKey::HudBackgroundOpacity,
         ConfigKey::HudEmoji,
         ConfigKey::HudImageMaxHeight,
         ConfigKey::Language,
@@ -140,6 +144,7 @@ impl ConfigKey {
             ConfigKey::HudPosition => "hud_position",
             ConfigKey::HudScale => "hud_scale",
             ConfigKey::HudBackgroundColor => "hud_background_color",
+            ConfigKey::HudBackgroundOpacity => "hud_background_opacity",
             ConfigKey::HudEmoji => "hud_emoji",
             ConfigKey::HudImageMaxHeight => "hud_image_max_height",
             ConfigKey::Language => "language",

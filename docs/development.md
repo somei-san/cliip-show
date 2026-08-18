@@ -22,7 +22,7 @@ cargo run
 主なオプション:
 
 ```bash
-./scripts/local_check.sh --position bottom --scale 1.5 --color red
+./scripts/local_check.sh --position bottom --scale 1.5 --color red --opacity 0.5
 ./scripts/local_check.sh --no-stop-installed --no-build
 ```
 
@@ -51,6 +51,7 @@ cliip-show --config-show
 - `hud_position`（既定値: `top`、`top` / `center` / `bottom`）
 - `hud_scale`（既定値: `1.1`、`0.5` - `2.0`）
 - `hud_background_color`（既定値: `default`、`default` / `yellow` / `blue` / `green` / `red` / `purple`）
+- `hud_background_opacity`（既定値: `0.9`、`0.2` - `1.0`）HUD 背景の不透明度。`1.0` で背景が透けなくなります。文字とアイコンは常に不透明です
 - `hud_emoji`（既定値: `📋`、任意の絵文字。空でアイコンなし）
 - `hud_image_max_height`（既定値: `160`、`40` - `240`）画像サムネイルの高さ上限（px）。実際の上限は `hud_scale` 倍され、元画像より大きくは表示しません
 - `language`（既定値: `auto`、`auto` / `ja` / `en`）メニューバーと設定ウィンドウの表示言語。`auto` は macOS の優先言語に従います
@@ -64,6 +65,7 @@ CLIIP_SHOW_MAX_LINES=3 \
 CLIIP_SHOW_HUD_POSITION=top \
 CLIIP_SHOW_HUD_SCALE=1.2 \
 CLIIP_SHOW_HUD_BACKGROUND_COLOR=blue \
+CLIIP_SHOW_HUD_BACKGROUND_OPACITY=0.6 \
 CLIIP_SHOW_HUD_EMOJI=🍣 \
 CLIIP_SHOW_HUD_IMAGE_MAX_HEIGHT=120 \
 CLIIP_SHOW_LANGUAGE=en \

@@ -5,7 +5,8 @@ use objc2::{class, msg_send};
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
 use crate::config::{
-    DisplaySettings, HudBackgroundColor, HudPosition, DEFAULT_HUD_SCALE, MAX_HUD_SCALE,
+    DisplaySettings, HudBackgroundColor, HudPosition, DEFAULT_HUD_BACKGROUND_OPACITY,
+    DEFAULT_HUD_SCALE, MAX_HUD_BACKGROUND_OPACITY, MAX_HUD_SCALE, MIN_HUD_BACKGROUND_OPACITY,
     MIN_HUD_SCALE,
 };
 
@@ -109,8 +110,22 @@ fn horizontal_chrome_width(dims: &HudDimensions, has_icon: bool) -> f64 {
     dims.horizontal_padding * 2.0 + icon_reserve(dims, has_icon)
 }
 
+/// 設定ファイルを手編集した値や NaN が直接届いても壊れないよう、`hud_dimensions` が
+/// `hud_scale` に対して行っているのと同じガードを `hud_background_opacity` にも掛ける。
+fn clamped_background_opacity(opacity: f64) -> f64 {
+    crate::config::parse_f64_value(
+        opacity,
+        DEFAULT_HUD_BACKGROUND_OPACITY,
+        MIN_HUD_BACKGROUND_OPACITY,
+        MAX_HUD_BACKGROUND_OPACITY,
+    )
+}
+
 /// ボーダーカラーの (white, alpha) を返す。
 /// app.rs のホットリロード時にも同じ値を使うため一元管理する。
+///
+/// 枠線は `hud_background_opacity` に追随させない。背景を薄くしたときに輪郭まで消えると、
+/// HUD がどこからどこまでなのか分からなくなるため。
 pub fn hud_border_white_alpha(color: HudBackgroundColor) -> (f64, f64) {
     let alpha = match color {
         HudBackgroundColor::Default => 0.14,
@@ -119,15 +134,18 @@ pub fn hud_border_white_alpha(color: HudBackgroundColor) -> (f64, f64) {
     (1.0, alpha)
 }
 
-pub fn hud_background_rgba(color: HudBackgroundColor) -> (f64, f64, f64, f64) {
-    match color {
-        HudBackgroundColor::Default => (0.0, 0.0, 0.0, 0.78),
-        HudBackgroundColor::Yellow => (0.43, 0.34, 0.04, 0.9),
-        HudBackgroundColor::Blue => (0.08, 0.22, 0.53, 0.9),
-        HudBackgroundColor::Green => (0.08, 0.35, 0.22, 0.9),
-        HudBackgroundColor::Red => (0.47, 0.14, 0.14, 0.9),
-        HudBackgroundColor::Purple => (0.36, 0.16, 0.47, 0.9),
-    }
+/// 背景レイヤーの (r, g, b, a) を返す。`a` は `hud_background_opacity` そのもので、
+/// 色によらず同じ（1.0 で完全不透明）。
+pub fn hud_background_rgba(color: HudBackgroundColor, opacity: f64) -> (f64, f64, f64, f64) {
+    let (r, g, b) = match color {
+        HudBackgroundColor::Default => (0.0, 0.0, 0.0),
+        HudBackgroundColor::Yellow => (0.43, 0.34, 0.04),
+        HudBackgroundColor::Blue => (0.08, 0.22, 0.53),
+        HudBackgroundColor::Green => (0.08, 0.35, 0.22),
+        HudBackgroundColor::Red => (0.47, 0.14, 0.14),
+        HudBackgroundColor::Purple => (0.36, 0.16, 0.47),
+    };
+    (r, g, b, clamped_background_opacity(opacity))
 }
 
 /// クリップボードの画像を HUD に収めるときのサムネイル寸法 (幅, 高さ) を返す。
@@ -234,7 +252,10 @@ pub unsafe fn create_hud_window(
     let () = msg_send![layer, setCornerRadius: corner_radius];
     let () = msg_send![layer, setMasksToBounds: true];
 
-    let (bg_r, bg_g, bg_b, bg_a) = hud_background_rgba(settings.hud_background_color);
+    let (bg_r, bg_g, bg_b, bg_a) = hud_background_rgba(
+        settings.hud_background_color,
+        settings.hud_background_opacity,
+    );
     let bg: *mut AnyObject = msg_send![
         class!(NSColor),
         colorWithCalibratedRed: bg_r
@@ -644,10 +665,48 @@ pub(crate) fn hud_width_for_text_with_scale(text: &str, scale: f64, has_icon: bo
 mod tests {
     use super::{
         compute_hud_frame_metrics, compute_hud_text_metrics_default, fit_thumbnail_size,
-        horizontal_chrome_width, hud_dimensions, hud_origin_for_frame, hud_width_for_text,
+        horizontal_chrome_width, hud_background_rgba, hud_border_white_alpha, hud_dimensions,
+        hud_origin_for_frame, hud_width_for_text,
     };
-    use crate::config::{HudPosition, DEFAULT_HUD_IMAGE_MAX_HEIGHT, DEFAULT_HUD_SCALE};
+    use crate::config::{
+        HudBackgroundColor, HudPosition, DEFAULT_HUD_BACKGROUND_OPACITY,
+        DEFAULT_HUD_IMAGE_MAX_HEIGHT, DEFAULT_HUD_SCALE, MAX_HUD_BACKGROUND_OPACITY,
+        MIN_HUD_BACKGROUND_OPACITY,
+    };
     use objc2_foundation::{NSPoint, NSRect, NSSize};
+
+    /// 背景のアルファは渡した `hud_background_opacity` そのもので、色によって変わらない。
+    /// 1.0 は完全不透明。
+    #[test]
+    fn hud_background_rgba_uses_the_opacity_as_the_alpha() {
+        assert_eq!(
+            hud_background_rgba(HudBackgroundColor::Default, 1.0),
+            (0.0, 0.0, 0.0, 1.0)
+        );
+        assert_eq!(
+            hud_background_rgba(HudBackgroundColor::Blue, 0.5),
+            (0.08, 0.22, 0.53, 0.5)
+        );
+    }
+
+    /// 枠線は背景の不透明度に追随しない（薄い背景でも HUD の輪郭が残る）。
+    #[test]
+    fn hud_border_white_alpha_is_fixed_per_color() {
+        assert_eq!(
+            hud_border_white_alpha(HudBackgroundColor::Default),
+            (1.0, 0.14)
+        );
+        assert_eq!(hud_border_white_alpha(HudBackgroundColor::Blue), (1.0, 0.2));
+    }
+
+    /// 範囲外・NaN は `parse_f64_value` と同じルールでクランプ/既定値化される。
+    #[test]
+    fn hud_background_rgba_clamps_out_of_range_and_non_finite_opacity() {
+        let alpha_of = |opacity| hud_background_rgba(HudBackgroundColor::Default, opacity).3;
+        assert_eq!(alpha_of(0.0), MIN_HUD_BACKGROUND_OPACITY);
+        assert_eq!(alpha_of(5.0), MAX_HUD_BACKGROUND_OPACITY);
+        assert_eq!(alpha_of(f64::NAN), DEFAULT_HUD_BACKGROUND_OPACITY);
+    }
 
     #[test]
     fn fit_thumbnail_size_keeps_aspect_ratio_when_shrinking() {

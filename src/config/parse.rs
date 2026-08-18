@@ -5,8 +5,9 @@ use crate::i18n::{self, Lang, Msg};
 
 use super::types::{AppConfigFile, ConfigKey, HudBackgroundColor, HudPosition, LanguageSetting};
 use super::{
-    MAX_HUD_DURATION_SECS, MAX_HUD_FADE_DURATION_SECS, MAX_HUD_IMAGE_MAX_HEIGHT, MAX_HUD_SCALE,
-    MAX_POLL_INTERVAL_SECS, MAX_TRUNCATE_MAX_LINES, MAX_TRUNCATE_MAX_WIDTH, MIN_HUD_DURATION_SECS,
+    MAX_HUD_BACKGROUND_OPACITY, MAX_HUD_DURATION_SECS, MAX_HUD_FADE_DURATION_SECS,
+    MAX_HUD_IMAGE_MAX_HEIGHT, MAX_HUD_SCALE, MAX_POLL_INTERVAL_SECS, MAX_TRUNCATE_MAX_LINES,
+    MAX_TRUNCATE_MAX_WIDTH, MIN_HUD_BACKGROUND_OPACITY, MIN_HUD_DURATION_SECS,
     MIN_HUD_FADE_DURATION_SECS, MIN_HUD_IMAGE_MAX_HEIGHT, MIN_HUD_SCALE, MIN_POLL_INTERVAL_SECS,
     MIN_TRUNCATE_MAX_LINES, MIN_TRUNCATE_MAX_WIDTH,
 };
@@ -285,6 +286,18 @@ pub fn set_config_value(
                 message: format!("{raw} (allowed: default, yellow, blue, green, red, purple)"),
             })?;
             config.display.hud_background_color = Some(parsed);
+        }
+        ConfigKey::HudBackgroundOpacity => {
+            let (clamped, warn) = parse_and_clamp_f64(
+                value,
+                "hud_background_opacity",
+                MIN_HUD_BACKGROUND_OPACITY,
+                MAX_HUD_BACKGROUND_OPACITY,
+            )?;
+            config.display.hud_background_opacity = Some(clamped);
+            if let Some(msg) = warn {
+                return Ok(Some(msg));
+            }
         }
         ConfigKey::HudEmoji => {
             let Some(emoji) = parse_hud_emoji(value) else {

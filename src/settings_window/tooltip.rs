@@ -20,7 +20,11 @@ mod tests {
     #[test]
     fn tooltip_text_passes_through_the_i18n_text() {
         for lang in [Lang::Ja, Lang::En] {
-            for msg in [Msg::TooltipHudScale, Msg::TooltipHudEmoji] {
+            for msg in [
+                Msg::TooltipHudScale,
+                Msg::TooltipHudBackgroundOpacity,
+                Msg::TooltipHudEmoji,
+            ] {
                 assert_eq!(tooltip_text(lang, msg), i18n::text(lang, msg));
             }
         }

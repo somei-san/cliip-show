@@ -11,6 +11,7 @@ pub const DEFAULT_TRUNCATE_MAX_WIDTH: usize = 100;
 pub const DEFAULT_TRUNCATE_MAX_LINES: usize = 5;
 pub const DEFAULT_HUD_SCALE: f64 = 1.1;
 pub const DEFAULT_HUD_IMAGE_MAX_HEIGHT: usize = 160;
+pub const DEFAULT_HUD_BACKGROUND_OPACITY: f64 = 0.9;
 
 pub const MIN_POLL_INTERVAL_SECS: f64 = 0.05;
 pub const MAX_POLL_INTERVAL_SECS: f64 = 5.0;
@@ -18,6 +19,8 @@ pub const MIN_HUD_DURATION_SECS: f64 = 0.1;
 pub const MAX_HUD_DURATION_SECS: f64 = 10.0;
 pub const MIN_HUD_SCALE: f64 = 0.5;
 pub const MAX_HUD_SCALE: f64 = 2.0;
+pub const MIN_HUD_BACKGROUND_OPACITY: f64 = 0.2;
+pub const MAX_HUD_BACKGROUND_OPACITY: f64 = 1.0;
 pub const DEFAULT_HUD_FADE_DURATION_SECS: f64 = 0.3;
 pub const MIN_HUD_FADE_DURATION_SECS: f64 = 0.0;
 pub const MAX_HUD_FADE_DURATION_SECS: f64 = 2.0;

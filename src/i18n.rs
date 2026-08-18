@@ -58,6 +58,7 @@ pub enum Msg {
     LabelHudImageMaxHeight,
     LabelHudPosition,
     LabelHudBackgroundColor,
+    LabelHudBackgroundOpacity,
     LabelHudEmoji,
     TooltipPollInterval,
     TooltipHudDuration,
@@ -66,6 +67,7 @@ pub enum Msg {
     TooltipMaxCharsPerLine,
     TooltipMaxLines,
     TooltipHudImageMaxHeight,
+    TooltipHudBackgroundOpacity,
     TooltipHudEmoji,
     /// 数値欄の範囲ヒント popover の接頭辞。`range_hint::range_hint_text` が
     /// 半角の範囲表記（例: "1–500"）の先頭に付ける。
@@ -127,6 +129,7 @@ pub fn text(lang: Lang, msg: Msg) -> &'static str {
         }
         Msg::LabelHudPosition => ("表示位置", "Position"),
         Msg::LabelHudBackgroundColor => ("背景色", "Background color"),
+        Msg::LabelHudBackgroundOpacity => ("背景の不透明度", "Background opacity"),
         Msg::LabelHudEmoji => ("アイコン絵文字", "Icon emoji"),
         Msg::TooltipPollInterval => (
             "クリップボードの内容を確認する間隔。",
@@ -152,6 +155,10 @@ pub fn text(lang: Lang, msg: Msg) -> &'static str {
         Msg::TooltipHudImageMaxHeight => (
             "画像プレビューのサムネイル高さの上限（px）。実際の上限はこの値に HUDサイズ倍率を掛けた値になります。",
             "Maximum thumbnail height for image previews (px). The actual limit is this value multiplied by the HUD scale.",
+        ),
+        Msg::TooltipHudBackgroundOpacity => (
+            "HUD の背景の不透明度。1.00 で背景が透けなくなります。文字とアイコンは常に透けません。",
+            "Opacity of the HUD background. At 1.00 the background is fully opaque. Text and icon are always opaque.",
         ),
         Msg::TooltipHudEmoji => (
             "HUD の左端に表示するアイコン絵文字。絵文字1文字だけ入力できます。空にするとアイコンは出ません。",

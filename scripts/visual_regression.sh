@@ -242,6 +242,18 @@ run_case \
   "hello clipboard" \
   "CLIIP_SHOW_HUD_BACKGROUND_COLOR=purple"
 
+# Settings profile: hud_background_opacity (multiplies each color's default alpha; text stays opaque)
+run_case \
+  "setting_hud_background_opacity_03" \
+  "hello clipboard" \
+  "CLIIP_SHOW_HUD_BACKGROUND_OPACITY=0.3"
+
+run_case \
+  "setting_hud_background_opacity_03_blue" \
+  "hello clipboard" \
+  "CLIIP_SHOW_HUD_BACKGROUND_COLOR=blue" \
+  "CLIIP_SHOW_HUD_BACKGROUND_OPACITY=0.3"
+
 # Layout stress: single line exceeding default max_chars_per_line=100 (truncated with ellipsis)
 run_case \
   "over_max_chars" \
