@@ -31,10 +31,9 @@ const SETTINGS_BUTTON_RIGHT_MARGIN: f64 = 20.0;
 /// 設定タブのペインの高さ。固定。行が増えたら documentView がスクロールする（#29）。
 /// ウィンドウ自体の高さは `NSTabViewController` が選択中のペインに合わせて決める。
 pub(super) const SETTINGS_PANE_HEIGHT: f64 = 542.0;
-/// ペイン下部、行スタックとは別に確保された絵文字メッセージ・ボタン領域の高さ。
+/// ペイン下部、行スタックとは別に確保されたボタン領域の高さ。
 /// この帯は documentView に含めず、ペイン直下に固定表示する。
-const SETTINGS_FOOTER_HEIGHT: f64 =
-    SETTINGS_EMOJI_MESSAGE_HEIGHT + SETTINGS_BUTTON_AREA_HEIGHT + SETTINGS_BOTTOM_MARGIN;
+const SETTINGS_FOOTER_HEIGHT: f64 = SETTINGS_BUTTON_AREA_HEIGHT + SETTINGS_BOTTOM_MARGIN;
 /// フッターを除いた、NSScrollView が占める領域の高さ。
 const SETTINGS_SCROLL_HEIGHT: f64 = SETTINGS_PANE_HEIGHT - SETTINGS_FOOTER_HEIGHT;
 
@@ -65,8 +64,6 @@ const SETTINGS_POPUP_WIDTH: f64 = 200.0;
 const SETTINGS_EMOJI_FIELD_WIDTH: f64 = 120.0;
 // コントロール列の右端。幅が固定でないコントロールはここに右端を合わせる
 const SETTINGS_CONTROL_RIGHT_X: f64 = SETTINGS_CONTROL_X + SETTINGS_POPUP_WIDTH;
-// 絵文字フィールドの直下に表示するバリデーションメッセージの高さ。行スタックとボタン領域の間に確保する
-const SETTINGS_EMOJI_MESSAGE_HEIGHT: f64 = 16.0;
 
 /// 背景をクリックしたときに編集中のテキストフィールドを確定させるためのビュー。
 ///
@@ -462,16 +459,11 @@ pub(super) unsafe fn add_language_row(
     popup
 }
 
-/// 絵文字フィールド専用の行。`controlTextDidChange:` は `make_editable_field` が
-/// `setDelegate:` 済みなので受け取れる。メッセージラベルの位置は行の並びではなく
-/// ウィンドウ下端が基準（`SETTINGS_EMOJI_MESSAGE_HEIGHT`）。
-///
-/// 行（label/field）はスクロールする documentView（`document_view`）へ、
-/// メッセージラベルはスクロールしないペイン（`pane_view`）へ addSubview する。
+/// 絵文字フィールド専用の行。他のテキストフィールド行（`add_stepper_row`）と違い
+/// ペア表示のコントロールを持たないため専用の関数にしている。
 #[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn add_field_row(
     document_view: *mut AnyObject,
-    pane_view: *mut AnyObject,
     delegate: &AnyObject,
     index: usize,
     lang: Lang,
@@ -479,7 +471,7 @@ pub(super) unsafe fn add_field_row(
     key: ConfigKey,
     value: &str,
     localized: &mut Vec<LocalizedControl>,
-) -> (*mut AnyObject, *mut AnyObject) {
+) -> *mut AnyObject {
     let row_bottom = row_bottom_y(index);
     let label_rect = centered_rect(
         SETTINGS_LABEL_X,
@@ -493,28 +485,12 @@ pub(super) unsafe fn add_field_row(
         SETTINGS_CONTROL_HEIGHT,
         row_bottom,
     );
-    // 行スタックの下、ボタン領域の上に確保された専用の帯にメッセージを出す
-    let message_rect = NSRect {
-        origin: NSPoint {
-            x: SETTINGS_LABEL_X,
-            y: SETTINGS_BOTTOM_MARGIN + SETTINGS_BUTTON_AREA_HEIGHT,
-        },
-        size: NSSize {
-            width: SETTINGS_WINDOW_WIDTH - SETTINGS_LABEL_X - SETTINGS_BUTTON_RIGHT_MARGIN,
-            height: SETTINGS_EMOJI_MESSAGE_HEIGHT,
-        },
-    };
 
     let label = make_label(i18n::text(lang, label_msg), label_rect);
     let field = make_editable_field(value, config_key_to_tag(key), field_rect, delegate);
 
-    let message_label = make_label("", message_rect);
-    let red: *mut AnyObject = msg_send![class!(NSColor), systemRedColor];
-    let () = msg_send![message_label, setTextColor: red];
-
     let () = msg_send![document_view, addSubview: label];
     let () = msg_send![document_view, addSubview: field];
-    let () = msg_send![pane_view, addSubview: message_label];
 
     localized.push(LocalizedControl {
         control: label,
@@ -522,7 +498,7 @@ pub(super) unsafe fn add_field_row(
         kind: LocalizedKind::StringValue,
     });
 
-    (field, message_label)
+    field
 }
 
 // NSControlStateValue
@@ -766,14 +742,16 @@ mod tests {
         );
     }
 
+    // document_height() は SETTINGS_SCROLL_HEIGHT へ .max でクランプされるため、
+    // 行スタック自身の高さ（462pt）より 16pt 大きい。非 flipped の documentView は
+    // 上端を基準に積むため、この差分は最終行の下（documentView 下端）に空きとして残る。
     #[test]
     fn row_bottom_y_reaches_document_bottom_for_last_row() {
-        assert_eq!(row_bottom_y(SETTINGS_TOTAL_ROW_COUNT - 1), 0.0);
+        assert_eq!(row_bottom_y(SETTINGS_TOTAL_ROW_COUNT - 1), 16.0);
     }
 
     // 行を足してこれが落ちたらスクロールが現れる = 設定ペインのベースライン更新と
-    // documentView 撮影モードの追加が必要。あわせて絵文字バリデーションメッセージの
-    // 置き場所（フッター固定のままか、フィールド直下に移すか）も決めること
+    // documentView 撮影モードの追加が必要
     #[test]
     fn document_height_still_fits_without_scrolling() {
         assert_eq!(document_height(), SETTINGS_SCROLL_HEIGHT);
