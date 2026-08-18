@@ -83,6 +83,8 @@ pub struct DisplaySettings {
 pub struct AppConfigFile {
     #[serde(default)]
     pub display: DisplayConfigFile,
+    #[serde(default)]
+    pub startup: StartupConfigFile,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -101,6 +103,11 @@ pub struct DisplayConfigFile {
     pub language: Option<LanguageSetting>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct StartupConfigFile {
+    pub start_at_login: Option<bool>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigKey {
     PollIntervalSecs,
@@ -115,11 +122,12 @@ pub enum ConfigKey {
     HudEmoji,
     HudImageMaxHeight,
     Language,
+    StartAtLogin,
 }
 
 impl ConfigKey {
     /// 設定ファイルに並ぶ順。キーを網羅して回りたい箇所はここを使う。
-    pub const ALL: [ConfigKey; 12] = [
+    pub const ALL: [ConfigKey; 13] = [
         ConfigKey::PollIntervalSecs,
         ConfigKey::HudDurationSecs,
         ConfigKey::HudFadeDurationSecs,
@@ -132,6 +140,7 @@ impl ConfigKey {
         ConfigKey::HudEmoji,
         ConfigKey::HudImageMaxHeight,
         ConfigKey::Language,
+        ConfigKey::StartAtLogin,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -148,6 +157,7 @@ impl ConfigKey {
             ConfigKey::HudEmoji => "hud_emoji",
             ConfigKey::HudImageMaxHeight => "hud_image_max_height",
             ConfigKey::Language => "language",
+            ConfigKey::StartAtLogin => "start_at_login",
         }
     }
 }

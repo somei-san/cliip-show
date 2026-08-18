@@ -335,6 +335,20 @@ pub fn set_config_value(
                 )));
             }
         }
+        ConfigKey::StartAtLogin => {
+            let raw = value.trim();
+            let parsed = match raw {
+                "true" => true,
+                "false" => false,
+                _ => {
+                    return Err(AppError::InvalidValue {
+                        key: "start_at_login",
+                        message: format!("{raw} (allowed: true, false)"),
+                    })
+                }
+            };
+            config.startup.start_at_login = Some(parsed);
+        }
     }
     Ok(None)
 }
@@ -551,6 +565,22 @@ mod tests {
     }
 
     #[test]
+    fn set_config_value_accepts_start_at_login() {
+        let mut config = AppConfigFile::default();
+        let warning =
+            set_config_value(&mut config, ConfigKey::StartAtLogin, "true").expect("set value");
+        assert_eq!(config.startup.start_at_login, Some(true));
+        assert!(warning.is_none());
+
+        set_config_value(&mut config, ConfigKey::StartAtLogin, "false").expect("set value");
+        assert_eq!(config.startup.start_at_login, Some(false));
+
+        let err = set_config_value(&mut config, ConfigKey::StartAtLogin, "maybe")
+            .expect_err("reject invalid value");
+        assert!(err.to_string().contains("start_at_login"));
+    }
+
+    #[test]
     fn apply_config_file_treats_empty_hud_emoji_as_no_icon() {
         let base = default_display_settings();
         assert_ne!(base.hud_emoji, "");
@@ -559,6 +589,7 @@ mod tests {
                 hud_emoji: Some(String::new()),
                 ..Default::default()
             },
+            ..Default::default()
         };
         let settings = apply_config_file(base, &config);
         assert_eq!(settings.hud_emoji, "");
@@ -575,6 +606,7 @@ mod tests {
                 max_chars_per_line: Some(1000),  // above MAX_TRUNCATE_MAX_WIDTH
                 ..Default::default()
             },
+            ..Default::default()
         };
         let settings = apply_config_file(base, &config);
         assert_eq!(settings.poll_interval_secs, MIN_POLL_INTERVAL_SECS);
@@ -592,6 +624,7 @@ mod tests {
                 hud_duration_secs: Some(f64::INFINITY),
                 ..Default::default()
             },
+            ..Default::default()
         };
         let settings = apply_config_file(base, &config);
         assert_eq!(settings.poll_interval_secs, POLL_INTERVAL_SECS);

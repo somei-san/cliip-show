@@ -227,7 +227,11 @@ unsafe fn add_pane_tab(
 ///
 /// # Safety
 /// AppKit のメインスレッドから呼ぶこと。
-pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> SettingsControls {
+pub unsafe fn build_settings_window(
+    delegate: &AnyObject,
+    lang: Lang,
+    start_at_login: bool,
+) -> SettingsControls {
     let placeholder = default_display_settings();
     let mut localized: Vec<LocalizedControl> = Vec::new();
 
@@ -415,7 +419,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         delegate,
         row.next(),
         lang,
-        crate::login_item::is_enabled(),
+        start_at_login,
         &mut localized,
     );
     // 行数が定数からずれると document_height と row_bottom_y の前提が崩れ、行がはみ出す

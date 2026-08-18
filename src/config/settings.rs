@@ -7,6 +7,7 @@ use super::parse::{
 use super::types::HudBackgroundColor;
 use super::types::{
     AppConfigFile, ConfigKey, DisplayConfigFile, DisplaySettings, HudPosition, LanguageSetting,
+    StartupConfigFile,
 };
 use super::{
     DEFAULT_HUD_BACKGROUND_OPACITY, DEFAULT_HUD_FADE_DURATION_SECS, DEFAULT_HUD_IMAGE_MAX_HEIGHT,
@@ -255,10 +256,11 @@ fn saved_value(config: &AppConfigFile, key: ConfigKey) -> Option<String> {
         ConfigKey::HudEmoji => display.hud_emoji.clone(),
         ConfigKey::HudImageMaxHeight => display.hud_image_max_height.map(|v| v.to_string()),
         ConfigKey::Language => display.language.map(|v| v.as_str().to_string()),
+        ConfigKey::StartAtLogin => config.startup.start_at_login.map(|v| v.to_string()),
     }
 }
 
-pub fn print_effective_settings(settings: DisplaySettings) {
+pub fn print_effective_settings(settings: DisplaySettings, start_at_login: bool) {
     println!("poll_interval_secs = {}", settings.poll_interval_secs);
     println!("hud_duration_secs = {}", settings.hud_duration_secs);
     println!(
@@ -280,6 +282,14 @@ pub fn print_effective_settings(settings: DisplaySettings) {
     println!("hud_emoji = {}", settings.hud_emoji);
     println!("hud_image_max_height = {}", settings.hud_image_max_height);
     println!("language = {}", settings.language.as_str());
+    println!("start_at_login = {start_at_login}");
+}
+
+/// 設定ファイルに保存済みの自動起動の値。未設定（`[startup]` 節が無い、または
+/// `start_at_login` キーが無い）と、明示的に `false` が保存されている状態を
+/// 呼び出し側が区別できるよう `Option` のまま返す。
+pub fn start_at_login_from_config(config: &AppConfigFile) -> Option<bool> {
+    config.startup.start_at_login
 }
 
 pub fn settings_to_config_file(settings: DisplaySettings) -> AppConfigFile {
@@ -298,7 +308,24 @@ pub fn settings_to_config_file(settings: DisplaySettings) -> AppConfigFile {
             hud_image_max_height: Some(settings.hud_image_max_height),
             language: Some(settings.language),
         },
+        // `DisplaySettings` は自動起動の値を持たないため、ここは常に未設定
+        // （`StartupConfigFile::default()`）。`Some(false)` を返すと、この関数の
+        // 戻り値がそのまま保存された場合に自動起動が黙って無効化されてしまう。
+        // 未設定なら plist の有無から復元できるため被害が出ない。
+        startup: StartupConfigFile::default(),
     }
+}
+
+/// 読み込み済みの設定ファイルへ `settings` の `display` セクションだけを差し替える
+/// （load-merge-save の merge 部分）。`display` 以外のセクション（`startup` 等、下書きの
+/// 対象外のキー）は `config` の値をそのまま残す。設定ウィンドウの「保存」ボタン
+/// （`save_settings`）から使う。
+pub fn merge_display_settings(
+    mut config: AppConfigFile,
+    settings: DisplaySettings,
+) -> AppConfigFile {
+    config.display = settings_to_config_file(settings).display;
+    config
 }
 
 #[cfg(test)]
@@ -323,10 +350,13 @@ mod tests {
         }
     }
 
-    /// キーを足したときに `[saved]` の出力から漏れないことを守る。
+    /// キーを足したときに `[saved]` の出力から漏れないことを守る。`settings_to_config_file`
+    /// は `start_at_login` を常に未設定で返すため、`ConfigKey::StartAtLogin` 分だけ
+    /// 値を持たせて確認する。
     #[test]
     fn saved_value_covers_every_config_key() {
-        let config = settings_to_config_file(default_display_settings());
+        let mut config = settings_to_config_file(default_display_settings());
+        config.startup.start_at_login = Some(true);
         for key in ConfigKey::ALL {
             assert!(
                 saved_value(&config, key).is_some(),
@@ -447,9 +477,11 @@ mod tests {
         assert_eq!(settings.hud_position, HudPosition::Bottom);
     }
 
-    /// 全キーが `CLIIP_SHOW_<キー名大文字>` の環境変数で上書きできること。
-    /// production 側の変数名リテラルの書き換え・追随漏れをここで落とす
+    /// `DisplaySettings` に属する全キーが `CLIIP_SHOW_<キー名大文字>` の環境変数で
+    /// 上書きできること。production 側の変数名リテラルの書き換え・追随漏れをここで落とす
     /// （命名規約は docs/development.md の環境変数の節）。
+    /// `start_at_login` は `DisplaySettings` を持たず環境変数の上書き対象外のため、
+    /// このテストでは飛ばす。
     #[test]
     fn every_config_key_is_reachable_via_env() {
         for key in ConfigKey::ALL {
@@ -467,6 +499,7 @@ mod tests {
                 ConfigKey::HudEmoji => "🍺",
                 ConfigKey::HudImageMaxHeight => "80",
                 ConfigKey::Language => "ja",
+                ConfigKey::StartAtLogin => continue,
             };
             let env_name = format!("CLIIP_SHOW_{}", key.as_str().to_uppercase());
             let settings = apply_env_overrides_with(default_display_settings(), |name| {
@@ -492,9 +525,11 @@ mod tests {
     }
 
     /// `as_str` が設定ファイルのキー名からずれると、`[saved]` が設定ファイルに無い名前を出す。
+    /// `start_at_login` は未設定だと TOML に出力されないため、`Some(true)` を持たせて確認する。
     #[test]
     fn config_key_names_match_the_config_file() {
-        let config = settings_to_config_file(default_display_settings());
+        let mut config = settings_to_config_file(default_display_settings());
+        config.startup.start_at_login = Some(true);
         let serialized = toml::to_string_pretty(&config).expect("serialize config");
         for key in ConfigKey::ALL {
             assert!(
