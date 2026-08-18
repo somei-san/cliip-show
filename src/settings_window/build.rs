@@ -381,7 +381,6 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         row.next(),
         lang,
         Msg::LabelHudEmoji,
-        Msg::TooltipHudEmoji,
         ConfigKey::HudEmoji,
         &placeholder.hud_emoji,
         &mut localized,

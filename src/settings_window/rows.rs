@@ -586,8 +586,12 @@ unsafe fn make_help_popover(text: &str) -> (*mut AnyObject, *mut AnyObject) {
 }
 
 /// 絵文字フィールド専用の行。他のテキストフィールド行（`add_stepper_row`）と違い
-/// ペア表示のコントロールを持たないため専用の関数にしている。フィールドの右隣には、
-/// ツールチップと同じ文言を常時参照できるヘルプボタン（`?`）を置く。
+/// ペア表示のコントロールを持たないため専用の関数にしている。
+///
+/// ツールチップ・ヘルプボタン popover の文言はどちらも `Msg::TooltipHudEmoji` 固定で、
+/// 引数化していない。この関数自体が絵文字欄専用（呼び出しは build.rs に1箇所のみ）なので、
+/// 引数にすると `sync.rs` の popover 直書き（`apply_language`）と二重管理になり、
+/// 呼び出し側だけ別の Msg に差し替えても popover 側が追随しないバグを作れてしまう。
 #[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn add_field_row(
     document_view: *mut AnyObject,
@@ -595,7 +599,6 @@ pub(super) unsafe fn add_field_row(
     index: usize,
     lang: Lang,
     label_msg: Msg,
-    tooltip_msg: Msg,
     key: ConfigKey,
     value: &str,
     localized: &mut Vec<LocalizedControl>,
@@ -616,7 +619,7 @@ pub(super) unsafe fn add_field_row(
 
     let label = make_label(&label_text(lang, label_msg), label_rect);
     let field = make_editable_field(value, config_key_to_tag(key), field_rect, delegate);
-    let tooltip = tooltip_text(lang, tooltip_msg);
+    let tooltip = tooltip_text(lang, Msg::TooltipHudEmoji);
     set_tool_tip(label, &tooltip);
     set_tool_tip(field, &tooltip);
 
@@ -634,12 +637,12 @@ pub(super) unsafe fn add_field_row(
     });
     localized.push(LocalizedControl {
         control: label,
-        msg: tooltip_msg,
+        msg: Msg::TooltipHudEmoji,
         kind: LocalizedKind::ToolTip,
     });
     localized.push(LocalizedControl {
         control: field,
-        msg: tooltip_msg,
+        msg: Msg::TooltipHudEmoji,
         kind: LocalizedKind::ToolTip,
     });
 
@@ -924,5 +927,43 @@ mod tests {
         assert!(class!(NSPopover).responds_to(sel!(setContentViewController:)));
         assert!(class!(NSPopover).responds_to(sel!(setBehavior:)));
         assert!(class!(NSPopover).responds_to(sel!(showRelativeToRect:ofView:preferredEdge:)));
+    }
+
+    /// popover 本文（`Msg::TooltipHudEmoji` の文言）が、実際に表示に使う枠
+    /// （`EMOJI_HELP_POPOVER_WIDTH`/`HEIGHT` からインセットを引いた領域）に収まるかを
+    /// 近似で確認する。AppKit を起動せず折返しを計算する手段が無いため、13pt システム
+    /// フォントのおおよその字幅（全角 ja ≈ 13pt/字、半角 en ≈ 7pt/字）と行高（16pt）で
+    /// 見積もる。実測とは誤差がありうるが、文言が伸びて明らかに入り切らなくなる変更を
+    /// 検出する保険としては十分な精度とする。
+    #[test]
+    fn emoji_help_popover_text_fits_within_its_frame() {
+        use super::super::tooltip::tooltip_text;
+        use super::{
+            EMOJI_HELP_POPOVER_HEIGHT, EMOJI_HELP_POPOVER_INSET, EMOJI_HELP_POPOVER_WIDTH,
+        };
+        use crate::i18n::{Lang, Msg};
+
+        const CHAR_WIDTH_JA: f64 = 13.0;
+        const CHAR_WIDTH_EN: f64 = 7.0;
+        const LINE_HEIGHT: f64 = 16.0;
+
+        let available_width = EMOJI_HELP_POPOVER_WIDTH - EMOJI_HELP_POPOVER_INSET * 2.0;
+        let available_height = EMOJI_HELP_POPOVER_HEIGHT - EMOJI_HELP_POPOVER_INSET * 2.0;
+
+        for (lang, char_width) in [(Lang::Ja, CHAR_WIDTH_JA), (Lang::En, CHAR_WIDTH_EN)] {
+            let text = tooltip_text(lang, Msg::TooltipHudEmoji);
+            let chars_per_line = (available_width / char_width).floor().max(1.0) as usize;
+            // 明示的な改行（\n）は別パラグラフとして扱い、折返しを跨いで詰めない
+            let estimated_lines: usize = text
+                .split('\n')
+                .map(|paragraph| paragraph.chars().count().div_ceil(chars_per_line).max(1))
+                .sum();
+            let estimated_height = estimated_lines as f64 * LINE_HEIGHT;
+            assert!(
+                estimated_height <= available_height,
+                "{lang:?}: 見積もり高さ {estimated_height} が枠 {available_height} を超える\
+                 （{estimated_lines} 行、本文: {text}）"
+            );
+        }
     }
 }

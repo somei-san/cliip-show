@@ -309,18 +309,24 @@ extern "C" fn toggle_login_item(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
 
 /// 絵文字欄のヘルプボタン（`?`）の `showEmojiHelp:`。ボタンの右側に popover を出す。
 /// `SettingsControls::hud_emoji_help_popover` のドキュメント参照。
+///
+/// `showRelativeToRect:` は `APP_STATE` のロックを手放してから呼ぶこと。popover の表示は
+/// 同期的に別のイベント（`settingChanged:` 等）を誘発することがあり、それらは `lock()` する
+/// ため、ロック保持中に呼ぶとデッドロックする（`open_settings`/`save_settings` と同じ理由）。
 extern "C" fn show_emoji_help(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
     unsafe {
         if sender.is_null() {
             return;
         }
 
-        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
-        let guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
-        let Some(state) = guard.as_ref() else {
-            return;
+        let popover = {
+            // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+            let guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+            let Some(state) = guard.as_ref() else {
+                return;
+            };
+            state.settings_controls.hud_emoji_help_popover
         };
-        let popover = state.settings_controls.hud_emoji_help_popover;
         if popover.is_null() {
             return;
         }
