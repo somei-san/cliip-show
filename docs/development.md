@@ -22,7 +22,7 @@ cargo run
 主なオプション:
 
 ```bash
-./scripts/local_check.sh --position bottom --scale 1.5 --color red
+./scripts/local_check.sh --position bottom --scale 1.5 --color red --opacity 0.5
 ./scripts/local_check.sh --no-stop-installed --no-build
 ```
 

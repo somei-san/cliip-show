@@ -12,6 +12,7 @@ Options:
   --position <top|center|bottom>                      HUD position (optional; default uses app config default)
   --scale <0.5-2.0>                                   HUD scale (optional; default uses app config default)
   --color <default|yellow|blue|green|red|purple>      HUD background color (optional; default uses app config default)
+  --opacity <0.2-1.0>                                 HUD background opacity multiplier (optional; default uses app config default)
   --text <TEXT>                                        Clipboard text to copy after startup
   --config-path <PATH>                                 Temp config path (default: /tmp/cliip-show-local-check.toml)
   --no-stop-installed                                  Leave the installed cliip-show running (HUD may appear twice)
@@ -23,6 +24,7 @@ Environment overrides:
   LOCAL_CHECK_POSITION
   LOCAL_CHECK_SCALE
   LOCAL_CHECK_COLOR
+  LOCAL_CHECK_OPACITY
   LOCAL_CHECK_TEXT
   LOCAL_CHECK_CONFIG_PATH
 EOF
@@ -43,9 +45,11 @@ done
 POSITION=""
 SCALE=""
 COLOR=""
+OPACITY=""
 POSITION_EXPLICIT=false
 SCALE_EXPLICIT=false
 COLOR_EXPLICIT=false
+OPACITY_EXPLICIT=false
 TEXT="${LOCAL_CHECK_TEXT:-}"
 TEXT_EXPLICIT=false
 CONFIG_PATH="${LOCAL_CHECK_CONFIG_PATH:-/tmp/cliip-show-local-check.toml}"
@@ -64,6 +68,10 @@ fi
 if [[ -n "${LOCAL_CHECK_COLOR:-}" ]]; then
   COLOR="${LOCAL_CHECK_COLOR}"
   COLOR_EXPLICIT=true
+fi
+if [[ -n "${LOCAL_CHECK_OPACITY:-}" ]]; then
+  OPACITY="${LOCAL_CHECK_OPACITY}"
+  OPACITY_EXPLICIT=true
 fi
 
 while [[ $# -gt 0 ]]; do
@@ -84,6 +92,12 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "missing value for --color" >&2; exit 2; }
       COLOR="$2"
       COLOR_EXPLICIT=true
+      shift 2
+      ;;
+    --opacity)
+      [[ $# -ge 2 ]] || { echo "missing value for --opacity" >&2; exit 2; }
+      OPACITY="$2"
+      OPACITY_EXPLICIT=true
       shift 2
       ;;
     --text)
@@ -148,12 +162,20 @@ if $SCALE_EXPLICIT; then
   fi
 fi
 
+if $OPACITY_EXPLICIT; then
+  if [[ ! "$OPACITY" =~ ^[0-9]+([.][0-9]+)?$ ]] || ! awk -v s="$OPACITY" 'BEGIN { exit !(s >= 0.2 && s <= 1.0) }'; then
+    echo "invalid --opacity: $OPACITY (allowed range: 0.2 - 1.0)" >&2
+    exit 2
+  fi
+fi
+
 if ! $TEXT_EXPLICIT; then
-  if $POSITION_EXPLICIT || $SCALE_EXPLICIT || $COLOR_EXPLICIT; then
+  if $POSITION_EXPLICIT || $SCALE_EXPLICIT || $COLOR_EXPLICIT || $OPACITY_EXPLICIT; then
     local_position="${POSITION:-app-default}"
     local_scale="${SCALE:-app-default}"
     local_color="${COLOR:-app-default}"
-    TEXT="local check: ${local_position}/${local_scale}/${local_color}"
+    local_opacity="${OPACITY:-app-default}"
+    TEXT="local check: ${local_position}/${local_scale}/${local_color}/${local_opacity}"
   else
     TEXT="local check: default settings"
   fi
@@ -215,7 +237,10 @@ fi
 if $COLOR_EXPLICIT; then
   printf 'hud_background_color = "%s"\n' "$COLOR" >> "$CONFIG_PATH"
 fi
-if ! $POSITION_EXPLICIT && ! $SCALE_EXPLICIT && ! $COLOR_EXPLICIT; then
+if $OPACITY_EXPLICIT; then
+  printf 'hud_background_opacity = %s\n' "$OPACITY" >> "$CONFIG_PATH"
+fi
+if ! $POSITION_EXPLICIT && ! $SCALE_EXPLICIT && ! $COLOR_EXPLICIT && ! $OPACITY_EXPLICIT; then
   echo "[local_check] using app default display settings (no overrides)"
 fi
 CLIIP_SHOW_CONFIG_PATH="$CONFIG_PATH" "$BIN" --config-show
