@@ -157,8 +157,8 @@ pub fn text(lang: Lang, msg: Msg) -> &'static str {
             "Maximum thumbnail height for image previews (px). The actual limit is this value multiplied by the HUD scale.",
         ),
         Msg::TooltipHudBackgroundOpacity => (
-            "背景色ごとの濃さに対する倍率。1.00 が既定で、小さくするほど背景が透けます。文字とアイコンは透けません。",
-            "Multiplier applied to the background color's default alpha. 1.00 is the default; lower values make the background more transparent. Text and icon stay opaque.",
+            "HUD の背景の不透明度。1.00 で背景が透けなくなります。文字とアイコンは常に透けません。",
+            "Opacity of the HUD background. At 1.00 the background is fully opaque. Text and icon are always opaque.",
         ),
         Msg::TooltipHudEmoji => (
             "HUD の左端に表示するアイコン絵文字。絵文字1文字だけ入力できます。空にするとアイコンは出ません。",

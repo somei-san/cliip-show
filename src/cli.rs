@@ -287,7 +287,7 @@ pub fn handle_cli_flags() -> bool {
             );
             let _ = writeln!(
                 help,
-                "  CLIIP_SHOW_HUD_BACKGROUND_OPACITY  HUD background opacity multiplier (0.2 - 1.0)"
+                "  CLIIP_SHOW_HUD_BACKGROUND_OPACITY  HUD background opacity (0.2 - 1.0)"
             );
             let _ = writeln!(
                 help,

@@ -86,10 +86,8 @@ pub(crate) unsafe fn apply_settings_now(state: &mut AppState, new_settings: Disp
                     msg_send![class!(NSColor), colorWithCalibratedRed: r green: g blue: b alpha: a];
                 let cg_color: *mut std::ffi::c_void = msg_send![bg, CGColor];
                 let () = msg_send![layer, setBackgroundColor: cg_color];
-                let (border_white, border_alpha) = hud_border_white_alpha(
-                    new_settings.hud_background_color,
-                    new_settings.hud_background_opacity,
-                );
+                let (border_white, border_alpha) =
+                    hud_border_white_alpha(new_settings.hud_background_color);
                 let border_obj: *mut AnyObject = msg_send![class!(NSColor), colorWithCalibratedWhite: border_white alpha: border_alpha];
                 let border_cg: *mut std::ffi::c_void = msg_send![border_obj, CGColor];
                 let () = msg_send![layer, setBorderColor: border_cg];
