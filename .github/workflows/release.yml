@@ -47,12 +47,18 @@ jobs:
           echo "path=$ASSET" >> "$GITHUB_OUTPUT"
           echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
 
+      # tap 更新が落ちたときにジョブごと再実行できるよう、作成済みなら添付し直すだけにする
       - name: Create GitHub Release
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes \
-            "${{ steps.asset.outputs.path }}"
+          ASSET="${{ steps.asset.outputs.path }}"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$ASSET" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              "$ASSET"
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -79,5 +85,10 @@ jobs:
           # formula と cask が同名で並ぶと brew install がどちらを選ぶか分からなくなる
           git rm --ignore-unmatch -f Formula/cliip-show.rb
           git add Casks/cliip-show.rb
-          git commit -m "Update cliip-show to ${VERSION}"
-          git push
+          # 再実行で内容が同じだと commit が失敗するので、差分があるときだけ進める
+          if git diff --quiet --cached; then
+            echo "tap is already up to date"
+          else
+            git commit -m "Update cliip-show to ${VERSION}"
+            git push
+          fi
