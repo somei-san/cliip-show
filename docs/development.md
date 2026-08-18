@@ -72,16 +72,30 @@ CLIIP_SHOW_LANGUAGE=en \
 cargo run
 ```
 
-## `.app` 化して動作確認
+## `.app` を組み立てる
 
-ローカルで `.app` として起動確認したい場合のみ実行してください。  
-通常は Homebrew 経由での利用を想定しています。
+cask で配る `Cliip Show.app` を作ります。ローカルで `.app` として起動確認したいときも同じスクリプトを使います。
 
 ```bash
-cargo install cargo-bundle
-cargo bundle --release
-open target/release/bundle/osx/cliip-show.app
+./scripts/build_app_bundle.sh
+open "target/bundle/Cliip Show.app"
 ```
+
+既定では Intel と Apple Silicon の両方を含む universal binary を作ります。`--host-only` を付けると実行中のマシンの CPU 向けだけをビルドするので、手元での動作確認はこちらが速く済みます。
+
+バージョンは `Cargo.toml` から採って `Info.plist` に入ります。アイコンは `assets/AppIcon.icns` が要ります。
+
+`Info.plist` の `LSUIElement` が Dock 非表示を担うため、`.app` から起動したときは `main.rs` の `setActivationPolicy` は結果を変えません。`cargo run` での起動には引き続き必要です。
+
+## アプリアイコンを更新する
+
+`assets/AppIcon.icns` は `assets/peanut-template.png` から作ります。素材の PNG 自体は次節の `build_menu_icon.sh` が SVG から生成します。
+
+```bash
+./scripts/build_app_icon.sh
+```
+
+角丸矩形の暗色の板に、白く塗り直したピーナッツを載せた 1024px の画像を作り、`iconutil` で `.icns` にまとめます。
 
 ## アイコンの素材を更新する
 
@@ -166,9 +180,10 @@ MAX_DIFF_PERMILLE=80 ./scripts/visual_regression.sh
 
 GitHub Actions（`.github/workflows/release.yml`）が以下を自動実行します。
 
-1. tarball の SHA256 を算出
-2. GitHub Release を作成（リリースノート自動生成）
-3. [Homebrew Tap リポジトリ](https://github.com/somei-san/homebrew-tap)の Formula を更新
+1. タグと `Cargo.toml` のバージョンが一致することを確認
+2. `.app` を組み立てて `Cliip-Show-<version>-universal.zip` に固め、SHA256 を算出
+3. GitHub Release を作成（リリースノート自動生成）し、zip を添付
+4. [Homebrew Tap リポジトリ](https://github.com/somei-san/homebrew-tap)に `Casks/cliip-show.rb` を書き、同名の formula を削除
 
 進捗は [Actions](https://github.com/somei-san/cliip-show/actions) で確認できます。
 
@@ -184,10 +199,10 @@ GitHub Actions（`.github/workflows/release.yml`）が以下を自動実行し�
 
 [TapリポジトリのREADME参照](https://github.com/somei-san/homebrew-tap/blob/main/README.md)
 
-### 手動での Formula 生成（参考）
+### 手動での cask 生成（参考）
 
-CD パイプラインを使わずに手動で Formula を生成する場合は以下を実行します。
+CD パイプラインを使わずに手動で cask を生成する場合は以下を実行します。Release に zip が添付済みであることが前提です。
 
 ```bash
-./scripts/homebrew/generate_formula.sh somei-san 0.2.0 ./Formula/cliip-show.rb
+./scripts/homebrew/generate_cask.sh somei-san 0.5.0 ./Casks/cliip-show.rb
 ```

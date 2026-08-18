@@ -32,11 +32,25 @@
 ## インストール手順 （Homebrew経由）
 
 ```bash
-brew install somei-san/tap/cliip-show
-cliip-show
+brew install --cask somei-san/tap/cliip-show
+open -a "Cliip Show"
 ```
 
-`cliip-show` はターミナルを占有したまま起動します。これは初回だけの一時的な起動で、ターミナルを閉じるとアプリも終了します。起動すると自動起動の確認ダイアログが出て、あとから設定ウィンドウの「ログイン時に自動起動」でも切り替えられます。
+tap から初めてインストールするときは、Homebrew が tap を信頼してよいか尋ねます。Apple の Developer ID で署名していないため、cask のインストール時に quarantine 属性を外します。
+
+起動すると自動起動の確認ダイアログが出て、あとから設定ウィンドウの「ログイン時に自動起動」でも切り替えられます。
+
+### formula から乗り換える
+
+formula は cask に置き換わったので、先にアンインストールします。
+
+```bash
+brew uninstall cliip-show
+brew install --cask somei-san/tap/cliip-show
+open -a "Cliip Show"
+```
+
+自動起動を有効にしていた場合、アプリを一度起動すると新しい場所を指すようになります。
 
 ## リンク
 
