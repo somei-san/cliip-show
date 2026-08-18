@@ -197,7 +197,27 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
         // runModal は実行ループを止めるため、他の経路がロック待ちで固まらないよう
         // APP_STATE のロックを手放した後（上の代入文で既に解放済み）に呼ぶ。
         panels::prompt_login_item_if_needed(lang);
+
+        // 常駐アプリはウィンドウを持たないので、自分で起動したときは立ち上がった
+        // ことが分からない。ログイン時の起動は本人が起動を待っていないため出さない。
+        if !crate::login_item::started_at_login() {
+            announce_launch(this, lang);
+        }
     }
+}
+
+/// 起動したことを HUD で知らせる。
+///
+/// # Safety
+/// AppKit のメインスレッドから、`APP_STATE` のロックを持たずに呼ぶこと。
+unsafe fn announce_launch(this: &AnyObject, lang: i18n::Lang) {
+    // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+    let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+    let Some(state) = guard.as_mut() else {
+        return;
+    };
+    hud_show::show_text_content(state, i18n::text(lang, i18n::Msg::LaunchNotice));
+    hud_show::present_hud(this, state);
 }
 
 /// ペーストボード監視のタイマーを張る。
