@@ -113,15 +113,15 @@ pub fn text(lang: Lang, msg: Msg) -> &'static str {
         Msg::TabSettings => ("設定", "Settings"),
         Msg::TabSupport => ("寄付", "Support"),
         Msg::SettingsStartAtLogin => ("ログイン時に自動起動", "Start at login"),
-        // 単位・有効範囲は行ラベル自体には持たせず、`label::label_text` が
-        // MIN_/MAX_ 定数から括弧書きで付け足す（例:「ポーリング間隔（0.05–5 秒）」）。
-        Msg::LabelPollInterval => ("ポーリング間隔", "Polling interval"),
-        Msg::LabelHudDuration => ("表示時間", "Display duration"),
-        Msg::LabelHudFadeDuration => ("フェード時間", "Fade duration"),
+        Msg::LabelPollInterval => ("ポーリング間隔（秒）", "Polling interval (sec)"),
+        Msg::LabelHudDuration => ("表示時間（秒）", "Display duration (sec)"),
+        Msg::LabelHudFadeDuration => ("フェード時間（秒）", "Fade duration (sec)"),
         Msg::LabelHudScale => ("HUDサイズ倍率", "HUD scale"),
         Msg::LabelMaxCharsPerLine => ("1行の最大文字数", "Max characters per line"),
         Msg::LabelMaxLines => ("最大行数", "Max lines"),
-        Msg::LabelHudImageMaxHeight => ("画像サムネイル高さ上限", "Max thumbnail height"),
+        Msg::LabelHudImageMaxHeight => {
+            ("画像サムネイル高さ上限（px）", "Max thumbnail height (px)")
+        }
         Msg::LabelHudPosition => ("表示位置", "Position"),
         Msg::LabelHudBackgroundColor => ("背景色", "Background color"),
         Msg::LabelHudEmoji => ("アイコン絵文字", "Icon emoji"),

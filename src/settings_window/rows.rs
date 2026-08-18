@@ -9,7 +9,7 @@ use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use crate::config::{ConfigKey, LanguageSetting};
 use crate::i18n::{self, Lang, Msg};
 
-use super::label::label_text;
+use super::range_hint::range_hint_text;
 use super::tooltip::tooltip_text;
 use super::{config_key_to_tag, LocalizedControl, LocalizedKind};
 
@@ -66,8 +66,18 @@ const SETTINGS_POPUP_WIDTH: f64 = 200.0;
 const SETTINGS_EMOJI_FIELD_WIDTH: f64 = 120.0;
 // コントロール列の右端。幅が固定でないコントロールはここに右端を合わせる
 const SETTINGS_CONTROL_RIGHT_X: f64 = SETTINGS_CONTROL_X + SETTINGS_POPUP_WIDTH;
+// 数値欄（ステッパー行）の右に添える有効範囲の補助テキスト。右端はコントロール列の右端に揃える
+const SETTINGS_NUMERIC_HINT_X: f64 = SETTINGS_STEPPER_X + SETTINGS_STEPPER_WIDTH + 8.0;
+const SETTINGS_NUMERIC_HINT_WIDTH: f64 = SETTINGS_CONTROL_RIGHT_X - SETTINGS_NUMERIC_HINT_X;
+const SETTINGS_NUMERIC_HINT_HEIGHT: f64 = 14.0;
+// NSFont の smallSystemFontSize 相当
+const SETTINGS_NUMERIC_HINT_FONT_SIZE: f64 = 11.0;
 // 絵文字欄の右隣に置くヘルプボタンの x 座標
 const SETTINGS_EMOJI_HELP_BUTTON_X: f64 = SETTINGS_CONTROL_X + SETTINGS_EMOJI_FIELD_WIDTH + 6.0;
+const SETTINGS_EMOJI_HELP_BUTTON_SIZE: f64 = 16.0;
+// SF Symbols のシンボル名。ロード不可（macOS 11 未満）のときは NS_BEZEL_STYLE_HELP_BUTTON の
+// 従来ボタンにフォールバックする（make_help_button 参照）。
+const EMOJI_HELP_SYMBOL_NAME: &str = "questionmark.circle";
 // ヘルプボタンの popover 本文（NSViewController の view）の大きさ。ja/en とも複数文にわたる
 // ため、行の幅（270pt）より広めに取り、内側にラベル用の余白を残す。
 const EMOJI_HELP_POPOVER_WIDTH: f64 = 340.0;
@@ -77,6 +87,9 @@ const EMOJI_HELP_POPOVER_INSET: f64 = 12.0;
 const NS_LINE_BREAK_BY_WORD_WRAPPING: isize = 0;
 // NSBezelStyleHelpButton
 const NS_BEZEL_STYLE_HELP_BUTTON: usize = 9;
+// NSButton.ImagePosition: imageOnly（画像のみ表示。タイトルは空文字のため実質無関係だが、
+// レイアウト計算を素直にするため明示する）
+const NS_IMAGE_ONLY: isize = 1;
 // NSPopoverBehavior: transient（popover の外をクリックすると自動で閉じる）
 const NS_POPOVER_BEHAVIOR_TRANSIENT: isize = 1;
 
@@ -136,6 +149,21 @@ pub(super) unsafe fn make_label(text: &str, frame: NSRect) -> *mut AnyObject {
     let () = msg_send![label, setSelectable: false];
     let () = msg_send![label, setDrawsBackground: false];
     set_string_value(label, text);
+    label
+}
+
+/// `make_label` の亜種。数値欄の有効範囲のような、本文ラベルより控えめに見せたい
+/// 補助テキスト用に、小さいシステムフォント（`smallSystemFontSize` 相当）と
+/// セカンダリカラーを当てる。
+unsafe fn make_hint_label(text: &str, frame: NSRect) -> *mut AnyObject {
+    let label = make_label(text, frame);
+    let font: *mut AnyObject =
+        msg_send![class!(NSFont), systemFontOfSize: SETTINGS_NUMERIC_HINT_FONT_SIZE];
+    if !font.is_null() {
+        let () = msg_send![label, setFont: font];
+    }
+    let color: *mut AnyObject = msg_send![class!(NSColor), secondaryLabelColor];
+    let () = msg_send![label, setTextColor: color];
     label
 }
 
@@ -306,7 +334,7 @@ pub(super) unsafe fn add_slider_row(
         row_bottom,
     );
 
-    let label = make_label(&label_text(lang, label_msg), label_rect);
+    let label = make_label(i18n::text(lang, label_msg), label_rect);
     let slider = make_slider(
         min,
         max,
@@ -376,9 +404,15 @@ pub(super) unsafe fn add_stepper_row(
         SETTINGS_CONTROL_HEIGHT,
         row_bottom,
     );
+    let hint_rect = centered_rect(
+        SETTINGS_NUMERIC_HINT_X,
+        SETTINGS_NUMERIC_HINT_WIDTH,
+        SETTINGS_NUMERIC_HINT_HEIGHT,
+        row_bottom,
+    );
 
     let tag = config_key_to_tag(key);
-    let label = make_label(&label_text(lang, label_msg), label_rect);
+    let label = make_label(i18n::text(lang, label_msg), label_rect);
     let field = make_editable_field(&value.to_string(), tag, field_rect, delegate);
     let stepper = make_stepper(
         min as f64,
@@ -392,10 +426,13 @@ pub(super) unsafe fn add_stepper_row(
     set_tool_tip(label, &tooltip);
     set_tool_tip(field, &tooltip);
     set_tool_tip(stepper, &tooltip);
+    // 有効範囲は言語に依存しない半角表記のため、言語切替の対象（localized）には乗せない
+    let hint = make_hint_label(&range_hint_text(label_msg), hint_rect);
 
     let () = msg_send![document_view, addSubview: label];
     let () = msg_send![document_view, addSubview: field];
     let () = msg_send![document_view, addSubview: stepper];
+    let () = msg_send![document_view, addSubview: hint];
 
     localized.push(LocalizedControl {
         control: label,
@@ -447,7 +484,7 @@ pub(super) unsafe fn add_popup_row(
         row_bottom,
     );
 
-    let label = make_label(&label_text(lang, label_msg), label_rect);
+    let label = make_label(i18n::text(lang, label_msg), label_rect);
     let popup = make_popup(
         items,
         selected,
@@ -492,7 +529,7 @@ pub(super) unsafe fn add_language_row(
         row_bottom,
     );
 
-    let label = make_label(&label_text(lang, Msg::LabelLanguage), label_rect);
+    let label = make_label(i18n::text(lang, Msg::LabelLanguage), label_rect);
     let popup = make_language_popup(
         lang,
         selected,
@@ -513,25 +550,51 @@ pub(super) unsafe fn add_language_row(
     popup
 }
 
-/// 絵文字欄の右隣に置く、macOS 標準の丸いヘルプボタン（`?`）を作る。タイトルは空で、
-/// ベゼルスタイルだけで「?」の見た目になる。`intrinsicContentSize` はボタンの実寸を
-/// 尋ねるためのもので、`NSSwitch`（ログイン項目トグル）と同じ理由で使う。
+/// 絵文字欄の右隣に置く、控えめなヘルプボタン（`?`）を作る。SF Symbols の
+/// `questionmark.circle` をボーダレスボタンの画像として使い、macOS 標準の丸いベゼル付き
+/// ヘルプボタンより小さく目立たない見た目にする。SF Symbols がロードできない環境
+/// （macOS 11 未満）では、従来のベゼル付きヘルプボタンにフォールバックする。
 unsafe fn make_help_button(delegate: &AnyObject, row_bottom: f64) -> *mut AnyObject {
     let button: *mut AnyObject = msg_send![class!(NSButton), alloc];
     let button: *mut AnyObject = msg_send![button, init];
-    let () = msg_send![button, setBezelStyle: NS_BEZEL_STYLE_HELP_BUTTON];
     let title = NSString::from_str("");
     let () = msg_send![button, setTitle: &*title];
-    let size: NSSize = msg_send![button, intrinsicContentSize];
-    let rect = centered_rect(
-        SETTINGS_EMOJI_HELP_BUTTON_X,
-        size.width,
-        size.height,
-        row_bottom,
-    );
-    let () = msg_send![button, setFrame: rect];
     let () = msg_send![button, setTarget: delegate];
     let () = msg_send![button, setAction: sel!(showEmojiHelp:)];
+
+    let symbol_name = NSString::from_str(EMOJI_HELP_SYMBOL_NAME);
+    let image: *mut AnyObject = msg_send![
+        class!(NSImage),
+        imageWithSystemSymbolName: &*symbol_name
+        accessibilityDescription: ptr::null_mut::<AnyObject>()
+    ];
+    let rect = if image.is_null() {
+        eprintln!(
+            "warning: SF Symbol \"{EMOJI_HELP_SYMBOL_NAME}\" is unavailable; \
+             falling back to the default help button"
+        );
+        let () = msg_send![button, setBezelStyle: NS_BEZEL_STYLE_HELP_BUTTON];
+        let size: NSSize = msg_send![button, intrinsicContentSize];
+        centered_rect(
+            SETTINGS_EMOJI_HELP_BUTTON_X,
+            size.width,
+            size.height,
+            row_bottom,
+        )
+    } else {
+        let () = msg_send![button, setImage: image];
+        let () = msg_send![button, setBordered: false];
+        let () = msg_send![button, setImagePosition: NS_IMAGE_ONLY];
+        let tint: *mut AnyObject = msg_send![class!(NSColor), secondaryLabelColor];
+        let () = msg_send![button, setContentTintColor: tint];
+        centered_rect(
+            SETTINGS_EMOJI_HELP_BUTTON_X,
+            SETTINGS_EMOJI_HELP_BUTTON_SIZE,
+            SETTINGS_EMOJI_HELP_BUTTON_SIZE,
+            row_bottom,
+        )
+    };
+    let () = msg_send![button, setFrame: rect];
     button
 }
 
@@ -617,7 +680,7 @@ pub(super) unsafe fn add_field_row(
         row_bottom,
     );
 
-    let label = make_label(&label_text(lang, label_msg), label_rect);
+    let label = make_label(i18n::text(lang, label_msg), label_rect);
     let field = make_editable_field(value, config_key_to_tag(key), field_rect, delegate);
     let tooltip = tooltip_text(lang, Msg::TooltipHudEmoji);
     set_tool_tip(label, &tooltip);
@@ -688,7 +751,7 @@ pub(super) unsafe fn add_login_item_row(
         SETTINGS_LABEL_HEIGHT,
         row_bottom,
     );
-    let label = make_label(&label_text(lang, Msg::SettingsStartAtLogin), label_rect);
+    let label = make_label(i18n::text(lang, Msg::SettingsStartAtLogin), label_rect);
     let toggle: *mut AnyObject = msg_send![class!(NSSwitch), alloc];
     let toggle: *mut AnyObject = msg_send![toggle, init];
     let () = msg_send![toggle, setControlSize: NS_CONTROL_SIZE_SMALL];
@@ -924,6 +987,14 @@ mod tests {
 
         assert!(class!(NSButton).responds_to(sel!(setBezelStyle:)));
         assert!(class!(NSButton).responds_to(sel!(intrinsicContentSize)));
+        assert!(class!(NSButton).responds_to(sel!(setImagePosition:)));
+        assert!(class!(NSButton).responds_to(sel!(setContentTintColor:)));
+        assert!(class!(NSImage)
+            .metaclass()
+            .responds_to(sel!(imageWithSystemSymbolName:accessibilityDescription:)));
+        assert!(class!(NSColor)
+            .metaclass()
+            .responds_to(sel!(secondaryLabelColor)));
         assert!(class!(NSPopover).responds_to(sel!(setContentViewController:)));
         assert!(class!(NSPopover).responds_to(sel!(setBehavior:)));
         assert!(class!(NSPopover).responds_to(sel!(showRelativeToRect:ofView:preferredEdge:)));

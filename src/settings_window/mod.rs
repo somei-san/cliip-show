@@ -1,6 +1,6 @@
 mod build;
 mod input_filter;
-mod label;
+mod range_hint;
 mod rows;
 mod sync;
 mod tooltip;

@@ -15,7 +15,6 @@ use crate::objc_helpers::nsstring_to_string;
 use crate::png::create_preview_sample_image;
 
 use super::input_filter::filter_digits;
-use super::label::label_text;
 use super::rows::{
     login_item_control_state, select_language_item, select_popup_item, set_string_value,
 };
@@ -473,7 +472,7 @@ pub unsafe fn apply_language(controls: &SettingsControls, lang: Lang) {
     for entry in &controls.localized {
         match entry.kind {
             LocalizedKind::StringValue => {
-                set_string_value(entry.control, &label_text(lang, entry.msg))
+                set_string_value(entry.control, i18n::text(lang, entry.msg))
             }
             LocalizedKind::Title => {
                 let ns = NSString::from_str(i18n::text(lang, entry.msg));
@@ -492,9 +491,9 @@ pub unsafe fn apply_language(controls: &SettingsControls, lang: Lang) {
     // 「システムに合わせる」は表示言語で書き分けるため、選択肢のラベルも差し替える。
     retitle_language_popup(controls.language_popup, lang);
 
-    // 絵文字ヘルプの popover 本文はツールチップと同じ文言（label_text ではなく
-    // tooltip_text）を使うため、汎用ループ（StringValue は label_text 経由）には乗せず
-    // ここで直接差し替える。ウィンドウ未生成（ポインタが null）のときは何もしない。
+    // 絵文字ヘルプの popover 本文はツールチップと同じ文言（tooltip_text）を使うため、
+    // 汎用ループ（StringValue は i18n::text 経由）には乗せずここで直接差し替える。
+    // ウィンドウ未生成（ポインタが null）のときは何もしない。
     if !controls.hud_emoji_help_label.is_null() {
         set_string_value(
             controls.hud_emoji_help_label,
