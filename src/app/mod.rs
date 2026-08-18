@@ -6,6 +6,7 @@ use std::time::SystemTime;
 use objc2::declare::ClassBuilder;
 use objc2::runtime::{AnyClass, AnyObject, Sel};
 use objc2::{class, msg_send, sel};
+use objc2_foundation::{NSPoint, NSRect, NSSize};
 
 use crate::config::{display_settings, DisplaySettings};
 use crate::hud::create_hud_window;
@@ -99,6 +100,10 @@ pub fn get_delegate_class() -> &'static AnyClass {
         builder.add_method(
             sel!(toggleLoginItem:),
             toggle_login_item as extern "C" fn(_, _, _),
+        );
+        builder.add_method(
+            sel!(showEmojiHelp:),
+            show_emoji_help as extern "C" fn(_, _, _),
         );
         builder.add_method(
             sel!(windowWillClose:),
@@ -299,6 +304,42 @@ extern "C" fn toggle_login_item(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
             // 失敗したのにチェックだけ付いた状態を避け、実際の状態に表示を戻す。
             crate::settings_window::sync_login_item_toggle(&state.settings_controls);
         }
+    }
+}
+
+/// 絵文字欄のヘルプボタン（`?`）の `showEmojiHelp:`。ボタンの右側に popover を出す。
+/// `SettingsControls::hud_emoji_help_popover` のドキュメント参照。
+extern "C" fn show_emoji_help(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
+    unsafe {
+        if sender.is_null() {
+            return;
+        }
+
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+        let guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+        let Some(state) = guard.as_ref() else {
+            return;
+        };
+        let popover = state.settings_controls.hud_emoji_help_popover;
+        if popover.is_null() {
+            return;
+        }
+
+        // 空の矩形を渡すとボタンの bounds が使われる（NSPopover のドキュメント参照）
+        const NS_RECT_EDGE_MAX_X: usize = 2;
+        let zero_rect = NSRect {
+            origin: NSPoint { x: 0.0, y: 0.0 },
+            size: NSSize {
+                width: 0.0,
+                height: 0.0,
+            },
+        };
+        let () = msg_send![
+            popover,
+            showRelativeToRect: zero_rect
+            ofView: sender
+            preferredEdge: NS_RECT_EDGE_MAX_X
+        ];
     }
 }
 
@@ -503,6 +544,7 @@ mod tests {
             sel!(previewSettings:),
             sel!(saveSettings:),
             sel!(toggleLoginItem:),
+            sel!(showEmojiHelp:),
             sel!(windowWillClose:),
             sel!(controlTextDidChange:),
         ] {

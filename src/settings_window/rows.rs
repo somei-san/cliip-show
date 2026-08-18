@@ -9,6 +9,7 @@ use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use crate::config::{ConfigKey, LanguageSetting};
 use crate::i18n::{self, Lang, Msg};
 
+use super::label::label_text;
 use super::tooltip::tooltip_text;
 use super::{config_key_to_tag, LocalizedControl, LocalizedKind};
 
@@ -65,6 +66,19 @@ const SETTINGS_POPUP_WIDTH: f64 = 200.0;
 const SETTINGS_EMOJI_FIELD_WIDTH: f64 = 120.0;
 // コントロール列の右端。幅が固定でないコントロールはここに右端を合わせる
 const SETTINGS_CONTROL_RIGHT_X: f64 = SETTINGS_CONTROL_X + SETTINGS_POPUP_WIDTH;
+// 絵文字欄の右隣に置くヘルプボタンの x 座標
+const SETTINGS_EMOJI_HELP_BUTTON_X: f64 = SETTINGS_CONTROL_X + SETTINGS_EMOJI_FIELD_WIDTH + 6.0;
+// ヘルプボタンの popover 本文（NSViewController の view）の大きさ。ja/en とも複数文にわたる
+// ため、行の幅（270pt）より広めに取り、内側にラベル用の余白を残す。
+const EMOJI_HELP_POPOVER_WIDTH: f64 = 340.0;
+const EMOJI_HELP_POPOVER_HEIGHT: f64 = 120.0;
+const EMOJI_HELP_POPOVER_INSET: f64 = 12.0;
+// NSLineBreakMode: ByWordWrapping
+const NS_LINE_BREAK_BY_WORD_WRAPPING: isize = 0;
+// NSBezelStyleHelpButton
+const NS_BEZEL_STYLE_HELP_BUTTON: usize = 9;
+// NSPopoverBehavior: transient（popover の外をクリックすると自動で閉じる）
+const NS_POPOVER_BEHAVIOR_TRANSIENT: isize = 1;
 
 /// 背景をクリックしたときに編集中のテキストフィールドを確定させるためのビュー。
 ///
@@ -292,7 +306,7 @@ pub(super) unsafe fn add_slider_row(
         row_bottom,
     );
 
-    let label = make_label(i18n::text(lang, label_msg), label_rect);
+    let label = make_label(&label_text(lang, label_msg), label_rect);
     let slider = make_slider(
         min,
         max,
@@ -364,7 +378,7 @@ pub(super) unsafe fn add_stepper_row(
     );
 
     let tag = config_key_to_tag(key);
-    let label = make_label(i18n::text(lang, label_msg), label_rect);
+    let label = make_label(&label_text(lang, label_msg), label_rect);
     let field = make_editable_field(&value.to_string(), tag, field_rect, delegate);
     let stepper = make_stepper(
         min as f64,
@@ -433,7 +447,7 @@ pub(super) unsafe fn add_popup_row(
         row_bottom,
     );
 
-    let label = make_label(i18n::text(lang, label_msg), label_rect);
+    let label = make_label(&label_text(lang, label_msg), label_rect);
     let popup = make_popup(
         items,
         selected,
@@ -478,7 +492,7 @@ pub(super) unsafe fn add_language_row(
         row_bottom,
     );
 
-    let label = make_label(i18n::text(lang, Msg::LabelLanguage), label_rect);
+    let label = make_label(&label_text(lang, Msg::LabelLanguage), label_rect);
     let popup = make_language_popup(
         lang,
         selected,
@@ -499,8 +513,81 @@ pub(super) unsafe fn add_language_row(
     popup
 }
 
+/// 絵文字欄の右隣に置く、macOS 標準の丸いヘルプボタン（`?`）を作る。タイトルは空で、
+/// ベゼルスタイルだけで「?」の見た目になる。`intrinsicContentSize` はボタンの実寸を
+/// 尋ねるためのもので、`NSSwitch`（ログイン項目トグル）と同じ理由で使う。
+unsafe fn make_help_button(delegate: &AnyObject, row_bottom: f64) -> *mut AnyObject {
+    let button: *mut AnyObject = msg_send![class!(NSButton), alloc];
+    let button: *mut AnyObject = msg_send![button, init];
+    let () = msg_send![button, setBezelStyle: NS_BEZEL_STYLE_HELP_BUTTON];
+    let title = NSString::from_str("");
+    let () = msg_send![button, setTitle: &*title];
+    let size: NSSize = msg_send![button, intrinsicContentSize];
+    let rect = centered_rect(
+        SETTINGS_EMOJI_HELP_BUTTON_X,
+        size.width,
+        size.height,
+        row_bottom,
+    );
+    let () = msg_send![button, setFrame: rect];
+    let () = msg_send![button, setTarget: delegate];
+    let () = msg_send![button, setAction: sel!(showEmojiHelp:)];
+    button
+}
+
+/// ヘルプボタンの `NSPopover` と、その本文ラベルを作る。返り値の `label` は
+/// `contentViewController.view` の子として popover が所有するため、popover 自身を
+/// 手放さない限り生存する（`SettingsControls::hud_emoji_help_popover` のドキュメント参照）。
+unsafe fn make_help_popover(text: &str) -> (*mut AnyObject, *mut AnyObject) {
+    let label_rect = NSRect {
+        origin: NSPoint {
+            x: EMOJI_HELP_POPOVER_INSET,
+            y: EMOJI_HELP_POPOVER_INSET,
+        },
+        size: NSSize {
+            width: EMOJI_HELP_POPOVER_WIDTH - EMOJI_HELP_POPOVER_INSET * 2.0,
+            height: EMOJI_HELP_POPOVER_HEIGHT - EMOJI_HELP_POPOVER_INSET * 2.0,
+        },
+    };
+    let label = make_label(text, label_rect);
+    // 支援ページのメッセージ欄と同じ理由（改行を反映させ、折り返させる）
+    let () = msg_send![label, setUsesSingleLineMode: false];
+    let label_cell: *mut AnyObject = msg_send![label, cell];
+    let () = msg_send![label_cell, setWraps: true];
+    let () = msg_send![label_cell, setLineBreakMode: NS_LINE_BREAK_BY_WORD_WRAPPING];
+
+    let content_view: *mut AnyObject = msg_send![class!(NSView), alloc];
+    let content_view: *mut AnyObject = msg_send![
+        content_view,
+        initWithFrame: NSRect {
+            origin: NSPoint { x: 0.0, y: 0.0 },
+            size: NSSize {
+                width: EMOJI_HELP_POPOVER_WIDTH,
+                height: EMOJI_HELP_POPOVER_HEIGHT,
+            },
+        }
+    ];
+    let () = msg_send![content_view, addSubview: label];
+
+    let controller: *mut AnyObject = msg_send![class!(NSViewController), alloc];
+    let controller: *mut AnyObject = msg_send![controller, init];
+    let () = msg_send![controller, setView: content_view];
+    // content_view の所有は controller に移った（addSubview 前に持っていた自前の参照を手放す）
+    let () = msg_send![content_view, release];
+
+    let popover: *mut AnyObject = msg_send![class!(NSPopover), alloc];
+    let popover: *mut AnyObject = msg_send![popover, init];
+    let () = msg_send![popover, setContentViewController: controller];
+    // controller の所有は popover に移った
+    let () = msg_send![controller, release];
+    let () = msg_send![popover, setBehavior: NS_POPOVER_BEHAVIOR_TRANSIENT];
+
+    (popover, label)
+}
+
 /// 絵文字フィールド専用の行。他のテキストフィールド行（`add_stepper_row`）と違い
-/// ペア表示のコントロールを持たないため専用の関数にしている。
+/// ペア表示のコントロールを持たないため専用の関数にしている。フィールドの右隣には、
+/// ツールチップと同じ文言を常時参照できるヘルプボタン（`?`）を置く。
 #[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn add_field_row(
     document_view: *mut AnyObject,
@@ -512,7 +599,7 @@ pub(super) unsafe fn add_field_row(
     key: ConfigKey,
     value: &str,
     localized: &mut Vec<LocalizedControl>,
-) -> *mut AnyObject {
+) -> (*mut AnyObject, *mut AnyObject, *mut AnyObject) {
     let row_bottom = row_bottom_y(index);
     let label_rect = centered_rect(
         SETTINGS_LABEL_X,
@@ -527,14 +614,18 @@ pub(super) unsafe fn add_field_row(
         row_bottom,
     );
 
-    let label = make_label(i18n::text(lang, label_msg), label_rect);
+    let label = make_label(&label_text(lang, label_msg), label_rect);
     let field = make_editable_field(value, config_key_to_tag(key), field_rect, delegate);
     let tooltip = tooltip_text(lang, tooltip_msg);
     set_tool_tip(label, &tooltip);
     set_tool_tip(field, &tooltip);
 
+    let help_button = make_help_button(delegate, row_bottom);
+    let (help_popover, help_label) = make_help_popover(&tooltip);
+
     let () = msg_send![document_view, addSubview: label];
     let () = msg_send![document_view, addSubview: field];
+    let () = msg_send![document_view, addSubview: help_button];
 
     localized.push(LocalizedControl {
         control: label,
@@ -552,7 +643,7 @@ pub(super) unsafe fn add_field_row(
         kind: LocalizedKind::ToolTip,
     });
 
-    field
+    (field, help_popover, help_label)
 }
 
 // NSControlStateValue
@@ -594,7 +685,7 @@ pub(super) unsafe fn add_login_item_row(
         SETTINGS_LABEL_HEIGHT,
         row_bottom,
     );
-    let label = make_label(i18n::text(lang, Msg::SettingsStartAtLogin), label_rect);
+    let label = make_label(&label_text(lang, Msg::SettingsStartAtLogin), label_rect);
     let toggle: *mut AnyObject = msg_send![class!(NSSwitch), alloc];
     let toggle: *mut AnyObject = msg_send![toggle, init];
     let () = msg_send![toggle, setControlSize: NS_CONTROL_SIZE_SMALL];
@@ -819,5 +910,19 @@ mod tests {
     #[test]
     fn document_height_for_clamps_to_scroll_height_when_rows_are_few() {
         assert_eq!(document_height_for(1), SETTINGS_SCROLL_HEIGHT);
+    }
+
+    /// 絵文字ヘルプボタン・popover が使う ObjC API のセレクタを突き合わせる。セレクタ名は
+    /// 文字列なのでコンパイルでは食い違いを検出できず、綴りを間違えると呼び出し時に
+    /// unrecognized selector で落ちる。
+    #[test]
+    fn appkit_responds_to_emoji_help_selectors() {
+        use objc2::{class, sel};
+
+        assert!(class!(NSButton).responds_to(sel!(setBezelStyle:)));
+        assert!(class!(NSButton).responds_to(sel!(intrinsicContentSize)));
+        assert!(class!(NSPopover).responds_to(sel!(setContentViewController:)));
+        assert!(class!(NSPopover).responds_to(sel!(setBehavior:)));
+        assert!(class!(NSPopover).responds_to(sel!(showRelativeToRect:ofView:preferredEdge:)));
     }
 }

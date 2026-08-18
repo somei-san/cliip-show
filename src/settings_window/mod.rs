@@ -1,5 +1,6 @@
 mod build;
 mod input_filter;
+mod label;
 mod rows;
 mod sync;
 mod tooltip;
@@ -57,6 +58,13 @@ pub struct SettingsControls {
     pub hud_position_popup: *mut AnyObject,
     pub hud_background_color_popup: *mut AnyObject,
     pub hud_emoji_field: *mut AnyObject,
+    /// 絵文字欄の右隣のヘルプボタン（`?`）がクリックされたときに出す `NSPopover`。
+    /// アプリの生存期間中保持し、`showEmojiHelp:` が使い回す。中身（`hud_emoji_help_label`）は
+    /// popover の contentViewController.view が所有しており、popover 自体を手放さない限り
+    /// 生存するため、ここでは追加の retain も release も行わない。
+    pub hud_emoji_help_popover: *mut AnyObject,
+    /// popover 本文のラベル。`apply_language` が言語切替のたびに文言を差し替える。
+    pub hud_emoji_help_label: *mut AnyObject,
     /// 絵文字フィールドに最後に書き込んだ妥当な内容。`hud_emoji_field` への書き込みは
     /// `sync.rs` の `set_emoji_field` に一本化されており、これを通せば食い違いは起きない
     /// （直書きしないこと）。不正な入力を検出したときフィールドを丸ごと戻す先として使う
@@ -105,6 +113,8 @@ impl Default for SettingsControls {
             hud_position_popup: ptr::null_mut(),
             hud_background_color_popup: ptr::null_mut(),
             hud_emoji_field: ptr::null_mut(),
+            hud_emoji_help_popover: ptr::null_mut(),
+            hud_emoji_help_label: ptr::null_mut(),
             language_popup: ptr::null_mut(),
             login_item_toggle: ptr::null_mut(),
             preview_sample_index: 0,
