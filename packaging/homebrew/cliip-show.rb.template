@@ -16,8 +16,10 @@ cask "cliip-show" do
     system_command "/usr/bin/xattr", args: ["-cr", "#{appdir}/Cliip Show.app"]
   end
 
-  uninstall quit:      "io.github.somei-san.cliip-show",
-            launchctl: "io.github.somei-san.cliip-show"
+  # launchctl: は指定しない。読み込みの有無に関わらず LaunchAgent の plist を消すうえ、
+  # uninstall は upgrade でも走るため、更新のたびに自動起動が無効になる。
+  # plist の後始末は zap に任せる。
+  uninstall quit: "io.github.somei-san.cliip-show"
 
   caveats <<~EOS
     Launch it once from Spotlight, or:
