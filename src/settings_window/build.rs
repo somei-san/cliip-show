@@ -18,8 +18,8 @@ use crate::objc_helpers::template_image_from_png;
 use super::rows::{
     add_button_row, add_divider_row, add_field_row, add_language_row, add_login_item_row,
     add_popup_row, add_slider_row, add_stepper_row, document_height, make_button, make_label,
-    make_pane_view, make_scroll_view, SETTINGS_PANE_HEIGHT, SETTINGS_STYLE_MASK,
-    SETTINGS_TOTAL_ROW_COUNT, SETTINGS_WINDOW_WIDTH,
+    make_pane_view, make_range_hint_popover, make_scroll_view, SETTINGS_PANE_HEIGHT,
+    SETTINGS_STYLE_MASK, SETTINGS_TOTAL_ROW_COUNT, SETTINGS_WINDOW_WIDTH,
 };
 use super::{LocalizedControl, LocalizedKind, SettingsControls};
 
@@ -406,6 +406,9 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
     // 行数が定数からずれると document_height と row_bottom_y の前提が崩れ、行がはみ出す
     debug_assert_eq!(row.0, SETTINGS_TOTAL_ROW_COUNT);
 
+    // 数値欄3つが共用する範囲ヒント popover。特定の行に属さないため、行ループの外で1つだけ作る
+    let (range_hint_popover, range_hint_label) = make_range_hint_popover();
+
     let scroll_view = make_scroll_view(document_view);
     let () = msg_send![document_view, release];
     let () = msg_send![content_view, addSubview: scroll_view];
@@ -470,6 +473,9 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         hud_emoji_field,
         hud_emoji_help_popover,
         hud_emoji_help_label,
+        range_hint_popover,
+        range_hint_label,
+        range_hint_close_timer: ptr::null_mut(),
         hud_emoji_shadow: placeholder.hud_emoji.clone(),
         language_popup,
         login_item_toggle,

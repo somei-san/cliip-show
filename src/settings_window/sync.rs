@@ -15,11 +15,13 @@ use crate::objc_helpers::nsstring_to_string;
 use crate::png::create_preview_sample_image;
 
 use super::input_filter::filter_digits;
+use super::range_hint::range_hint_text;
 use super::rows::{
-    login_item_control_state, select_language_item, select_popup_item, set_string_value,
+    login_item_control_state, resize_help_popover_to_fit_label, select_language_item,
+    select_popup_item, set_string_value,
 };
 use super::tooltip::tooltip_text;
-use super::{tag_to_config_key, LocalizedKind, SettingsControls};
+use super::{tag_to_config_key, LocalizedKind, RangeHint, SettingsControls};
 
 enum PreviewSample {
     ShortText,
@@ -232,24 +234,31 @@ unsafe fn raw_value_for_control(
 ///
 /// クランプ・バリデーションは `set_config_value` に委ねる。
 ///
+/// 戻り値が `Some` のときは、数値欄の入力が revert・クランプされたことを示す。呼び出し側
+/// （`setting_changed`）はロックを手放してから範囲ヒント popover を表示すること
+/// （`RangeHint` のドキュメント参照）。
+///
 /// # Safety
 /// - `APP_STATE` をロックしないこと（呼び出し側が既にロックを保持している）。
 /// - AppKit のメインスレッドから呼ぶこと。
-pub unsafe fn apply_setting_change(state: &mut AppState, sender: *mut AnyObject) {
+pub unsafe fn apply_setting_change(
+    state: &mut AppState,
+    sender: *mut AnyObject,
+) -> Option<RangeHint> {
     let tag: isize = msg_send![sender, tag];
-    let Some(key) = tag_to_config_key(tag) else {
-        return;
-    };
+    let key = tag_to_config_key(tag)?;
 
     // 言語は下書き（保存ボタンで確定するモデル）の対象外。選んだ瞬間に設定ファイルへ
     // 保存し、HUD・設定ウィンドウ・メニューへ即時反映する（自動起動トグルと同じ扱い）。
     if key == ConfigKey::Language {
         apply_language_setting_change(state, sender);
-        return;
+        return None;
     }
 
     let Some(raw_value) = raw_value_for_control(key, sender, &state.settings_controls) else {
-        return;
+        // 数値欄でパースに失敗したとき（フィールド表示は既に下書きへ戻している）。
+        // それ以外の key の None は range_hint_for が対象外として弾く。
+        return range_hint_for(&state.settings_controls, state.settings.language, key);
     };
 
     let mut config = settings_to_config_file(state.settings_controls.draft.clone());
@@ -281,10 +290,16 @@ pub unsafe fn apply_setting_change(state: &mut AppState, sender: *mut AnyObject)
                 ),
                 _ => {}
             }
-            return;
+            return None;
         }
     };
-    if let Some(warning) = warning {
+    // クランプが起きたときだけ範囲ヒントの対象にする。拒否（Err）はクランプではないため対象外
+    let hint = if warning.is_some() {
+        range_hint_for(&state.settings_controls, state.settings.language, key)
+    } else {
+        None
+    };
+    if let Some(warning) = &warning {
         eprintln!("warning: {warning}");
     }
 
@@ -300,6 +315,32 @@ pub unsafe fn apply_setting_change(state: &mut AppState, sender: *mut AnyObject)
         &state.settings_controls.draft,
         key,
     );
+
+    hint
+}
+
+/// `key` が範囲ヒント popover の対象（数値欄3つ）なら、案内文言と表示位置（対象フィールド）
+/// を返す。対象外なら `None`。
+unsafe fn range_hint_for(
+    controls: &SettingsControls,
+    language: LanguageSetting,
+    key: ConfigKey,
+) -> Option<RangeHint> {
+    let msg = match key {
+        ConfigKey::MaxCharsPerLine => Msg::LabelMaxCharsPerLine,
+        ConfigKey::MaxLines => Msg::LabelMaxLines,
+        ConfigKey::HudImageMaxHeight => Msg::LabelHudImageMaxHeight,
+        _ => return None,
+    };
+    let anchor = control_for_key(controls, key);
+    if anchor.is_null() {
+        return None;
+    }
+    let lang = i18n::resolve(language);
+    Some(RangeHint {
+        anchor,
+        text: range_hint_text(lang, msg),
+    })
 }
 
 /// `controlTextDidChange:` の実処理。数値 3 欄は入力文字を数字だけへ絞り込み、絵文字欄は
@@ -493,11 +534,16 @@ pub unsafe fn apply_language(controls: &SettingsControls, lang: Lang) {
 
     // 絵文字ヘルプの popover 本文はツールチップと同じ文言（tooltip_text）を使うため、
     // 汎用ループ（StringValue は i18n::text 経由）には乗せずここで直接差し替える。
-    // ウィンドウ未生成（ポインタが null）のときは何もしない。
+    // ウィンドウ未生成（ポインタが null）のときは何もしない。文言の行数は言語で変わるため、
+    // 差し替えのたびに popover の大きさも実測し直す。
     if !controls.hud_emoji_help_label.is_null() {
         set_string_value(
             controls.hud_emoji_help_label,
             &tooltip_text(lang, Msg::TooltipHudEmoji),
+        );
+        resize_help_popover_to_fit_label(
+            controls.hud_emoji_help_popover,
+            controls.hud_emoji_help_label,
         );
     }
 }

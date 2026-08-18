@@ -67,6 +67,9 @@ pub enum Msg {
     TooltipMaxLines,
     TooltipHudImageMaxHeight,
     TooltipHudEmoji,
+    /// 数値欄の範囲ヒント popover の接頭辞。`range_hint::range_hint_text` が
+    /// 半角の範囲表記（例: "1–500"）の先頭に付ける。
+    RangeHintPrefix,
     LabelLanguage,
     LanguageAuto,
     ButtonRestoreDefaults,
@@ -154,6 +157,7 @@ pub fn text(lang: Lang, msg: Msg) -> &'static str {
             "HUD の左端に表示するアイコン絵文字。絵文字1文字だけ入力できます。空にするとアイコンは出ません。",
             "The icon emoji shown at the left edge of the HUD. Only a single emoji is allowed. Leave it empty to show no icon.",
         ),
+        Msg::RangeHintPrefix => ("有効範囲：", "Valid range: "),
         Msg::LabelLanguage => ("言語", "Language"),
         Msg::LanguageAuto => ("システムに合わせる", "Match System"),
         Msg::ButtonRestoreDefaults => ("デフォルトに戻す", "Restore Defaults"),

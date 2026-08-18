@@ -33,9 +33,18 @@ pub enum LocalizedKind {
     Title,
     /// NSTabViewItem のタブ名。`NSControl` ではないので `setLabel:` を使う。
     TabLabel,
-    /// コントロールのツールチップ。`setToolTip:` で差し替える。範囲を持つものは
-    /// `tooltip::tooltip_text` が MIN_/MAX_ 定数から組み直す。
+    /// コントロールのツールチップ。`setToolTip:` で差し替える。
     ToolTip,
+}
+
+/// `apply_setting_change` が「数値欄の範囲ヒント popover を出すべき」と判断したときに返す情報。
+/// popover 自体の表示は `APP_STATE` のロックを手放してから行うため、ロック中に確定できる
+/// この2つ（どこに・何を出すか）だけを運ぶ。
+pub struct RangeHint {
+    /// popover を表示する基準ビュー（値を入力したフィールド）。
+    pub anchor: *mut AnyObject,
+    /// popover 本文（言語・接頭辞込みで解決済み）。
+    pub text: String,
 }
 /// 設定ウィンドウを構成するコントロールへのポインタ。`AppState` に保持し、
 /// `openSettings:` で使い回す（ウィンドウは初回だけ生成する）。
@@ -65,6 +74,16 @@ pub struct SettingsControls {
     pub hud_emoji_help_popover: *mut AnyObject,
     /// popover 本文のラベル。`apply_language` が言語切替のたびに文言を差し替える。
     pub hud_emoji_help_label: *mut AnyObject,
+    /// 数値欄（3つ）が共用する範囲ヒント popover。値が revert・クランプされたときだけ
+    /// `RangeHint` 経由で表示する。所有権の考え方は `hud_emoji_help_popover` と同じ
+    /// （アプリの生存期間中保持し、release しない）。
+    pub range_hint_popover: *mut AnyObject,
+    /// 範囲ヒント popover の本文ラベル。表示のたびに `range_hint::range_hint_text` の
+    /// 結果へ差し替える（3つの数値欄で使い回すため、固定文言ではない）。
+    pub range_hint_label: *mut AnyObject,
+    /// 範囲ヒント popover の自動 close タイマー。表示のたびに前回分を `invalidate` して
+    /// 張り直す（`present_hud` の `hide_timer` と同じ考え方）。
+    pub range_hint_close_timer: *mut AnyObject,
     /// 絵文字フィールドに最後に書き込んだ妥当な内容。`hud_emoji_field` への書き込みは
     /// `sync.rs` の `set_emoji_field` に一本化されており、これを通せば食い違いは起きない
     /// （直書きしないこと）。不正な入力を検出したときフィールドを丸ごと戻す先として使う
@@ -115,6 +134,9 @@ impl Default for SettingsControls {
             hud_emoji_field: ptr::null_mut(),
             hud_emoji_help_popover: ptr::null_mut(),
             hud_emoji_help_label: ptr::null_mut(),
+            range_hint_popover: ptr::null_mut(),
+            range_hint_label: ptr::null_mut(),
+            range_hint_close_timer: ptr::null_mut(),
             language_popup: ptr::null_mut(),
             login_item_toggle: ptr::null_mut(),
             preview_sample_index: 0,
