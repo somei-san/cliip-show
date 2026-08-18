@@ -7,7 +7,7 @@ cask "cliip-show" do
   desc "Show copied clipboard text as a HUD on macOS"
   homepage "https://github.com/{{OWNER}}/cliip-show"
 
-  depends_on macos: ">= :big_sur"
+  depends_on macos: :big_sur
 
   app "Cliip Show.app"
   binary "#{appdir}/Cliip Show.app/Contents/MacOS/cliip-show"
