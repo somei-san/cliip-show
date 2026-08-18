@@ -12,6 +12,10 @@ use crate::error::AppError;
 
 pub const LOGIN_ITEM_LABEL: &str = "io.github.somei-san.cliip-show";
 
+/// ログイン時に launchd が起動したことを示すフラグ。`plist_xml` が
+/// `ProgramArguments` に書き込み、起動を知らせる HUD を出すかの判断に使う。
+pub const LOGIN_FLAG: &str = "--login";
+
 /// Homebrew の `service do` ブロックが生成していた LaunchAgent。残っていると
 /// アプリ自身の LaunchAgent と二重起動するため、存在確認にのみ使う。
 const HOMEBREW_LOGIN_ITEM_LABEL: &str = "homebrew.mxcl.cliip-show";
@@ -123,6 +127,9 @@ pub fn repair_stale_plist() -> Result<(), AppError> {
         path: path.display().to_string(),
         source,
     })?;
+    // `current_exe()` はシンボリックリンクを解決しない。cask が張ったリンク経由で
+    // 起動すると `.app` の中かどうかを判定できないため、実体のパスに直す。
+    let current_exe = fs::canonicalize(&current_exe).unwrap_or(current_exe);
 
     if needs_repair(&xml, &current_exe, |p| p.exists()) {
         enable()?;
@@ -223,14 +230,30 @@ fn cellar_to_opt_path(exe: &Path) -> Option<PathBuf> {
     Some(opt_path)
 }
 
-/// plist の `ProgramArguments` の先頭に書かれた実行ファイルのパスを返す。
-/// `plist_xml` が書いた書式だけを読む。
-pub fn program_path_in_plist(xml: &str) -> Option<String> {
+/// plist の `ProgramArguments` を並び順に返す。`plist_xml` が書いた書式だけを読み、
+/// 読めなければ `None`。空の配列も `None` を返す（実行ファイルの無い plist は
+/// このアプリが書いたものではない）。
+pub fn program_arguments_in_plist(xml: &str) -> Option<Vec<String>> {
     let after_key = xml.split_once("<key>ProgramArguments</key>")?.1;
     let array = after_key.split_once("<array>")?.1;
-    let array = array.split_once("</array>")?.0;
-    let value = array.split_once("<string>")?.1.split_once("</string>")?.0;
-    Some(unescape_xml(value.trim()))
+    let mut rest = array.split_once("</array>")?.0;
+
+    let mut arguments = Vec::new();
+    while let Some((_, after_open)) = rest.split_once("<string>") {
+        let (value, after_close) = after_open.split_once("</string>")?;
+        arguments.push(unescape_xml(value.trim()));
+        rest = after_close;
+    }
+
+    if arguments.is_empty() {
+        return None;
+    }
+    Some(arguments)
+}
+
+/// plist の `ProgramArguments` の先頭に書かれた実行ファイルのパスを返す。
+pub fn program_path_in_plist(xml: &str) -> Option<String> {
+    program_arguments_in_plist(xml)?.into_iter().next()
 }
 
 /// `/Applications` 配下にインストールされた `.app` の中の実行ファイルか。
@@ -250,15 +273,33 @@ fn is_installed_app_bundle(exe: &Path) -> bool {
         })
 }
 
-/// plist を書き直すかを決める。書き直すのは、plist が指す実行ファイルが実在せず、
-/// かつ今の実行ファイルがインストール済みの `.app` の中にあるときだけ。
+/// plist を書き直すかを決める。書き直すのは、今の実行ファイルがインストール済みの
+/// `.app` の中にあり、かつ plist が指す実行ファイルが実在しないか `LOGIN_FLAG` を
+/// 持たないとき。
 ///
-/// 書式を読めない plist は他のツールが作ったものの可能性があるので触らない。
+/// 書式を読めない plist は他のツールが作ったものの可能性があるので触らない。判定は
+/// `program_arguments_in_plist` が `Some` を返した中だけで行う。
+///
+/// `current_exe` はシンボリックリンクを解決してから渡すこと。
 pub fn needs_repair(xml: &str, current_exe: &Path, exists: impl Fn(&Path) -> bool) -> bool {
     if !is_installed_app_bundle(current_exe) {
         return false;
     }
-    program_path_in_plist(xml).is_some_and(|program| !exists(Path::new(&program)))
+    program_arguments_in_plist(xml).is_some_and(|arguments| {
+        let program_is_missing = arguments
+            .first()
+            .is_some_and(|program| !exists(Path::new(program)));
+        program_is_missing || !arguments.iter().any(|argument| argument == LOGIN_FLAG)
+    })
+}
+
+/// launchd がログイン時に起動したか。`plist_xml` が書いたフラグの有無で判別する。
+pub fn started_at_login() -> bool {
+    launched_with_login_flag(std::env::args())
+}
+
+fn launched_with_login_flag(arguments: impl Iterator<Item = String>) -> bool {
+    arguments.skip(1).any(|argument| argument == LOGIN_FLAG)
 }
 
 // `escape_xml` の逆。`&amp;` を最後に戻さないと、`&amp;lt;` が `<` に化ける
@@ -295,6 +336,7 @@ pub fn plist_xml(executable: &Path, log_path: &Path) -> String {
 	<key>ProgramArguments</key>
 	<array>
 		<string>{executable}</string>
+		<string>{LOGIN_FLAG}</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
@@ -315,8 +357,11 @@ pub fn plist_xml(executable: &Path, log_path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::LOGIN_ITEM_LABEL;
-    use super::{needs_repair, plist_xml, program_path_in_plist, stable_executable_path};
+    use super::{launched_with_login_flag, LOGIN_FLAG, LOGIN_ITEM_LABEL};
+    use super::{
+        needs_repair, plist_xml, program_arguments_in_plist, program_path_in_plist,
+        stable_executable_path,
+    };
     use std::path::Path;
 
     const APP_EXE: &str = "/Applications/Cliip Show.app/Contents/MacOS/cliip-show";
@@ -427,6 +472,57 @@ mod tests {
             Path::new(APP_EXE),
             |_| false
         ));
+    }
+
+    // フラグの有無だけで判断すると、書式を読めない plist が「フラグ無し」に見えて
+    // 上書き対象になる。他のツールが置いた plist は実行ファイルが実在しても触らない
+    #[test]
+    fn repair_is_skipped_for_an_unreadable_plist_even_though_it_has_no_login_flag() {
+        assert!(!needs_repair(
+            "<plist><dict/></plist>",
+            Path::new(APP_EXE),
+            |_| true
+        ));
+    }
+
+    // フラグを持たない plist のまま起動すると、ログインのたびに起動を知らせてしまう
+    #[test]
+    fn repair_is_needed_when_the_plist_has_no_login_flag() {
+        let xml = plist_pointing_at("/opt/homebrew/bin/cliip-show")
+            .replace(&format!("\t\t<string>{LOGIN_FLAG}</string>\n"), "");
+        assert!(!xml.contains(LOGIN_FLAG));
+        assert!(needs_repair(&xml, Path::new(APP_EXE), |_| true));
+    }
+
+    #[test]
+    fn program_arguments_are_read_back_in_order() {
+        let xml = plist_pointing_at("/opt/homebrew/bin/cliip-show");
+        assert_eq!(
+            program_arguments_in_plist(&xml),
+            Some(vec![
+                "/opt/homebrew/bin/cliip-show".to_string(),
+                LOGIN_FLAG.to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn the_login_flag_is_detected_only_when_it_is_passed() {
+        let args = |list: &[&str]| {
+            list.iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .into_iter()
+        };
+        assert!(launched_with_login_flag(args(&[
+            "/Applications/Cliip Show.app/Contents/MacOS/cliip-show",
+            LOGIN_FLAG
+        ])));
+        assert!(!launched_with_login_flag(args(&[
+            "/Applications/Cliip Show.app/Contents/MacOS/cliip-show"
+        ])));
+        // 実行ファイル名は判定に混ぜない
+        assert!(!launched_with_login_flag(args(&[LOGIN_FLAG])));
     }
 
     #[test]

@@ -235,6 +235,10 @@ pub fn handle_cli_flags() -> bool {
                 help,
                 "  --config-show    Print the current settings and exit"
             );
+            let _ = writeln!(
+                help,
+                "  --login          Started at login: skip the launch HUD"
+            );
             let _ = writeln!(help);
             let _ = writeln!(
                 help,
@@ -304,6 +308,8 @@ pub fn handle_cli_flags() -> bool {
             print!("{help}");
             true
         }
+        // LaunchAgent の plist が渡す。常駐を続けるので、ここでは何もしない
+        crate::login_item::LOGIN_FLAG => false,
         "--config-show" => show_config(&mut args),
         "--render-hud-png" => {
             let parsed = match parse_render_hud_args(args) {
