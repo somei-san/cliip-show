@@ -268,6 +268,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         row.next(),
         lang,
         Msg::LabelPollInterval,
+        Msg::TooltipPollInterval,
         ConfigKey::PollIntervalSecs,
         MIN_POLL_INTERVAL_SECS,
         MAX_POLL_INTERVAL_SECS,
@@ -280,6 +281,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         row.next(),
         lang,
         Msg::LabelHudDuration,
+        Msg::TooltipHudDuration,
         ConfigKey::HudDurationSecs,
         MIN_HUD_DURATION_SECS,
         MAX_HUD_DURATION_SECS,
@@ -292,6 +294,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         row.next(),
         lang,
         Msg::LabelHudFadeDuration,
+        Msg::TooltipHudFadeDuration,
         ConfigKey::HudFadeDurationSecs,
         MIN_HUD_FADE_DURATION_SECS,
         MAX_HUD_FADE_DURATION_SECS,
@@ -304,6 +307,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         row.next(),
         lang,
         Msg::LabelHudScale,
+        Msg::TooltipHudScale,
         ConfigKey::HudScale,
         MIN_HUD_SCALE,
         MAX_HUD_SCALE,
@@ -316,6 +320,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         row.next(),
         lang,
         Msg::LabelMaxCharsPerLine,
+        Msg::TooltipMaxCharsPerLine,
         ConfigKey::MaxCharsPerLine,
         MIN_TRUNCATE_MAX_WIDTH,
         MAX_TRUNCATE_MAX_WIDTH,
@@ -328,6 +333,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         row.next(),
         lang,
         Msg::LabelMaxLines,
+        Msg::TooltipMaxLines,
         ConfigKey::MaxLines,
         MIN_TRUNCATE_MAX_LINES,
         MAX_TRUNCATE_MAX_LINES,
@@ -340,6 +346,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         row.next(),
         lang,
         Msg::LabelHudImageMaxHeight,
+        Msg::TooltipHudImageMaxHeight,
         ConfigKey::HudImageMaxHeight,
         MIN_HUD_IMAGE_MAX_HEIGHT,
         MAX_HUD_IMAGE_MAX_HEIGHT,
@@ -374,6 +381,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         row.next(),
         lang,
         Msg::LabelHudEmoji,
+        Msg::TooltipHudEmoji,
         ConfigKey::HudEmoji,
         &placeholder.hud_emoji,
         &mut localized,
@@ -489,7 +497,8 @@ mod tests {
         assert!(class!(NSWindow).responds_to(sel!(setContentViewController:)));
     }
 
-    /// 設定タブをスクロール化する NSScrollView / documentView 側のセレクタも同じ理由で突き合わせる。
+    /// 設定タブをスクロール化する NSScrollView / documentView 側のセレクタも同じ理由で突き合わせる
+    /// （ツールチップの `setToolTip:` も rows.rs から送る NSView 系セレクタなのでここに含める）。
     #[test]
     fn appkit_responds_to_scroll_selectors() {
         assert!(class!(NSScrollView).responds_to(sel!(setBorderType:)));
@@ -499,5 +508,6 @@ mod tests {
         assert!(class!(NSScrollView).responds_to(sel!(setAutohidesScrollers:)));
         assert!(class!(NSScrollView).responds_to(sel!(setDocumentView:)));
         assert!(class!(NSView).responds_to(sel!(scrollPoint:)));
+        assert!(class!(NSView).responds_to(sel!(setToolTip:)));
     }
 }

@@ -2,6 +2,7 @@ mod build;
 mod input_filter;
 mod rows;
 mod sync;
+mod tooltip;
 
 use std::ptr;
 
@@ -31,6 +32,9 @@ pub enum LocalizedKind {
     Title,
     /// NSTabViewItem のタブ名。`NSControl` ではないので `setLabel:` を使う。
     TabLabel,
+    /// コントロールのツールチップ。`setToolTip:` で差し替える。範囲を持つものは
+    /// `tooltip::tooltip_text` が MIN_/MAX_ 定数から組み直す。
+    ToolTip,
 }
 /// 設定ウィンドウを構成するコントロールへのポインタ。`AppState` に保持し、
 /// `openSettings:` で使い回す（ウィンドウは初回だけ生成する）。

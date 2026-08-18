@@ -48,7 +48,7 @@ UI 文言を README に書くときは `src/i18n.rs` の文言テーブルと一
 | `src/hud.rs` | HUDウィンドウ生成・レイアウト計算・描画 |
 | `src/app/` | AppDelegate・クリップボード監視・フェードアニメーション（`mod.rs` デリゲート配線・AppState / `panels.rs` About・支援ページ・自動起動プロンプト / `hud_show.rs` HUD表示とフェード / `config_reload.rs` 設定の適用と設定ファイルの再読み込み） |
 | `src/menu.rs` | メニューバー常駐アイコンとメインメニューの構築 |
-| `src/settings_window/` | 設定ウィンドウのUI（`mod.rs` 型定義・再エクスポート / `rows.rs` コントロール生成・配置 / `build.rs` ウィンドウ組み立て / `sync.rs` AppState との同期・操作 / `input_filter.rs` 数値フィールドの入力文字フィルタ（純関数）） |
+| `src/settings_window/` | 設定ウィンドウのUI（`mod.rs` 型定義・再エクスポート / `rows.rs` コントロール生成・配置 / `build.rs` ウィンドウ組み立て / `sync.rs` AppState との同期・操作 / `input_filter.rs` 数値フィールドの入力文字フィルタ（純関数） / `tooltip.rs` コントロールのツールチップ文言の組み立て（純関数）） |
 | `src/login_item.rs` | LaunchAgent の plist 書き出し・解除（自動起動） |
 | `src/text.rs` | テキスト切り詰め処理 |
 | `src/png.rs` | PNG生成・差分計算（VRT用） |

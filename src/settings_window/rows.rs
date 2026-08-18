@@ -9,6 +9,7 @@ use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use crate::config::{ConfigKey, LanguageSetting};
 use crate::i18n::{self, Lang, Msg};
 
+use super::tooltip::tooltip_text;
 use super::{config_key_to_tag, LocalizedControl, LocalizedKind};
 
 // NSWindowStyleMask: Titled | Closable
@@ -127,6 +128,11 @@ pub(super) unsafe fn make_label(text: &str, frame: NSRect) -> *mut AnyObject {
 pub(super) unsafe fn set_string_value(control: *mut AnyObject, text: &str) {
     let ns = NSString::from_str(text);
     let () = msg_send![control, setStringValue: &*ns];
+}
+
+unsafe fn set_tool_tip(control: *mut AnyObject, text: &str) {
+    let ns = NSString::from_str(text);
+    let () = msg_send![control, setToolTip: &*ns];
 }
 
 unsafe fn make_slider(
@@ -259,6 +265,7 @@ pub(super) unsafe fn add_slider_row(
     index: usize,
     lang: Lang,
     label_msg: Msg,
+    tooltip_msg: Msg,
     key: ConfigKey,
     min: f64,
     max: f64,
@@ -294,6 +301,7 @@ pub(super) unsafe fn add_slider_row(
         slider_rect,
         delegate,
     );
+    set_tool_tip(slider, &tooltip_text(lang, tooltip_msg));
     let value_label = make_label(&format!("{value:.2}"), value_rect);
 
     let () = msg_send![document_view, addSubview: label];
@@ -304,6 +312,11 @@ pub(super) unsafe fn add_slider_row(
         control: label,
         msg: label_msg,
         kind: LocalizedKind::StringValue,
+    });
+    localized.push(LocalizedControl {
+        control: slider,
+        msg: tooltip_msg,
+        kind: LocalizedKind::ToolTip,
     });
 
     (slider, value_label)
@@ -316,6 +329,7 @@ pub(super) unsafe fn add_stepper_row(
     index: usize,
     lang: Lang,
     label_msg: Msg,
+    tooltip_msg: Msg,
     key: ConfigKey,
     min: usize,
     max: usize,
@@ -353,6 +367,9 @@ pub(super) unsafe fn add_stepper_row(
         stepper_rect,
         delegate,
     );
+    let tooltip = tooltip_text(lang, tooltip_msg);
+    set_tool_tip(field, &tooltip);
+    set_tool_tip(stepper, &tooltip);
 
     let () = msg_send![document_view, addSubview: label];
     let () = msg_send![document_view, addSubview: field];
@@ -362,6 +379,16 @@ pub(super) unsafe fn add_stepper_row(
         control: label,
         msg: label_msg,
         kind: LocalizedKind::StringValue,
+    });
+    localized.push(LocalizedControl {
+        control: field,
+        msg: tooltip_msg,
+        kind: LocalizedKind::ToolTip,
+    });
+    localized.push(LocalizedControl {
+        control: stepper,
+        msg: tooltip_msg,
+        kind: LocalizedKind::ToolTip,
     });
 
     (field, stepper)
@@ -468,6 +495,7 @@ pub(super) unsafe fn add_field_row(
     index: usize,
     lang: Lang,
     label_msg: Msg,
+    tooltip_msg: Msg,
     key: ConfigKey,
     value: &str,
     localized: &mut Vec<LocalizedControl>,
@@ -488,6 +516,7 @@ pub(super) unsafe fn add_field_row(
 
     let label = make_label(i18n::text(lang, label_msg), label_rect);
     let field = make_editable_field(value, config_key_to_tag(key), field_rect, delegate);
+    set_tool_tip(field, &tooltip_text(lang, tooltip_msg));
 
     let () = msg_send![document_view, addSubview: label];
     let () = msg_send![document_view, addSubview: field];
@@ -496,6 +525,11 @@ pub(super) unsafe fn add_field_row(
         control: label,
         msg: label_msg,
         kind: LocalizedKind::StringValue,
+    });
+    localized.push(LocalizedControl {
+        control: field,
+        msg: tooltip_msg,
+        kind: LocalizedKind::ToolTip,
     });
 
     field

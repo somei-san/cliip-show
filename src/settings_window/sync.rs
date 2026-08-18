@@ -18,6 +18,7 @@ use super::input_filter::filter_digits;
 use super::rows::{
     login_item_control_state, select_language_item, select_popup_item, set_string_value,
 };
+use super::tooltip::tooltip_text;
 use super::{tag_to_config_key, LocalizedKind, SettingsControls};
 
 enum PreviewSample {
@@ -458,27 +459,32 @@ unsafe fn save_language_setting(
     crate::app::display_settings_from_file(&path).map_err(|error| error.to_string())
 }
 
-/// 言語切り替えで、設定ウィンドウ内の静的なラベル・タイトルをすべて差し替える。
+/// 言語切り替えで、設定ウィンドウ内の静的なラベル・タイトル・ツールチップをすべて差し替える。
 ///
-/// `APP_STATE` のロックを保持したまま呼んでよい: ここで触るのは非編集の `NSTextField`
-/// ラベルと `NSButton`/`NSWindow` のタイトルだけで、いずれも action やテキスト編集の
-/// デリゲート通知（`controlTextDidChange:` 等）を発火しないため、Objective-C 側からの
-/// 再入は起きない。
+/// `APP_STATE` のロックを保持したまま呼んでよい: `NSTextField` ラベル・`NSButton`/`NSWindow`
+/// のタイトルに加え、編集可能なフィールド・スライダー・ステッパーへの `setToolTip:` も含めて
+/// 触るが、いずれも action やテキスト編集のデリゲート通知（`controlTextDidChange:` 等）を
+/// 発火しないため、Objective-C 側からの再入は起きない。
 ///
 /// # Safety
 /// AppKit のメインスレッドから呼ぶこと。
 pub unsafe fn apply_language(controls: &SettingsControls, lang: Lang) {
     for entry in &controls.localized {
-        let text = i18n::text(lang, entry.msg);
         match entry.kind {
-            LocalizedKind::StringValue => set_string_value(entry.control, text),
+            LocalizedKind::StringValue => {
+                set_string_value(entry.control, i18n::text(lang, entry.msg))
+            }
             LocalizedKind::Title => {
-                let ns = NSString::from_str(text);
+                let ns = NSString::from_str(i18n::text(lang, entry.msg));
                 let () = msg_send![entry.control, setTitle: &*ns];
             }
             LocalizedKind::TabLabel => {
-                let ns = NSString::from_str(text);
+                let ns = NSString::from_str(i18n::text(lang, entry.msg));
                 let () = msg_send![entry.control, setLabel: &*ns];
+            }
+            LocalizedKind::ToolTip => {
+                let ns = NSString::from_str(&tooltip_text(lang, entry.msg));
+                let () = msg_send![entry.control, setToolTip: &*ns];
             }
         }
     }
