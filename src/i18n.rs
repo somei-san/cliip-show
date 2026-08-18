@@ -87,6 +87,9 @@ pub enum Msg {
     EmojiNotEmoji,
 
     PreviewShortText,
+
+    /// 起動を知らせる HUD の文言。
+    LaunchNotice,
 }
 
 /// `msg` を `lang` の表記で返す。
@@ -187,6 +190,8 @@ pub fn text(lang: Lang, msg: Msg) -> &'static str {
             "サンプル表示：短いテキストです",
             "Preview: a short line of text",
         ),
+
+        Msg::LaunchNotice => ("Cliip Show を起動しました", "Cliip Show started"),
     };
 
     match lang {
