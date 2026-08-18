@@ -53,10 +53,10 @@ pub struct SettingsControls {
     pub hud_position_popup: *mut AnyObject,
     pub hud_background_color_popup: *mut AnyObject,
     pub hud_emoji_field: *mut AnyObject,
-    /// 絵文字フィールドに最後に書き込んだ妥当な内容。`hud_emoji_field` へプログラムから
-    /// 書く箇所（`sync_controls_from_settings`・`apply_setting_change` の Err 分岐・
-    /// `handle_text_change`）は、食い違いが起きないよう必ずここも一緒に更新すること。
-    /// 不正な入力を検出したときフィールドを丸ごと戻す先として使う（`handle_text_change`）。
+    /// 絵文字フィールドに最後に書き込んだ妥当な内容。`hud_emoji_field` への書き込みは
+    /// `sync.rs` の `set_emoji_field` に一本化されており、これを通せば食い違いは起きない
+    /// （直書きしないこと）。不正な入力を検出したときフィールドを丸ごと戻す先として使う
+    /// （`handle_text_change`）。
     pub hud_emoji_shadow: String,
     /// 表示言語のポップアップ。他の設定行と違い下書き→保存のモデルには乗らず、選択した瞬間に
     /// 設定ファイルへ保存する（`apply_language_setting_change`）。

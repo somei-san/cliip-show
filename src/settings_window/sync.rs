@@ -72,9 +72,21 @@ unsafe fn sync_slider(slider: *mut AnyObject, value_label: *mut AnyObject, value
     set_string_value(value_label, &format!("{value:.2}"));
 }
 
+/// field・stepper 双方を `value` へ揃える。初期同期・確定後の再同期・拒否された値の
+/// revert のいずれも同じ操作（両方へ書き戻す）なので共通化してある。確定後の再同期・
+/// revert はどちらも `settingChanged:`（編集終了後にしか発火せず、Enter は保存ボタンに
+/// 先取りされる）の処理中にしか呼ばないため、sender 自身のフィールドへ書いても
+/// 編集中の内容を壊さない。
 unsafe fn sync_stepper_field(field: *mut AnyObject, stepper: *mut AnyObject, value: usize) {
     let () = msg_send![stepper, setIntegerValue: value as isize];
     set_string_value(field, &value.to_string());
+}
+
+/// `hud_emoji_field` への書き込みを一本化する。不変条件（`SettingsControls::hud_emoji_shadow`
+/// のドキュメント参照）: フィールドへ書く箇所は必ずこれを通し、shadow も一緒に更新する。
+unsafe fn set_emoji_field(controls: &mut SettingsControls, value: &str) {
+    set_string_value(controls.hud_emoji_field, value);
+    controls.hud_emoji_shadow = value.to_string();
 }
 
 /// 現在の `DisplaySettings` の値をすべてのコントロールに反映する。
@@ -131,10 +143,7 @@ pub unsafe fn sync_controls_from_settings(
     );
     select_language_item(controls.language_popup, settings.language);
 
-    set_string_value(controls.hud_emoji_field, &settings.hud_emoji);
-    // 不変条件（SettingsControls::hud_emoji_shadow のドキュメント参照）: フィールドへ書く
-    // ときは shadow も一緒に更新する。
-    controls.hud_emoji_shadow = settings.hud_emoji.clone();
+    set_emoji_field(controls, &settings.hud_emoji);
 }
 
 /// ログイン項目トグルの表示を実際の LaunchAgent の状態に合わせる。
@@ -252,20 +261,19 @@ pub unsafe fn apply_setting_change(state: &mut AppState, sender: *mut AnyObject)
             match key {
                 ConfigKey::HudEmoji => {
                     let draft_emoji = state.settings_controls.draft.hud_emoji.clone();
-                    set_string_value(state.settings_controls.hud_emoji_field, &draft_emoji);
-                    state.settings_controls.hud_emoji_shadow = draft_emoji;
+                    set_emoji_field(&mut state.settings_controls, &draft_emoji);
                 }
-                ConfigKey::MaxCharsPerLine => revert_numeric_field(
+                ConfigKey::MaxCharsPerLine => sync_stepper_field(
                     state.settings_controls.max_chars_per_line_field,
                     state.settings_controls.max_chars_per_line_stepper,
                     state.settings_controls.draft.truncate_max_width,
                 ),
-                ConfigKey::MaxLines => revert_numeric_field(
+                ConfigKey::MaxLines => sync_stepper_field(
                     state.settings_controls.max_lines_field,
                     state.settings_controls.max_lines_stepper,
                     state.settings_controls.draft.truncate_max_lines,
                 ),
-                ConfigKey::HudImageMaxHeight => revert_numeric_field(
+                ConfigKey::HudImageMaxHeight => sync_stepper_field(
                     state.settings_controls.hud_image_max_height_field,
                     state.settings_controls.hud_image_max_height_stepper,
                     state.settings_controls.draft.hud_image_max_height,
@@ -283,14 +291,13 @@ pub unsafe fn apply_setting_change(state: &mut AppState, sender: *mut AnyObject)
         apply_config_file(state.settings_controls.draft.clone(), &config);
 
     // クランプ・拒否された場合に備え、実際に反映された値でコントロール表示を揃える。
-    // sender（今まさに編集/操作していたコントロール）自身への setStringValue は避ける:
-    // フィールドエディタが終了処理中に再入すると settingChanged: が再度発火し、
-    // 非再入の APP_STATE ロックでハングしうるため。
+    // settingChanged: は編集終了後（フォーカス喪失か Enter。Enter は保存ボタンに先取り
+    // される）にしか発火しないため、sender 自身のフィールドへ書き戻してよい。万一
+    // 編集中に再入しても controlTextDidChange: 側は try_lock で弾かれる。
     resync_controls_after_apply(
         &state.settings_controls,
         &state.settings_controls.draft,
         key,
-        sender,
     );
 }
 
@@ -343,13 +350,23 @@ unsafe fn caret_position(field: *mut AnyObject) -> Option<usize> {
 
 /// `field` のフィールドエディタのキャレットを `position`（UTF-16 単位）へ移す。
 /// 編集中でなければ何もしない（`setStringValue:` 側の反映だけで足りる）。
+///
+/// `position` はエディタの実テキスト長（`[editor string] length`）へクランプする。
+/// 絵文字欄で全選択 → 1 文字入力すると、直前に読んだ shadow の長さがエディタの
+/// 現在の内容より長くなり、範囲外の `setSelectedRange:` になりうるため。
 unsafe fn set_caret_position(field: *mut AnyObject, position: usize) {
     let editor: *mut AnyObject = msg_send![field, currentEditor];
     if editor.is_null() {
         return;
     }
+    let text: *mut AnyObject = msg_send![editor, string];
+    let length: usize = if text.is_null() {
+        0
+    } else {
+        msg_send![text, length]
+    };
     let range = NSRange {
-        location: position,
+        location: position.min(length),
         length: 0,
     };
     let () = msg_send![editor, setSelectedRange: range];
@@ -378,7 +395,7 @@ unsafe fn validate_emoji_field(state: &mut AppState, field: *mut AnyObject) {
         None => state.settings_controls.hud_emoji_shadow = text,
         Some(_) => {
             let shadow = state.settings_controls.hud_emoji_shadow.clone();
-            set_string_value(field, &shadow);
+            set_emoji_field(&mut state.settings_controls, &shadow);
             set_caret_position(field, shadow.encode_utf16().count());
         }
     }
@@ -634,7 +651,6 @@ unsafe fn resync_controls_after_apply(
     controls: &SettingsControls,
     settings: &DisplaySettings,
     key: ConfigKey,
-    sender: *mut AnyObject,
 ) {
     match key {
         ConfigKey::PollIntervalSecs => {
@@ -661,20 +677,17 @@ unsafe fn resync_controls_after_apply(
                 &format!("{:.2}", settings.hud_scale),
             );
         }
-        ConfigKey::MaxCharsPerLine => resync_stepper_field(
-            sender,
+        ConfigKey::MaxCharsPerLine => sync_stepper_field(
             controls.max_chars_per_line_field,
             controls.max_chars_per_line_stepper,
             settings.truncate_max_width,
         ),
-        ConfigKey::MaxLines => resync_stepper_field(
-            sender,
+        ConfigKey::MaxLines => sync_stepper_field(
             controls.max_lines_field,
             controls.max_lines_stepper,
             settings.truncate_max_lines,
         ),
-        ConfigKey::HudImageMaxHeight => resync_stepper_field(
-            sender,
+        ConfigKey::HudImageMaxHeight => sync_stepper_field(
             controls.hud_image_max_height_field,
             controls.hud_image_max_height_stepper,
             settings.hud_image_max_height,
@@ -682,32 +695,10 @@ unsafe fn resync_controls_after_apply(
         // ポップアップの選択肢は常に妥当な値のみを取りうるためクランプが発生せず、再同期は不要
         ConfigKey::HudPosition | ConfigKey::HudBackgroundColor => {}
         // 拒否された入力は set_config_value のエラー側で戻すため、ここでは触らない。
-        // 編集中フィールドへの setStringValue を避ける狙いもある。
         ConfigKey::HudEmoji => {}
         // 言語は下書きモデルの対象外で、保存の成否にかかわらず再同期する対象が無い。
         ConfigKey::Language => {}
     }
-}
-
-/// stepper は常に更新する（テキスト編集の再入リスクがないため）。
-/// field は `sender` 自身でない場合のみ更新する（sender の場合は編集中の可能性があるため触れない）。
-unsafe fn resync_stepper_field(
-    sender: *mut AnyObject,
-    field: *mut AnyObject,
-    stepper: *mut AnyObject,
-    value: usize,
-) {
-    let () = msg_send![stepper, setIntegerValue: value as isize];
-    if sender != field {
-        set_string_value(field, &value.to_string());
-    }
-}
-
-/// `apply_setting_change` の Err 分岐から呼ぶ。`set_config_value` に拒否された数値を
-/// field/stepper 両方から取り除き、下書きの値に戻す。
-unsafe fn revert_numeric_field(field: *mut AnyObject, stepper: *mut AnyObject, value: usize) {
-    set_string_value(field, &value.to_string());
-    let () = msg_send![stepper, setIntegerValue: value as isize];
 }
 
 #[cfg(test)]
@@ -723,5 +714,7 @@ mod tests {
         assert!(class!(NSTextView).responds_to(sel!(hasMarkedText)));
         assert!(class!(NSTextView).responds_to(sel!(selectedRange)));
         assert!(class!(NSTextView).responds_to(sel!(setSelectedRange:)));
+        assert!(class!(NSTextView).responds_to(sel!(string)));
+        assert!(class!(NSString).responds_to(sel!(length)));
     }
 }

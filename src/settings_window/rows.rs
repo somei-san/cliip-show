@@ -746,7 +746,7 @@ mod tests {
     // 行スタック自身の高さ（462pt）より 16pt 大きい。非 flipped の documentView は
     // 上端を基準に積むため、この差分は最終行の下（documentView 下端）に空きとして残る。
     #[test]
-    fn row_bottom_y_reaches_document_bottom_for_last_row() {
+    fn row_bottom_y_leaves_clamp_gap_below_last_row() {
         assert_eq!(row_bottom_y(SETTINGS_TOTAL_ROW_COUNT - 1), 16.0);
     }
 
