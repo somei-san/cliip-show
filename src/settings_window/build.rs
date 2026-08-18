@@ -262,6 +262,40 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
     let document_view = make_pane_view(document_height());
     let mut row = RowCounter(0);
 
+    // HUD の見た目を一目で決める 3 項目を先頭に置き、以降は操作の種類ごとにまとめる
+    // （スライダー → ステッパー）
+    let hud_position_popup = add_popup_row(
+        document_view,
+        delegate,
+        row.next(),
+        lang,
+        Msg::LabelHudPosition,
+        ConfigKey::HudPosition,
+        &["top", "center", "bottom"],
+        placeholder.hud_position.as_str(),
+        &mut localized,
+    );
+    let hud_background_color_popup = add_popup_row(
+        document_view,
+        delegate,
+        row.next(),
+        lang,
+        Msg::LabelHudBackgroundColor,
+        ConfigKey::HudBackgroundColor,
+        &["default", "yellow", "blue", "green", "red", "purple"],
+        placeholder.hud_background_color.as_str(),
+        &mut localized,
+    );
+    let (hud_emoji_field, hud_emoji_help_popover, hud_emoji_help_label) = add_field_row(
+        document_view,
+        delegate,
+        row.next(),
+        lang,
+        Msg::LabelHudEmoji,
+        ConfigKey::HudEmoji,
+        &placeholder.hud_emoji,
+        &mut localized,
+    );
     let (poll_interval_slider, poll_interval_value_label) = add_slider_row(
         document_view,
         delegate,
@@ -314,6 +348,19 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         placeholder.hud_scale,
         &mut localized,
     );
+    let (hud_background_opacity_slider, hud_background_opacity_value_label) = add_slider_row(
+        document_view,
+        delegate,
+        row.next(),
+        lang,
+        Msg::LabelHudBackgroundOpacity,
+        Msg::TooltipHudBackgroundOpacity,
+        ConfigKey::HudBackgroundOpacity,
+        MIN_HUD_BACKGROUND_OPACITY,
+        MAX_HUD_BACKGROUND_OPACITY,
+        placeholder.hud_background_opacity,
+        &mut localized,
+    );
     let (max_chars_per_line_field, max_chars_per_line_stepper) = add_stepper_row(
         document_view,
         delegate,
@@ -351,51 +398,6 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         MIN_HUD_IMAGE_MAX_HEIGHT,
         MAX_HUD_IMAGE_MAX_HEIGHT,
         placeholder.hud_image_max_height,
-        &mut localized,
-    );
-    let hud_position_popup = add_popup_row(
-        document_view,
-        delegate,
-        row.next(),
-        lang,
-        Msg::LabelHudPosition,
-        ConfigKey::HudPosition,
-        &["top", "center", "bottom"],
-        placeholder.hud_position.as_str(),
-        &mut localized,
-    );
-    let hud_background_color_popup = add_popup_row(
-        document_view,
-        delegate,
-        row.next(),
-        lang,
-        Msg::LabelHudBackgroundColor,
-        ConfigKey::HudBackgroundColor,
-        &["default", "yellow", "blue", "green", "red", "purple"],
-        placeholder.hud_background_color.as_str(),
-        &mut localized,
-    );
-    let (hud_background_opacity_slider, hud_background_opacity_value_label) = add_slider_row(
-        document_view,
-        delegate,
-        row.next(),
-        lang,
-        Msg::LabelHudBackgroundOpacity,
-        Msg::TooltipHudBackgroundOpacity,
-        ConfigKey::HudBackgroundOpacity,
-        MIN_HUD_BACKGROUND_OPACITY,
-        MAX_HUD_BACKGROUND_OPACITY,
-        placeholder.hud_background_opacity,
-        &mut localized,
-    );
-    let (hud_emoji_field, hud_emoji_help_popover, hud_emoji_help_label) = add_field_row(
-        document_view,
-        delegate,
-        row.next(),
-        lang,
-        Msg::LabelHudEmoji,
-        ConfigKey::HudEmoji,
-        &placeholder.hud_emoji,
         &mut localized,
     );
     // 区切りから下（言語・ログイン項目）は下書き→保存のモデルに乗らず、操作した瞬間に保存・反映する
