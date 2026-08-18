@@ -111,9 +111,9 @@ pub fn enable() -> Result<(), AppError> {
     })
 }
 
-/// plist が実在しないパスを指していたら、今の実行ファイルへ向け直す。配布形態が
-/// 変わったユーザー（Homebrew の formula から cask へ移った、`.app` を別の場所へ
-/// 動かした）の自動起動が黙って止まるのを防ぐ。次回ログインから元に戻る。
+/// 書き直しが要る plist（条件は `needs_repair`）を、今の実行ファイルへ向けて書き直す。
+/// 配布形態が変わったユーザー（Homebrew の formula から cask へ移った、`.app` を別の
+/// 場所へ動かした）の自動起動が黙って止まるのを防ぐ。次回ログインから効く。
 ///
 /// plist を読めないときは自動起動が無効なだけなので、何もせず終える。
 pub fn repair_stale_plist() -> Result<(), AppError> {

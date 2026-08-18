@@ -87,8 +87,6 @@ pub enum Msg {
     EmojiNotEmoji,
 
     PreviewShortText,
-
-    /// 起動を知らせる HUD の文言。
     LaunchNotice,
 }
 
