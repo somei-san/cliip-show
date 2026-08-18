@@ -4,9 +4,9 @@ set -euo pipefail
 if [[ $# -lt 2 || $# -gt 3 ]]; then
   cat <<USAGE >&2
 Usage: $0 <github-owner> <version> [output-path]
-  github-owner: GitHub user/org name (e.g. somei-tanoue)
-  version:      release version without leading v (e.g. 0.1.0)
-  output-path:  formula output path (default: ./cliip-show.rb)
+  github-owner: GitHub user/org name (e.g. somei-san)
+  version:      release version without leading v (e.g. 0.5.0)
+  output-path:  cask output path (default: ./cliip-show.rb)
 USAGE
   exit 1
 fi
@@ -17,7 +17,7 @@ VERSION="${RAW_VERSION#v}"
 OUT_PATH="${3:-./cliip-show.rb}"
 TEMPLATE_PATH="packaging/homebrew/cliip-show.rb.template"
 TAG="v${VERSION}"
-ARCHIVE_URL="https://github.com/${OWNER}/cliip-show/archive/refs/tags/${TAG}.tar.gz"
+ASSET_URL="https://github.com/${OWNER}/cliip-show/releases/download/${TAG}/Cliip-Show-${VERSION}-universal.zip"
 
 if [[ ! -f "${TEMPLATE_PATH}" ]]; then
   echo "Template not found: ${TEMPLATE_PATH}" >&2
@@ -27,19 +27,15 @@ fi
 TMP_FILE="$(mktemp)"
 trap 'rm -f "${TMP_FILE}"' EXIT
 
-if ! curl -fsSL "${ARCHIVE_URL}" -o "${TMP_FILE}"; then
+if ! curl -fsSL "${ASSET_URL}" -o "${TMP_FILE}"; then
   cat <<ERROR >&2
-Failed to download release archive:
-  ${ARCHIVE_URL}
+Failed to download release asset:
+  ${ASSET_URL}
 
 確認してください:
   1. GitHub owner が正しいこと（現在: ${OWNER}）
-  2. タグ ${TAG} が GitHub に push 済みであること
-  3. タグ名が ${VERSION}（v なし）ではなく ${TAG}（v あり）であること
-
-タグ未作成の場合の例:
-  git tag ${TAG}
-  git push origin ${TAG}
+  2. タグ ${TAG} が GitHub に push 済みで、Release の作成が終わっていること
+  3. Release に .app の zip が添付されていること（release.yml が添付します）
 ERROR
   exit 1
 fi
@@ -53,6 +49,6 @@ sed \
   -e "s/{{SHA256}}/${SHA256}/g" \
   "${TEMPLATE_PATH}" > "${OUT_PATH}"
 
-echo "Generated formula: ${OUT_PATH}"
-echo "URL: ${ARCHIVE_URL}"
+echo "Generated cask: ${OUT_PATH}"
+echo "URL: ${ASSET_URL}"
 echo "SHA256: ${SHA256}"

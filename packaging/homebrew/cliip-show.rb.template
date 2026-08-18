@@ -1,29 +1,35 @@
-class CliipShow < Formula
+cask "cliip-show" do
+  version "{{VERSION}}"
+  sha256 "{{SHA256}}"
+
+  url "https://github.com/{{OWNER}}/cliip-show/releases/download/v#{version}/Cliip-Show-#{version}-universal.zip"
+  name "Cliip Show"
   desc "Show copied clipboard text as a HUD on macOS"
   homepage "https://github.com/{{OWNER}}/cliip-show"
-  url "https://github.com/{{OWNER}}/cliip-show/archive/refs/tags/v{{VERSION}}.tar.gz"
-  sha256 "{{SHA256}}"
-  license "MIT"
-  head "https://github.com/{{OWNER}}/cliip-show.git", branch: "main"
 
-  depends_on :macos
-  depends_on "rust" => :build
+  depends_on macos: ">= :big_sur"
 
-  def install
-    system "cargo", "install", *std_cargo_args(path: ".")
+  app "Cliip Show.app"
+  binary "#{appdir}/Cliip Show.app/Contents/MacOS/cliip-show"
+
+  postflight do
+    system_command "/usr/bin/xattr", args: ["-cr", "#{appdir}/Cliip Show.app"]
   end
 
-  def caveats
-    <<~EOS
-      cliip-show manages its own auto-start. Launch it once:
-        #{opt_bin}/cliip-show
+  uninstall quit:      "io.github.somei-san.cliip-show",
+            launchctl: "io.github.somei-san.cliip-show"
 
-      Then open the menu bar icon > Settings... and check
-      "Automatically start at login" to enable auto-start.
-    EOS
-  end
+  caveats <<~EOS
+    #{token} is not signed with an Apple Developer ID.
+    The quarantine attribute has been automatically removed during installation.
 
-  test do
-    assert_equal version.to_s, shell_output("#{bin}/cliip-show --version").strip
-  end
+    Launch it from Spotlight or:
+      open -a "Cliip Show"
+  EOS
+
+  zap trash: [
+    "~/Library/Application Support/cliip-show",
+    "~/Library/LaunchAgents/io.github.somei-san.cliip-show.plist",
+    "~/Library/Logs/cliip-show.log",
+  ]
 end

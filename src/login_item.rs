@@ -107,6 +107,29 @@ pub fn enable() -> Result<(), AppError> {
     })
 }
 
+/// plist が実在しないパスを指していたら、今の実行ファイルへ向け直す。配布形態が
+/// 変わったユーザー（Homebrew の formula から cask へ移った、`.app` を別の場所へ
+/// 動かした）の自動起動が黙って止まるのを防ぐ。次回ログインから元に戻る。
+///
+/// plist を読めないときは自動起動が無効なだけなので、何もせず終える。
+pub fn repair_stale_plist() -> Result<(), AppError> {
+    let Some(path) = plist_path() else {
+        return Ok(());
+    };
+    let Ok(xml) = fs::read_to_string(&path) else {
+        return Ok(());
+    };
+    let current_exe = std::env::current_exe().map_err(|source| AppError::ConfigRead {
+        path: path.display().to_string(),
+        source,
+    })?;
+
+    if needs_repair(&xml, &current_exe, |p| p.exists()) {
+        enable()?;
+    }
+    Ok(())
+}
+
 /// `launchctl bootout` で読み込みを解除し、plist を削除する。
 ///
 /// `bootout` の失敗は警告に留めて plist の削除まで進める。エージェントが読み込まれていない
@@ -200,6 +223,54 @@ fn cellar_to_opt_path(exe: &Path) -> Option<PathBuf> {
     Some(opt_path)
 }
 
+/// plist の `ProgramArguments` の先頭に書かれた実行ファイルのパスを返す。
+/// `plist_xml` が書いた書式だけを読む。
+pub fn program_path_in_plist(xml: &str) -> Option<String> {
+    let after_key = xml.split_once("<key>ProgramArguments</key>")?.1;
+    let array = after_key.split_once("<array>")?.1;
+    let array = array.split_once("</array>")?.0;
+    let value = array.split_once("<string>")?.1.split_once("</string>")?.0;
+    Some(unescape_xml(value.trim()))
+}
+
+/// `/Applications` 配下にインストールされた `.app` の中の実行ファイルか。
+///
+/// 親ディレクトリ名まで見るのは、`target/bundle` に組み立てた動作確認用の `.app` を
+/// 弾くため。ビルドのたびに作り直されるパスを plist に書くと、次のビルドで自動起動が
+/// 黙って止まる。cask の `--appdir` を既定から変えている場合は書き直しが効かないが、
+/// 誤って壊すよりは何もしないほうを採る。
+fn is_installed_app_bundle(exe: &Path) -> bool {
+    exe.ancestors()
+        .find(|dir| dir.extension().is_some_and(|ext| ext == "app"))
+        .and_then(|app| app.parent())
+        .is_some_and(|parent| {
+            parent
+                .file_name()
+                .is_some_and(|name| name == "Applications")
+        })
+}
+
+/// plist を書き直すかを決める。書き直すのは、plist が指す実行ファイルが実在せず、
+/// かつ今の実行ファイルがインストール済みの `.app` の中にあるときだけ。
+///
+/// 書式を読めない plist は他のツールが作ったものの可能性があるので触らない。
+pub fn needs_repair(xml: &str, current_exe: &Path, exists: impl Fn(&Path) -> bool) -> bool {
+    if !is_installed_app_bundle(current_exe) {
+        return false;
+    }
+    program_path_in_plist(xml).is_some_and(|program| !exists(Path::new(&program)))
+}
+
+// `escape_xml` の逆。`&amp;` を最後に戻さないと、`&amp;lt;` が `<` に化ける
+fn unescape_xml(value: &str) -> String {
+    value
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+}
+
 fn escape_xml(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -244,8 +315,15 @@ pub fn plist_xml(executable: &Path, log_path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{plist_xml, stable_executable_path, LOGIN_ITEM_LABEL};
+    use super::LOGIN_ITEM_LABEL;
+    use super::{needs_repair, plist_xml, program_path_in_plist, stable_executable_path};
     use std::path::Path;
+
+    const APP_EXE: &str = "/Applications/Cliip Show.app/Contents/MacOS/cliip-show";
+
+    fn plist_pointing_at(executable: &str) -> String {
+        plist_xml(Path::new(executable), Path::new("/tmp/cliip-show.log"))
+    }
 
     #[test]
     fn cellar_path_converts_to_opt_path_when_it_exists() {
@@ -282,6 +360,73 @@ mod tests {
         assert!(xml.contains("<key>SuccessfulExit</key>"));
         assert!(xml.contains("<false/>"));
         assert!(xml.contains("<string>/Users/someone/Library/Logs/cliip-show.log</string>"));
+    }
+
+    #[test]
+    fn program_path_is_read_back_from_the_plist() {
+        let xml = plist_pointing_at("/opt/homebrew/bin/cliip-show");
+        assert_eq!(
+            program_path_in_plist(&xml).as_deref(),
+            Some("/opt/homebrew/bin/cliip-show")
+        );
+    }
+
+    // エスケープしたまま読み戻すと、実在するパスを「無い」と判定して毎回書き直してしまう
+    #[test]
+    fn program_path_round_trips_through_xml_escaping() {
+        let executable = "/Applications/A & <B> \"C\".app/Contents/MacOS/cliip-show";
+        let xml = plist_pointing_at(executable);
+        assert_eq!(program_path_in_plist(&xml).as_deref(), Some(executable));
+    }
+
+    #[test]
+    fn program_path_is_none_for_a_plist_without_program_arguments() {
+        assert_eq!(program_path_in_plist("<plist><dict/></plist>"), None);
+    }
+
+    #[test]
+    fn repair_is_needed_when_the_plist_points_at_a_missing_executable() {
+        let xml = plist_pointing_at("/opt/homebrew/bin/cliip-show");
+        assert!(needs_repair(&xml, Path::new(APP_EXE), |_| false));
+    }
+
+    #[test]
+    fn repair_is_skipped_when_the_plist_still_points_at_an_existing_executable() {
+        let xml = plist_pointing_at("/opt/homebrew/bin/cliip-show");
+        assert!(!needs_repair(&xml, Path::new(APP_EXE), |_| true));
+    }
+
+    // 開発ビルドを起動しただけで plist が target/debug を指すようになるのを防ぐ
+    #[test]
+    fn repair_is_skipped_when_the_running_executable_is_not_in_an_app_bundle() {
+        let xml = plist_pointing_at("/opt/homebrew/bin/cliip-show");
+        let exe = Path::new("/Users/someone/repo/target/debug/cliip-show");
+        assert!(!needs_repair(&xml, exe, |_| false));
+    }
+
+    // 動作確認用に組み立てた .app はビルドのたびに作り直されるので、plist に書かない
+    #[test]
+    fn repair_is_skipped_for_an_app_bundle_outside_applications() {
+        let xml = plist_pointing_at("/opt/homebrew/bin/cliip-show");
+        let exe =
+            Path::new("/Users/someone/repo/target/bundle/Cliip Show.app/Contents/MacOS/cliip-show");
+        assert!(!needs_repair(&xml, exe, |_| false));
+    }
+
+    #[test]
+    fn repair_is_needed_for_an_app_bundle_in_the_home_applications_folder() {
+        let xml = plist_pointing_at("/opt/homebrew/bin/cliip-show");
+        let exe = Path::new("/Users/someone/Applications/Cliip Show.app/Contents/MacOS/cliip-show");
+        assert!(needs_repair(&xml, exe, |_| false));
+    }
+
+    #[test]
+    fn repair_is_skipped_for_a_plist_this_app_did_not_write() {
+        assert!(!needs_repair(
+            "<plist><dict/></plist>",
+            Path::new(APP_EXE),
+            |_| false
+        ));
     }
 
     #[test]

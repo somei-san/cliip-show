@@ -3,6 +3,10 @@ fn main() {
         return;
     }
 
+    if let Err(error) = cliip_show::login_item::repair_stale_plist() {
+        eprintln!("warning: {error}");
+    }
+
     unsafe {
         use objc2::runtime::AnyObject;
         use objc2::{class, msg_send};

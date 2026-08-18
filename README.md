@@ -30,11 +30,28 @@ So here it is: Cliip Show, a macOS menu bar app that shows what you just copied 
 ## Install (Homebrew)
 
 ```bash
-brew install somei-san/tap/cliip-show
-cliip-show
+brew trust somei-san/tap
+brew install --cask somei-san/tap/cliip-show
+open -a "Cliip Show"
 ```
 
-`cliip-show` holds the terminal while it runs — a one-off launch that ends when you close the terminal. On startup it asks whether to start at login, and you can toggle that any time under "Start at login" in the settings window.
+`brew trust` is needed once. Homebrew 6 does not load casks from taps you have not trusted, and `brew upgrade` skips them without an error.
+
+Cliip Show is not signed with an Apple Developer ID, so the cask clears the quarantine attribute for you.
+
+On first launch it asks whether to start at login, and you can toggle that any time under "Start at login" in the settings window.
+
+### Coming from the formula
+
+The formula is replaced by the cask, so uninstall it first:
+
+```bash
+brew uninstall cliip-show
+brew install --cask somei-san/tap/cliip-show
+open -a "Cliip Show"
+```
+
+If you had start at login turned on, launching the app once points it at the new location.
 
 ## Links
 

@@ -5,7 +5,7 @@ macOS 専用（objc2 / AppKit 依存で `cargo test` も macOS でのみ通る�
 
 ## テスト
 
-コードを変更したあとは **UT と VRT と lint** を必ず確認すること。いずれも CI のゲートになっている。
+コードを変更したあとは **UT と VRT と lint と `.app` の組み立て** を必ず確認すること。いずれも CI のゲートになっている。
 
 ```bash
 # UT（ユニットテスト）
@@ -17,12 +17,15 @@ cargo test
 # lint（CI と同じ条件）
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
+
+# `.app` の組み立て
+./scripts/build_app_bundle.sh
 ```
 
 HUD を実機で見るなら `./scripts/local_check.sh`（オプションは `docs/development.md`）。
 
 ### 運用ルール
-- 通常の変更: 上記3つがすべて通ることを確認してからPRを出す
+- 通常の変更: 上記4つがすべて通ることを確認してからPRを出す
 - 意図したUI変更（HUD外観の変更など）: VRTのベースラインを更新する
   ```bash
   ./scripts/visual_regression.sh --update
@@ -58,6 +61,6 @@ UI 文言を README に書くときは `src/i18n.rs` の文言テーブルと一
 
 ## リリース
 
-`./scripts/release.sh <version>` でバージョン更新から `v*` タグの push までを行う。タグを起点に `release.yml` が GitHub Release の作成と [somei-san/homebrew-tap](https://github.com/somei-san/homebrew-tap) の Formula 更新まで実行する。
+`./scripts/release.sh <version>` でバージョン更新から `v*` タグの push までを行う。タグを起点に `release.yml` が `.app` のビルドと zip の添付、GitHub Release の作成、[somei-san/homebrew-tap](https://github.com/somei-san/homebrew-tap) の cask 更新まで実行する。
 
-Formula は `packaging/homebrew/cliip-show.rb.template` から自動生成されるが、tap の README は手書きなので追随しない。起動方法・設定コマンド・スクリーンショットを変えたら tap の README も更新すること。
+cask は `packaging/homebrew/cliip-show.rb.template` から自動生成されるが、tap の README は手書きなので追随しない。起動方法・設定コマンド・スクリーンショットを変えたら tap の README も更新すること。
