@@ -225,30 +225,50 @@ fn cellar_to_opt_path(exe: &Path) -> Option<PathBuf> {
 
 /// plist の `ProgramArguments` の先頭に書かれた実行ファイルのパスを返す。
 /// `plist_xml` が書いた書式だけを読む。
-pub fn program_path_in_plist(xml: &str) -> Option<&str> {
+pub fn program_path_in_plist(xml: &str) -> Option<String> {
     let after_key = xml.split_once("<key>ProgramArguments</key>")?.1;
     let array = after_key.split_once("<array>")?.1;
     let array = array.split_once("</array>")?.0;
     let value = array.split_once("<string>")?.1.split_once("</string>")?.0;
-    Some(value.trim())
+    Some(unescape_xml(value.trim()))
 }
 
-fn is_inside_app_bundle(exe: &Path) -> bool {
+/// `/Applications` 配下にインストールされた `.app` の中の実行ファイルか。
+///
+/// 親ディレクトリ名まで見るのは、`target/bundle` に組み立てた動作確認用の `.app` を
+/// 弾くため。ビルドのたびに作り直されるパスを plist に書くと、次のビルドで自動起動が
+/// 黙って止まる。cask の `--appdir` を既定から変えている場合は書き直しが効かないが、
+/// 誤って壊すよりは何もしないほうを採る。
+fn is_installed_app_bundle(exe: &Path) -> bool {
     exe.ancestors()
-        .any(|dir| dir.extension().is_some_and(|ext| ext == "app"))
+        .find(|dir| dir.extension().is_some_and(|ext| ext == "app"))
+        .and_then(|app| app.parent())
+        .is_some_and(|parent| {
+            parent
+                .file_name()
+                .is_some_and(|name| name == "Applications")
+        })
 }
 
 /// plist を書き直すかを決める。書き直すのは、plist が指す実行ファイルが実在せず、
-/// かつ今の実行ファイルが `.app` の中にあるときだけ。
+/// かつ今の実行ファイルがインストール済みの `.app` の中にあるときだけ。
 ///
-/// `.app` の中に限るのは、開発ビルドを起動しただけで plist が `target/debug` を
-/// 指すようになるのを防ぐため。書式を読めない plist は他のツールが作ったものの
-/// 可能性があるので触らない。
+/// 書式を読めない plist は他のツールが作ったものの可能性があるので触らない。
 pub fn needs_repair(xml: &str, current_exe: &Path, exists: impl Fn(&Path) -> bool) -> bool {
-    if !is_inside_app_bundle(current_exe) {
+    if !is_installed_app_bundle(current_exe) {
         return false;
     }
-    program_path_in_plist(xml).is_some_and(|program| !exists(Path::new(program)))
+    program_path_in_plist(xml).is_some_and(|program| !exists(Path::new(&program)))
+}
+
+// `escape_xml` の逆。`&amp;` を最後に戻さないと、`&amp;lt;` が `<` に化ける
+fn unescape_xml(value: &str) -> String {
+    value
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
 }
 
 fn escape_xml(value: &str) -> String {
@@ -346,9 +366,17 @@ mod tests {
     fn program_path_is_read_back_from_the_plist() {
         let xml = plist_pointing_at("/opt/homebrew/bin/cliip-show");
         assert_eq!(
-            program_path_in_plist(&xml),
+            program_path_in_plist(&xml).as_deref(),
             Some("/opt/homebrew/bin/cliip-show")
         );
+    }
+
+    // エスケープしたまま読み戻すと、実在するパスを「無い」と判定して毎回書き直してしまう
+    #[test]
+    fn program_path_round_trips_through_xml_escaping() {
+        let executable = "/Applications/A & <B> \"C\".app/Contents/MacOS/cliip-show";
+        let xml = plist_pointing_at(executable);
+        assert_eq!(program_path_in_plist(&xml).as_deref(), Some(executable));
     }
 
     #[test]
@@ -374,6 +402,22 @@ mod tests {
         let xml = plist_pointing_at("/opt/homebrew/bin/cliip-show");
         let exe = Path::new("/Users/someone/repo/target/debug/cliip-show");
         assert!(!needs_repair(&xml, exe, |_| false));
+    }
+
+    // 動作確認用に組み立てた .app はビルドのたびに作り直されるので、plist に書かない
+    #[test]
+    fn repair_is_skipped_for_an_app_bundle_outside_applications() {
+        let xml = plist_pointing_at("/opt/homebrew/bin/cliip-show");
+        let exe =
+            Path::new("/Users/someone/repo/target/bundle/Cliip Show.app/Contents/MacOS/cliip-show");
+        assert!(!needs_repair(&xml, exe, |_| false));
+    }
+
+    #[test]
+    fn repair_is_needed_for_an_app_bundle_in_the_home_applications_folder() {
+        let xml = plist_pointing_at("/opt/homebrew/bin/cliip-show");
+        let exe = Path::new("/Users/someone/Applications/Cliip Show.app/Contents/MacOS/cliip-show");
+        assert!(needs_repair(&xml, exe, |_| false));
     }
 
     #[test]
