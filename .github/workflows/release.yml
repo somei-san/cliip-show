@@ -9,28 +9,50 @@ permissions:
   contents: write
 
 jobs:
+  # cask で配る .app を作るため、Release も macOS ランナーで回す
   release:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Extract version from tag
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Download tarball and compute SHA256
-        id: tarball
+      # Info.plist のバージョンは Cargo.toml から採るため、タグとずれると
+      # cask のバージョンとアプリのバージョンが食い違う
+      - name: Verify Cargo.toml matches the tag
         run: |
-          URL="https://github.com/${{ github.repository }}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
-          curl -fsSL "$URL" -o /tmp/release.tar.gz
-          SHA256=$(sha256sum /tmp/release.tar.gz | awk '{print $1}')
+          VERSION="${{ steps.version.outputs.version }}"
+          CARGO_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if [ "$VERSION" != "$CARGO_VERSION" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${CARGO_VERSION}" >&2
+            exit 1
+          fi
+
+      - name: Build the app bundle
+        run: ./scripts/build_app_bundle.sh
+
+      - name: Pack the app bundle and compute SHA256
+        id: asset
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ASSET="Cliip-Show-${VERSION}-universal.zip"
+          # ditto はシンボリックリンクと拡張属性を保つ。zip だと署名が壊れる
+          ditto -c -k --keepParent "target/bundle/Cliip Show.app" "$ASSET"
+          SHA256=$(shasum -a 256 "$ASSET" | awk '{print $1}')
+          echo "path=$ASSET" >> "$GITHUB_OUTPUT"
           echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         run: |
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
-            --generate-notes
+            --generate-notes \
+            "${{ steps.asset.outputs.path }}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -39,21 +61,23 @@ jobs:
           TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          SHA256="${{ steps.tarball.outputs.sha256 }}"
+          SHA256="${{ steps.asset.outputs.sha256 }}"
           OWNER="${{ github.repository_owner }}"
 
           git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/${OWNER}/homebrew-tap.git" /tmp/homebrew-tap
-          mkdir -p /tmp/homebrew-tap/Formula
+          mkdir -p /tmp/homebrew-tap/Casks
 
           sed \
             -e "s/{{OWNER}}/${OWNER}/g" \
             -e "s/{{VERSION}}/${VERSION}/g" \
             -e "s/{{SHA256}}/${SHA256}/g" \
-            packaging/homebrew/cliip-show.rb.template > /tmp/homebrew-tap/Formula/cliip-show.rb
+            packaging/homebrew/cliip-show.rb.template > /tmp/homebrew-tap/Casks/cliip-show.rb
 
           cd /tmp/homebrew-tap
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/cliip-show.rb
+          # formula と cask が同名で並ぶと brew install がどちらを選ぶか分からなくなる
+          git rm --ignore-unmatch -f Formula/cliip-show.rb
+          git add Casks/cliip-show.rb
           git commit -m "Update cliip-show to ${VERSION}"
           git push

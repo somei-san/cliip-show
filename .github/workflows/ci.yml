@@ -26,6 +26,10 @@ jobs:
         run: cargo fmt --check
       - name: Run clippy
         run: cargo clippy --all-targets -- -D warnings
+      # cask で配る成果物の組み立ては release.yml でしか動かないため、
+      # ここで壊れていないことだけ見る（universal binary は Release 側で作る）
+      - name: Build the app bundle
+        run: ./scripts/build_app_bundle.sh --host-only
 
   # cargo test と VRT はビルド成果物を共有できるよう同一 job にまとめている
   visual-regression:
