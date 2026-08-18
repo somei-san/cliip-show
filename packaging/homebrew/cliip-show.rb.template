@@ -20,11 +20,11 @@ cask "cliip-show" do
             launchctl: "io.github.somei-san.cliip-show"
 
   caveats <<~EOS
+    Launch it once from Spotlight, or:
+      open -a "Cliip Show"
+
     #{token} is not signed with an Apple Developer ID.
     The quarantine attribute has been automatically removed during installation.
-
-    Launch it from Spotlight or:
-      open -a "Cliip Show"
   EOS
 
   zap trash: [
