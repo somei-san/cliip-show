@@ -245,7 +245,7 @@ extern "C" fn open_settings(this: &AnyObject, _: Sel, _: *mut AnyObject) {
             // state.settings が外部から変わっていても、開き直せば食い違わない。
             state.settings_controls.draft = state.settings.clone();
             crate::settings_window::sync_controls_from_settings(
-                &state.settings_controls,
+                &mut state.settings_controls,
                 &state.settings,
             );
             // ログイン項目は設定ファイルではなく OS 側の状態なので、下書きとは別に毎回同期する。
@@ -404,9 +404,9 @@ extern "C" fn window_will_close(_: &AnyObject, _: Sel, notification: *mut AnyObj
     }
 }
 
-/// 絵文字フィールドの入力中バリデーション表示を更新する。
+/// 設定ウィンドウのテキストフィールドの入力中フィルタ・バリデーションを行う。
 ///
-/// `sync_controls_from_settings` 等がロック保持中にこのフィールドへ `setStringValue:` すると、
+/// `sync_controls_from_settings` 等がロック保持中にフィールドへ `setStringValue:` すると、
 /// それがこの通知を同期的に誘発して再入しうる。`try_lock` で失敗時は何もせず戻ることで、
 /// プログラム側の更新中の再入ハングを避ける（その場合は更新側が表示の同期を担う）。
 extern "C" fn control_text_did_change(_: &AnyObject, _: Sel, notification: *mut AnyObject) {
@@ -423,11 +423,8 @@ extern "C" fn control_text_did_change(_: &AnyObject, _: Sel, notification: *mut 
         } else {
             msg_send![notification, object]
         };
-        if object != state.settings_controls.hud_emoji_field {
-            return;
-        }
 
-        crate::settings_window::update_emoji_validation_message(state);
+        crate::settings_window::handle_text_change(state, object);
     }
 }
 
@@ -487,6 +484,27 @@ mod tests {
             sel!(quitApp:),
             sel!(hideHud:),
             sel!(fadeTick:),
+        ] {
+            assert!(
+                class.responds_to(selector),
+                "delegate does not respond to {selector:?}"
+            );
+        }
+    }
+
+    /// 設定ウィンドウのボタン・コントロールが送るセレクタの分。`controlTextDidChange:` は
+    /// `make_editable_field`（rows.rs）が `setDelegate:` した全フィールドから届く。
+    #[test]
+    fn delegate_responds_to_settings_window_selectors() {
+        let class = get_delegate_class();
+        for selector in [
+            sel!(settingChanged:),
+            sel!(resetSettings:),
+            sel!(previewSettings:),
+            sel!(saveSettings:),
+            sel!(toggleLoginItem:),
+            sel!(windowWillClose:),
+            sel!(controlTextDidChange:),
         ] {
             assert!(
                 class.responds_to(selector),

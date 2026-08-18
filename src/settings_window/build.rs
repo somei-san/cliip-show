@@ -368,7 +368,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         placeholder.hud_background_color.as_str(),
         &mut localized,
     );
-    let (hud_emoji_field, hud_emoji_message_label) = add_field_row(
+    let (hud_emoji_field, _hud_emoji_message_label) = add_field_row(
         document_view,
         content_view,
         delegate,
@@ -462,7 +462,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         hud_position_popup,
         hud_background_color_popup,
         hud_emoji_field,
-        hud_emoji_message_label,
+        hud_emoji_shadow: placeholder.hud_emoji.clone(),
         language_popup,
         login_item_toggle,
         draft: placeholder,

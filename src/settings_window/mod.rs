@@ -1,4 +1,5 @@
 mod build;
+mod input_filter;
 mod rows;
 mod sync;
 
@@ -12,9 +13,8 @@ use crate::i18n::Msg;
 pub use build::build_settings_window;
 pub(crate) use build::{TAB_INDEX_SETTINGS, TAB_INDEX_SUPPORT};
 pub use sync::{
-    apply_language, apply_setting_change, preview_settings, reset_settings, save_settings,
-    sync_controls_from_settings, sync_language_popup, sync_login_item_toggle,
-    update_emoji_validation_message,
+    apply_language, apply_setting_change, handle_text_change, preview_settings, reset_settings,
+    save_settings, sync_controls_from_settings, sync_language_popup, sync_login_item_toggle,
 };
 
 /// 言語切り替えで表示テキストを差し替える対象コントロール。
@@ -53,8 +53,11 @@ pub struct SettingsControls {
     pub hud_position_popup: *mut AnyObject,
     pub hud_background_color_popup: *mut AnyObject,
     pub hud_emoji_field: *mut AnyObject,
-    /// 絵文字フィールドの入力中バリデーションメッセージ。妥当なときは空文字。
-    pub hud_emoji_message_label: *mut AnyObject,
+    /// 絵文字フィールドに最後に書き込んだ妥当な内容。`hud_emoji_field` へプログラムから
+    /// 書く箇所（`sync_controls_from_settings`・`apply_setting_change` の Err 分岐・
+    /// `handle_text_change`）は、食い違いが起きないよう必ずここも一緒に更新すること。
+    /// 不正な入力を検出したときフィールドを丸ごと戻す先として使う（`handle_text_change`）。
+    pub hud_emoji_shadow: String,
     /// 表示言語のポップアップ。他の設定行と違い下書き→保存のモデルには乗らず、選択した瞬間に
     /// 設定ファイルへ保存する（`apply_language_setting_change`）。
     pub language_popup: *mut AnyObject,
@@ -76,7 +79,10 @@ pub struct SettingsControls {
 
 impl Default for SettingsControls {
     fn default() -> Self {
+        let draft = default_display_settings();
         Self {
+            hud_emoji_shadow: draft.hud_emoji.clone(),
+            draft,
             window: ptr::null_mut(),
             poll_interval_slider: ptr::null_mut(),
             poll_interval_value_label: ptr::null_mut(),
@@ -95,10 +101,8 @@ impl Default for SettingsControls {
             hud_position_popup: ptr::null_mut(),
             hud_background_color_popup: ptr::null_mut(),
             hud_emoji_field: ptr::null_mut(),
-            hud_emoji_message_label: ptr::null_mut(),
             language_popup: ptr::null_mut(),
             login_item_toggle: ptr::null_mut(),
-            draft: default_display_settings(),
             preview_sample_index: 0,
             localized: Vec::new(),
         }

@@ -154,6 +154,8 @@ unsafe fn make_slider(
     slider
 }
 
+/// 編集可能な `NSTextField` を作る。`setDelegate:` により `controlTextDidChange:`
+/// （入力中フィルタ・バリデーション）を受け取れるようにする。
 unsafe fn make_editable_field(
     text: &str,
     tag: isize,
@@ -168,6 +170,7 @@ unsafe fn make_editable_field(
     let () = msg_send![field, setTag: tag];
     let () = msg_send![field, setTarget: delegate];
     let () = msg_send![field, setAction: sel!(settingChanged:)];
+    let () = msg_send![field, setDelegate: delegate];
     field
 }
 
@@ -459,9 +462,9 @@ pub(super) unsafe fn add_language_row(
     popup
 }
 
-/// 絵文字フィールド専用の行。入力中バリデーションのため `controlTextDidChange:` を
-/// 受け取れるよう `setDelegate:` し、メッセージラベルを追加する。ラベルの位置は
-/// 行の並びではなくウィンドウ下端が基準（`SETTINGS_EMOJI_MESSAGE_HEIGHT`）。
+/// 絵文字フィールド専用の行。`controlTextDidChange:` は `make_editable_field` が
+/// `setDelegate:` 済みなので受け取れる。メッセージラベルの位置は行の並びではなく
+/// ウィンドウ下端が基準（`SETTINGS_EMOJI_MESSAGE_HEIGHT`）。
 ///
 /// 行（label/field）はスクロールする documentView（`document_view`）へ、
 /// メッセージラベルはスクロールしないペイン（`pane_view`）へ addSubview する。
@@ -504,7 +507,6 @@ pub(super) unsafe fn add_field_row(
 
     let label = make_label(i18n::text(lang, label_msg), label_rect);
     let field = make_editable_field(value, config_key_to_tag(key), field_rect, delegate);
-    let () = msg_send![field, setDelegate: delegate];
 
     let message_label = make_label("", message_rect);
     let red: *mut AnyObject = msg_send![class!(NSColor), systemRedColor];

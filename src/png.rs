@@ -125,7 +125,7 @@ pub fn render_settings_png(pane: SettingsPane, output_path: &str) -> Result<(), 
 
         // アクションは一切発火させないので、AppState 未初期化の素の delegate でよい
         let delegate: *mut AnyObject = msg_send![crate::app::get_delegate_class(), new];
-        let controls = crate::settings_window::build_settings_window(&*delegate, lang);
+        let mut controls = crate::settings_window::build_settings_window(&*delegate, lang);
         if controls.window.is_null() {
             let () = msg_send![delegate, release];
             return Err(AppError::RenderFailed(
@@ -133,7 +133,7 @@ pub fn render_settings_png(pane: SettingsPane, output_path: &str) -> Result<(), 
             ));
         }
         // プレースホルダ（既定値）のままではなく、環境変数まで効かせた実効設定を写す
-        crate::settings_window::sync_controls_from_settings(&controls, &settings);
+        crate::settings_window::sync_controls_from_settings(&mut controls, &settings);
         // 自動起動トグルは CLIIP_SHOW_* で上書きできず、実行マシンの LaunchAgent の有無が
         // 写り込む。ベースラインを環境非依存にするため OFF に固定する
         let () = msg_send![controls.login_item_toggle, setState: 0isize];
