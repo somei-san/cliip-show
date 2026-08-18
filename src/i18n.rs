@@ -144,8 +144,8 @@ pub fn text(lang: Lang, msg: Msg) -> &'static str {
             "Maximum number of lines shown. Extra lines are truncated.",
         ),
         Msg::TooltipHudImageMaxHeight => (
-            "画像プレビューのサムネイル高さの上限（px）。",
-            "Maximum thumbnail height for image previews (px).",
+            "画像プレビューのサムネイル高さの上限（px）。実際の上限はこの値に HUDサイズ倍率を掛けた値になります。",
+            "Maximum thumbnail height for image previews (px). The actual limit is this value multiplied by the HUD scale.",
         ),
         Msg::TooltipHudEmoji => (
             "HUD の左端に表示するアイコン絵文字。絵文字1文字だけ入力できます。空にするとアイコンは出ません。",

@@ -301,7 +301,9 @@ pub(super) unsafe fn add_slider_row(
         slider_rect,
         delegate,
     );
-    set_tool_tip(slider, &tooltip_text(lang, tooltip_msg));
+    let tooltip = tooltip_text(lang, tooltip_msg);
+    set_tool_tip(label, &tooltip);
+    set_tool_tip(slider, &tooltip);
     let value_label = make_label(&format!("{value:.2}"), value_rect);
 
     let () = msg_send![document_view, addSubview: label];
@@ -312,6 +314,11 @@ pub(super) unsafe fn add_slider_row(
         control: label,
         msg: label_msg,
         kind: LocalizedKind::StringValue,
+    });
+    localized.push(LocalizedControl {
+        control: label,
+        msg: tooltip_msg,
+        kind: LocalizedKind::ToolTip,
     });
     localized.push(LocalizedControl {
         control: slider,
@@ -368,6 +375,7 @@ pub(super) unsafe fn add_stepper_row(
         delegate,
     );
     let tooltip = tooltip_text(lang, tooltip_msg);
+    set_tool_tip(label, &tooltip);
     set_tool_tip(field, &tooltip);
     set_tool_tip(stepper, &tooltip);
 
@@ -379,6 +387,11 @@ pub(super) unsafe fn add_stepper_row(
         control: label,
         msg: label_msg,
         kind: LocalizedKind::StringValue,
+    });
+    localized.push(LocalizedControl {
+        control: label,
+        msg: tooltip_msg,
+        kind: LocalizedKind::ToolTip,
     });
     localized.push(LocalizedControl {
         control: field,
@@ -516,7 +529,9 @@ pub(super) unsafe fn add_field_row(
 
     let label = make_label(i18n::text(lang, label_msg), label_rect);
     let field = make_editable_field(value, config_key_to_tag(key), field_rect, delegate);
-    set_tool_tip(field, &tooltip_text(lang, tooltip_msg));
+    let tooltip = tooltip_text(lang, tooltip_msg);
+    set_tool_tip(label, &tooltip);
+    set_tool_tip(field, &tooltip);
 
     let () = msg_send![document_view, addSubview: label];
     let () = msg_send![document_view, addSubview: field];
@@ -525,6 +540,11 @@ pub(super) unsafe fn add_field_row(
         control: label,
         msg: label_msg,
         kind: LocalizedKind::StringValue,
+    });
+    localized.push(LocalizedControl {
+        control: label,
+        msg: tooltip_msg,
+        kind: LocalizedKind::ToolTip,
     });
     localized.push(LocalizedControl {
         control: field,
