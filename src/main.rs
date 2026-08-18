@@ -26,6 +26,9 @@ fn main() {
         let delegate_class = cliip_show::app::get_delegate_class();
         let delegate: *mut AnyObject = msg_send![delegate_class, new];
         let () = msg_send![app, setDelegate: delegate];
+        // 2 つ目のインスタンスは起動をやめる直前に依頼を投げる。run より前に購読して
+        // おかないと、ロックを取ってから購読するまでの間に来た依頼を取りこぼす
+        cliip_show::single_instance::observe_activation_requests(delegate);
         let () = msg_send![app, run];
     }
 }

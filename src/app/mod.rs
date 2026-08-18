@@ -194,10 +194,6 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
             delegate: this as *const AnyObject as *mut AnyObject,
         });
 
-        crate::single_instance::observe_activation_requests(
-            this as *const AnyObject as *mut AnyObject,
-        );
-
         // runModal は実行ループを止めるため、他の経路がロック待ちで固まらないよう
         // APP_STATE のロックを手放した後（上の代入文で既に解放済み）に呼ぶ。
         panels::prompt_login_item_if_needed(lang);
@@ -274,13 +270,19 @@ extern "C" fn open_settings(this: &AnyObject, _: Sel, _: *mut AnyObject) {
                 let lang = i18n::resolve(state.settings.language);
                 state.settings_controls = crate::settings_window::build_settings_window(this, lang);
             }
-            // 下書きは開くたびに現在の実効設定へ合わせる。ファイル監視の再読み込み等で
-            // state.settings が外部から変わっていても、開き直せば食い違わない。
-            state.settings_controls.draft = state.settings.clone();
-            crate::settings_window::sync_controls_from_settings(
-                &mut state.settings_controls,
-                &state.settings,
-            );
+
+            // 既に開いているウィンドウは前面に出すだけにする。他のインスタンスの起動でも
+            // ここへ来るため、下書きを作り直すと編集中の内容がユーザーの操作なしに消える。
+            let already_visible: bool = msg_send![state.settings_controls.window, isVisible];
+            if !already_visible {
+                // 下書きは開くたびに現在の実効設定へ合わせる。ファイル監視の再読み込み等で
+                // state.settings が外部から変わっていても、開き直せば食い違わない。
+                state.settings_controls.draft = state.settings.clone();
+                crate::settings_window::sync_controls_from_settings(
+                    &mut state.settings_controls,
+                    &state.settings,
+                );
+            }
             // ログイン項目は設定ファイルではなく OS 側の状態なので、下書きとは別に毎回同期する。
             crate::settings_window::sync_login_item_toggle(&state.settings_controls);
             state.settings_controls.window

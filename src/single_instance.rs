@@ -4,8 +4,13 @@
 //! 二重起動を止めるため、ここで相手にするのはバンドル内の実行ファイルを直接叩いた
 //! 経路（cask が張る `cliip-show` の symlink・LaunchAgent・スクリプト）だけ。
 //!
-//! 既に動いているインスタンスを見つけたら、前面化を頼んで自分は終了する。頼み事は
-//! `NSDistributedNotificationCenter` で送り、受けた側は設定ウィンドウを開く。
+//! 起動できるのはロックファイルの排他ロックを取れたプロセスだけ。取れなかった側は
+//! 前面化を頼んで終了する。頼み事は `NSDistributedNotificationCenter` で送り、
+//! 受けた側は設定ウィンドウを開く。
+
+use std::fs::OpenOptions;
+use std::os::unix::io::AsRawFd;
+use std::path::{Path, PathBuf};
 
 use objc2::runtime::AnyObject;
 use objc2::{class, msg_send, sel};
@@ -14,13 +19,14 @@ use objc2_foundation::NSString;
 /// 前面化を頼む通知の名前。通知センターはシステム全体で共有なので bundle id で名前空間を切る。
 pub const ACTIVATE_NOTIFICATION: &str = "io.github.somei-san.cliip-show.activate";
 
-/// 自分以外の pid を返す。
-///
-/// 列挙には自分自身も含まれる。バンドルから起動していれば自分が載る前に呼ばれることも
-/// あるので、載っていないケースも通す。
-fn other_pid(pids: &[i32], own_pid: i32) -> Option<i32> {
-    pids.iter().copied().find(|pid| *pid != own_pid)
+const LOCK_FILE_NAME: &str = ".instance-lock";
+
+extern "C" {
+    fn flock(fd: i32, operation: i32) -> i32;
 }
+
+/// `LOCK_EX | LOCK_NB`。待たずに取れなければ失敗させる。
+const LOCK_EXCLUSIVE_NONBLOCKING: i32 = 2 | 4;
 
 /// 自分の bundle id。バンドルの外から起動した開発ビルドでは null になる。
 ///
@@ -34,48 +40,58 @@ unsafe fn bundle_identifier() -> *mut AnyObject {
     msg_send![bundle, bundleIdentifier]
 }
 
-/// 同じ bundle id で動いているプロセスの pid を集める。
+/// ロックファイルは設定ファイルと同じディレクトリに置く
+/// （`CLIIP_SHOW_CONFIG_PATH` で配置先が変わるため決め打ちしない）。
+fn lock_path() -> Option<PathBuf> {
+    let config_path = crate::config::config_file_path().ok()?;
+    Some(config_path.parent()?.join(LOCK_FILE_NAME))
+}
+
+/// 排他ロックを取れたら `true`。取れなければ他のインスタンスが動いている。
 ///
-/// バンドルの外から起動した開発ビルドは bundle id を持たないため空になり、
-/// 二重起動の抑止も前面化も働かない。インストール済みのアプリを開発ビルドが
-/// 止めてしまわないよう、これは意図した挙動。
+/// `flock` はプロセスが死ねばカーネルが外すので、クラッシュしてもロックが残らない。
+/// ロックの取得を open と同時に済ませられるため、ログイン時に launchd が 2 つの
+/// エージェントを同時に立ち上げても、勝つのは必ず 1 つだけになる。
 ///
-/// # Safety
-/// AppKit のメインスレッドから呼ぶこと。
-unsafe fn running_pids() -> Vec<i32> {
-    let identifier = bundle_identifier();
-    if identifier.is_null() {
-        return Vec::new();
+/// パスを決められない・ファイルを開けないときは `true` を返す。二重起動の抑止より
+/// アプリが起動することを優先する。
+fn acquire_lock() -> bool {
+    lock_path().is_none_or(|path| acquire_lock_at(&path))
+}
+
+fn acquire_lock_at(path: &Path) -> bool {
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let Ok(file) = OpenOptions::new().create(true).append(true).open(path) else {
+        return true;
+    };
+
+    // SAFETY: 開いたばかりの有効な fd を渡している
+    if unsafe { flock(file.as_raw_fd(), LOCK_EXCLUSIVE_NONBLOCKING) } != 0 {
+        return false;
     }
 
-    let apps: *mut AnyObject = msg_send![
-        class!(NSRunningApplication),
-        runningApplicationsWithBundleIdentifier: identifier
-    ];
-    if apps.is_null() {
-        return Vec::new();
-    }
-
-    let count: usize = msg_send![apps, count];
-    (0..count)
-        .map(|index| {
-            let app: *mut AnyObject = msg_send![apps, objectAtIndex: index];
-            let pid: i32 = msg_send![app, processIdentifier];
-            pid
-        })
-        .collect()
+    // ファイルを閉じるとロックも外れる。プロセスが終わるまで開いたままにする
+    std::mem::forget(file);
+    true
 }
 
 /// 既に動いているインスタンスがあれば前面化を頼み、`true` を返す。
 /// 呼び出し側は `true` なら起動をやめる。
 ///
+/// バンドルの外から起動した開発ビルドはロックを取りに行かない。`cargo run` が
+/// インストール済みのアプリと同じロックを奪い合って落ちるのを防ぐため。
+///
 /// # Safety
 /// AppKit のメインスレッドから呼ぶこと。
 pub unsafe fn activate_existing_instance() -> bool {
-    let own_pid = std::process::id() as i32;
-    let Some(pid) = other_pid(&running_pids(), own_pid) else {
+    if bundle_identifier().is_null() {
         return false;
-    };
+    }
+    if acquire_lock() {
+        return false;
+    }
 
     let center: *mut AnyObject = msg_send![class!(NSDistributedNotificationCenter), defaultCenter];
     let name = NSString::from_str(ACTIVATE_NOTIFICATION);
@@ -88,15 +104,17 @@ pub unsafe fn activate_existing_instance() -> bool {
         deliverImmediately: true
     ];
 
-    eprintln!("cliip-show is already running (pid {pid})");
+    eprintln!("cliip-show is already running");
     true
 }
 
 /// 他のインスタンスからの前面化依頼を受け取れるようにする。
 /// 依頼は `openSettings:` に流し、設定ウィンドウを開いて前面に出す。
 ///
-/// 開発ビルドは購読しない。検出側で対象外にしているのと揃えて、`cargo run` 中に
-/// インストール済みのアプリを起動しても開発ビルドの設定ウィンドウが開かないようにする。
+/// 依頼はロックを取れなかった側が投げるので、ロックを取った直後から受け取れないと
+/// 取りこぼす。`applicationDidFinishLaunching:` を待たず、`run` の前に登録すること。
+///
+/// 開発ビルドは購読しない。ロックを取りに行かないのと揃える。
 ///
 /// # Safety
 /// AppKit のメインスレッドから、AppDelegate を渡して呼ぶこと。
@@ -118,32 +136,42 @@ pub unsafe fn observe_activation_requests(delegate: *mut AnyObject) {
 
 #[cfg(test)]
 mod tests {
-    use super::{other_pid, ACTIVATE_NOTIFICATION};
+    use super::{acquire_lock_at, lock_path, ACTIVATE_NOTIFICATION, LOCK_FILE_NAME};
+    use std::path::PathBuf;
 
-    #[test]
-    fn no_other_instance_when_the_list_holds_only_this_process() {
-        assert_eq!(other_pid(&[42], 42), None);
-    }
-
-    #[test]
-    fn no_other_instance_when_the_list_is_empty() {
-        assert_eq!(other_pid(&[], 42), None);
-    }
-
-    // 自分が列挙に載る前に呼ばれることがある
-    #[test]
-    fn another_instance_is_found_when_this_process_is_not_listed_yet() {
-        assert_eq!(other_pid(&[7], 42), Some(7));
-    }
-
-    #[test]
-    fn another_instance_is_found_next_to_this_process() {
-        assert_eq!(other_pid(&[42, 7], 42), Some(7));
+    fn scratch_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("cliip-show-test-{name}"))
     }
 
     // システム全体の通知センターを使うため、名前が衝突すると他アプリの通知を拾う
     #[test]
     fn the_notification_name_is_namespaced_by_the_bundle_identifier() {
         assert!(ACTIVATE_NOTIFICATION.starts_with(crate::login_item::LOGIN_ITEM_LABEL));
+    }
+
+    // 設定ファイルと同じディレクトリに置く。cask の zap で設定ごと消える位置
+    #[test]
+    fn the_lock_sits_next_to_the_config_file() {
+        let lock = lock_path().expect("lock path");
+        let config = crate::config::config_file_path().expect("config path");
+        assert_eq!(lock.parent(), config.parent());
+        assert_eq!(lock.file_name().unwrap(), LOCK_FILE_NAME);
+    }
+
+    // flock は同じプロセスでも別の fd 同士なら衝突する。2 つ目のインスタンスが
+    // 起動をやめる判断は、この衝突だけを根拠にしている
+    #[test]
+    fn the_second_lock_on_the_same_file_is_refused() {
+        let path = scratch_path("second-lock");
+        let _ = std::fs::remove_file(&path);
+        assert!(acquire_lock_at(&path));
+        assert!(!acquire_lock_at(&path));
+    }
+
+    // ロックの置き場所を作れないときは、抑止よりアプリが起動することを優先する
+    #[test]
+    fn an_unusable_lock_path_does_not_stop_the_app() {
+        let path = scratch_path("unusable/../unusable-file/lock");
+        assert!(acquire_lock_at(&path));
     }
 }
