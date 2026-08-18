@@ -347,6 +347,7 @@ mod tests {
             Msg::LoginPromptMessage,
             Msg::SettingsTitle,
             Msg::SupportMessage,
+            Msg::LaunchNotice,
         ] {
             for lang in [Lang::Ja, Lang::En] {
                 let rendered = text(lang, msg);

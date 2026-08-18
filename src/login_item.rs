@@ -115,6 +115,9 @@ pub fn enable() -> Result<(), AppError> {
 /// 配布形態が変わったユーザー（Homebrew の formula から cask へ移った、`.app` を別の
 /// 場所へ動かした）の自動起動が黙って止まるのを防ぐ。次回ログインから効く。
 ///
+/// `enable` が plist を丸ごと生成し直すため、手で足したキーは残らない。plist の管理は
+/// アプリに寄せる方針（モジュールの説明を参照）に沿う。
+///
 /// plist を読めないときは自動起動が無効なだけなので、何もせず終える。
 pub fn repair_stale_plist() -> Result<(), AppError> {
     let Some(path) = plist_path() else {
@@ -251,11 +254,6 @@ pub fn program_arguments_in_plist(xml: &str) -> Option<Vec<String>> {
     Some(arguments)
 }
 
-/// plist の `ProgramArguments` の先頭に書かれた実行ファイルのパスを返す。
-pub fn program_path_in_plist(xml: &str) -> Option<String> {
-    program_arguments_in_plist(xml)?.into_iter().next()
-}
-
 /// `/Applications` 配下にインストールされた `.app` の中の実行ファイルか。
 ///
 /// 親ディレクトリ名まで見るのは、`target/bundle` に組み立てた動作確認用の `.app` を
@@ -273,23 +271,24 @@ fn is_installed_app_bundle(exe: &Path) -> bool {
         })
 }
 
-/// plist を書き直すかを決める。書き直すのは、今の実行ファイルがインストール済みの
-/// `.app` の中にあり、かつ plist が指す実行ファイルが実在しないか `LOGIN_FLAG` を
-/// 持たないとき。
+/// plist を書き直すかを決める。書き直すのは、plist が指す実行ファイルが実在しないか
+/// `LOGIN_FLAG` を持たないとき。
+///
+/// ただし今の実行ファイルを指していない plist は、インストール済みの `.app` から
+/// 起動したときしか書き直さない。開発ビルドのパスを焼き付けないため。
 ///
 /// 書式を読めない plist は他のツールが作ったものの可能性があるので触らない。判定は
 /// `program_arguments_in_plist` が `Some` を返した中だけで行う。
 ///
 /// `current_exe` はシンボリックリンクを解決してから渡すこと。
 pub fn needs_repair(xml: &str, current_exe: &Path, exists: impl Fn(&Path) -> bool) -> bool {
-    if !is_installed_app_bundle(current_exe) {
-        return false;
-    }
     program_arguments_in_plist(xml).is_some_and(|arguments| {
-        let program_is_missing = arguments
-            .first()
-            .is_some_and(|program| !exists(Path::new(program)));
-        program_is_missing || !arguments.iter().any(|argument| argument == LOGIN_FLAG)
+        let program = arguments.first().map(Path::new);
+        if program != Some(current_exe) && !is_installed_app_bundle(current_exe) {
+            return false;
+        }
+        program.is_some_and(|program| !exists(program))
+            || !arguments.iter().any(|argument| argument == LOGIN_FLAG)
     })
 }
 
@@ -358,16 +357,21 @@ pub fn plist_xml(executable: &Path, log_path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::{launched_with_login_flag, LOGIN_FLAG, LOGIN_ITEM_LABEL};
-    use super::{
-        needs_repair, plist_xml, program_arguments_in_plist, program_path_in_plist,
-        stable_executable_path,
-    };
+    use super::{needs_repair, plist_xml, program_arguments_in_plist, stable_executable_path};
     use std::path::Path;
 
     const APP_EXE: &str = "/Applications/Cliip Show.app/Contents/MacOS/cliip-show";
 
     fn plist_pointing_at(executable: &str) -> String {
         plist_xml(Path::new(executable), Path::new("/tmp/cliip-show.log"))
+    }
+
+    /// `LOGIN_FLAG` を書くようになる前の plist。
+    fn plist_without_login_flag(executable: &str) -> String {
+        let xml = plist_pointing_at(executable)
+            .replace(&format!("\t\t<string>{LOGIN_FLAG}</string>\n"), "");
+        assert!(!xml.contains(LOGIN_FLAG), "フラグを外せていない");
+        xml
     }
 
     #[test]
@@ -407,26 +411,33 @@ mod tests {
         assert!(xml.contains("<string>/Users/someone/Library/Logs/cliip-show.log</string>"));
     }
 
+    // エスケープしたまま読み戻すと、実在するパスを「無い」と判定して毎回書き直してしまう
     #[test]
-    fn program_path_is_read_back_from_the_plist() {
-        let xml = plist_pointing_at("/opt/homebrew/bin/cliip-show");
+    fn program_arguments_round_trip_through_xml_escaping() {
+        let executable = "/Applications/A & <B> \"C\".app/Contents/MacOS/cliip-show";
+        let xml = plist_pointing_at(executable);
         assert_eq!(
-            program_path_in_plist(&xml).as_deref(),
-            Some("/opt/homebrew/bin/cliip-show")
+            program_arguments_in_plist(&xml).as_deref(),
+            Some([executable.to_string(), LOGIN_FLAG.to_string()].as_slice())
         );
     }
 
-    // エスケープしたまま読み戻すと、実在するパスを「無い」と判定して毎回書き直してしまう
     #[test]
-    fn program_path_round_trips_through_xml_escaping() {
-        let executable = "/Applications/A & <B> \"C\".app/Contents/MacOS/cliip-show";
-        let xml = plist_pointing_at(executable);
-        assert_eq!(program_path_in_plist(&xml).as_deref(), Some(executable));
+    fn program_arguments_are_none_for_a_plist_without_program_arguments() {
+        assert_eq!(program_arguments_in_plist("<plist><dict/></plist>"), None);
     }
 
+    // 中身の無い配列と閉じていない <string> は、いずれも書式を読めない plist として扱う。
+    // ここが Some を返すと、他のツールが置いた plist を書き直してしまう
     #[test]
-    fn program_path_is_none_for_a_plist_without_program_arguments() {
-        assert_eq!(program_path_in_plist("<plist><dict/></plist>"), None);
+    fn program_arguments_are_none_for_a_malformed_array() {
+        let empty = "<key>ProgramArguments</key><array></array>";
+        assert_eq!(program_arguments_in_plist(empty), None);
+        assert!(!needs_repair(empty, Path::new(APP_EXE), |_| false));
+
+        let unterminated = "<key>ProgramArguments</key><array><string>/bin/x</array>";
+        assert_eq!(program_arguments_in_plist(unterminated), None);
+        assert!(!needs_repair(unterminated, Path::new(APP_EXE), |_| false));
     }
 
     #[test]
@@ -485,12 +496,19 @@ mod tests {
         ));
     }
 
+    // 自分自身を指す plist の書き直しはパスを変えないので、`.app` の外から起動しても
+    // フラグだけ足せる。ここを塞ぐと、`.app` に入らない構成では毎ログイン HUD が出る
+    #[test]
+    fn repair_is_needed_outside_a_bundle_when_the_plist_already_points_at_the_running_executable() {
+        let exe = "/Users/someone/repo/target/debug/cliip-show";
+        let xml = plist_without_login_flag(exe);
+        assert!(needs_repair(&xml, Path::new(exe), |_| true));
+    }
+
     // フラグを持たない plist のまま起動すると、ログインのたびに起動を知らせてしまう
     #[test]
     fn repair_is_needed_when_the_plist_has_no_login_flag() {
-        let xml = plist_pointing_at("/opt/homebrew/bin/cliip-show")
-            .replace(&format!("\t\t<string>{LOGIN_FLAG}</string>\n"), "");
-        assert!(!xml.contains(LOGIN_FLAG));
+        let xml = plist_without_login_flag("/opt/homebrew/bin/cliip-show");
         assert!(needs_repair(&xml, Path::new(APP_EXE), |_| true));
     }
 
