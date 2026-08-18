@@ -30,11 +30,14 @@ So here it is: Cliip Show, a macOS menu bar app that shows what you just copied 
 ## Install (Homebrew)
 
 ```bash
+brew trust somei-san/tap
 brew install --cask somei-san/tap/cliip-show
 open -a "Cliip Show"
 ```
 
-Homebrew asks you to trust the tap the first time you install from it. Cliip Show is not signed with an Apple Developer ID, so the cask clears the quarantine attribute for you.
+`brew trust` is needed once. Homebrew 6 does not load casks from taps you have not trusted, and `brew upgrade` skips them without an error.
+
+Cliip Show is not signed with an Apple Developer ID, so the cask clears the quarantine attribute for you.
 
 On first launch it asks whether to start at login, and you can toggle that any time under "Start at login" in the settings window.
 

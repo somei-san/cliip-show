@@ -32,11 +32,14 @@
 ## インストール手順 （Homebrew経由）
 
 ```bash
+brew trust somei-san/tap
 brew install --cask somei-san/tap/cliip-show
 open -a "Cliip Show"
 ```
 
-tap から初めてインストールするときは、Homebrew が tap を信頼してよいか尋ねます。Apple の Developer ID で署名していないため、cask のインストール時に quarantine 属性を外します。
+`brew trust` は初回のみ必要です。Homebrew 6 以降、信頼していない tap の cask は読み込まれず、`brew upgrade` もエラーを出さずに飛ばします。
+
+Apple の Developer ID で署名していないため、cask のインストール時に quarantine 属性を外します。
 
 起動すると自動起動の確認ダイアログが出て、あとから設定ウィンドウの「ログイン時に自動起動」でも切り替えられます。
 
