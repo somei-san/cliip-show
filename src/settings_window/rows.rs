@@ -9,6 +9,7 @@ use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 use crate::config::{ConfigKey, LanguageSetting};
 use crate::i18n::{self, Lang, Msg};
 
+use super::tooltip::tooltip_text;
 use super::{config_key_to_tag, LocalizedControl, LocalizedKind};
 
 // NSWindowStyleMask: Titled | Closable
@@ -31,10 +32,9 @@ const SETTINGS_BUTTON_RIGHT_MARGIN: f64 = 20.0;
 /// 設定タブのペインの高さ。固定。行が増えたら documentView がスクロールする（#29）。
 /// ウィンドウ自体の高さは `NSTabViewController` が選択中のペインに合わせて決める。
 pub(super) const SETTINGS_PANE_HEIGHT: f64 = 542.0;
-/// ペイン下部、行スタックとは別に確保された絵文字メッセージ・ボタン領域の高さ。
+/// ペイン下部、行スタックとは別に確保されたボタン領域の高さ。
 /// この帯は documentView に含めず、ペイン直下に固定表示する。
-const SETTINGS_FOOTER_HEIGHT: f64 =
-    SETTINGS_EMOJI_MESSAGE_HEIGHT + SETTINGS_BUTTON_AREA_HEIGHT + SETTINGS_BOTTOM_MARGIN;
+const SETTINGS_FOOTER_HEIGHT: f64 = SETTINGS_BUTTON_AREA_HEIGHT + SETTINGS_BOTTOM_MARGIN;
 /// フッターを除いた、NSScrollView が占める領域の高さ。
 const SETTINGS_SCROLL_HEIGHT: f64 = SETTINGS_PANE_HEIGHT - SETTINGS_FOOTER_HEIGHT;
 
@@ -65,8 +65,42 @@ const SETTINGS_POPUP_WIDTH: f64 = 200.0;
 const SETTINGS_EMOJI_FIELD_WIDTH: f64 = 120.0;
 // コントロール列の右端。幅が固定でないコントロールはここに右端を合わせる
 const SETTINGS_CONTROL_RIGHT_X: f64 = SETTINGS_CONTROL_X + SETTINGS_POPUP_WIDTH;
-// 絵文字フィールドの直下に表示するバリデーションメッセージの高さ。行スタックとボタン領域の間に確保する
-const SETTINGS_EMOJI_MESSAGE_HEIGHT: f64 = 16.0;
+// 絵文字欄の右隣に置くヘルプボタンの x 座標
+const SETTINGS_EMOJI_HELP_BUTTON_X: f64 = SETTINGS_CONTROL_X + SETTINGS_EMOJI_FIELD_WIDTH + 6.0;
+const SETTINGS_EMOJI_HELP_BUTTON_SIZE: f64 = 16.0;
+// SF Symbols のシンボル名。ロード不可（macOS 11 未満）のときは NS_BEZEL_STYLE_HELP_BUTTON の
+// 従来ボタンにフォールバックする（make_help_button 参照）。
+const EMOJI_HELP_SYMBOL_NAME: &str = "questionmark.circle";
+// ヘルプボタンの popover 本文（NSViewController の view）の幅。行の幅（270pt）より
+// 広めに取り、内側にラベル用の余白を残す。高さは言語（行数）で変わるため定数を持たず、
+// `resize_help_popover_to_fit_label` が本文の実測から都度求める。
+const EMOJI_HELP_POPOVER_WIDTH: f64 = 340.0;
+const EMOJI_HELP_POPOVER_INSET: f64 = 12.0;
+// 数値欄の範囲ヒント popover の大きさ。本文は短い1行（例:「有効範囲: 40–240 px」）なので
+// ヘルプ popover よりずっと小さくてよい。
+const RANGE_HINT_POPOVER_WIDTH: f64 = 220.0;
+const RANGE_HINT_POPOVER_HEIGHT: f64 = 40.0;
+const RANGE_HINT_POPOVER_INSET: f64 = 10.0;
+// NSLineBreakMode: ByWordWrapping
+const NS_LINE_BREAK_BY_WORD_WRAPPING: isize = 0;
+// NSBezelStyleHelpButton
+const NS_BEZEL_STYLE_HELP_BUTTON: usize = 9;
+// NSButton.ImagePosition: imageOnly（画像のみ表示。タイトルは空文字のため実質無関係だが、
+// レイアウト計算を素直にするため明示する）
+const NS_IMAGE_ONLY: isize = 1;
+// NSPopoverBehavior: transient（popover の外をクリックすると自動で閉じる）
+const NS_POPOVER_BEHAVIOR_TRANSIENT: isize = 1;
+// NSTrackingAreaOptions: MouseEnteredAndExited | ActiveInActiveApp | InVisibleRect
+// popover 表示で key window がボタン側から popover 側へ移っても、アプリがアクティブな
+// 間は tracking area を活性状態に保つ（ActiveInKeyWindow だと key が移った時点で
+// 非活性化され、mouseExited が飛ばず popover が開きっぱなしになる）。アプリが非
+// アクティブな間まで追跡する必要はないため ActiveAlways ではなく ActiveInActiveApp。
+const NS_TRACKING_MOUSE_ENTERED_AND_EXITED: usize = 0x01;
+const NS_TRACKING_ACTIVE_IN_ACTIVE_APP: usize = 0x40;
+const NS_TRACKING_IN_VISIBLE_RECT: usize = 0x200;
+const NS_TRACKING_AREA_OPTIONS: usize = NS_TRACKING_MOUSE_ENTERED_AND_EXITED
+    | NS_TRACKING_ACTIVE_IN_ACTIVE_APP
+    | NS_TRACKING_IN_VISIBLE_RECT;
 
 /// 背景をクリックしたときに編集中のテキストフィールドを確定させるためのビュー。
 ///
@@ -97,6 +131,79 @@ extern "C" fn background_mouse_down(this: &AnyObject, _: Sel, _: *mut AnyObject)
         }
         // 確定に伴い settingChanged: が飛ぶが、ロックは取っていないので再入の心配はない
         let _: bool = msg_send![window, makeFirstResponder: ptr::null_mut::<AnyObject>()];
+    }
+}
+
+/// 絵文字ヘルプボタンのサブクラス。`background_view_class` と同じ ClassBuilder の流儀。
+/// `updateTrackingAreas` をオーバーライドしてカーソルの出入りを追跡し、
+/// `mouseEntered:`/`mouseExited:` でクリックと同じ popover の表示/非表示を切り替える
+/// （クリックの target/action 自体は `make_help_button` が通常どおり設定する）。
+fn emoji_help_button_class() -> &'static AnyClass {
+    static ONCE: Once = Once::new();
+    static mut CLASS: *const AnyClass = ptr::null();
+
+    ONCE.call_once(|| unsafe {
+        let mut builder = ClassBuilder::new("CliipShowEmojiHelpButton", class!(NSButton))
+            .expect("emoji help button class creation failed");
+        builder.add_method(
+            sel!(updateTrackingAreas),
+            emoji_help_update_tracking_areas as extern "C" fn(_, _),
+        );
+        builder.add_method(
+            sel!(mouseEntered:),
+            emoji_help_mouse_entered as extern "C" fn(_, _, _),
+        );
+        builder.add_method(
+            sel!(mouseExited:),
+            emoji_help_mouse_exited as extern "C" fn(_, _, _),
+        );
+        CLASS = builder.register() as *const AnyClass;
+    });
+
+    unsafe { &*CLASS }
+}
+
+/// AppKit がジオメトリ変化のたびに呼ぶ。呼ばれるたびに素朴に追加すると tracking area が
+/// 積み上がり、ホバー通知が重複して飛ぶため、既存分を全て外してから 1 つだけ張り直す。
+/// `[super updateTrackingAreas]` が独自に追加した分も区別できず一緒に外れるが、
+/// このボタンはボーダーレス/SFシンボル運用でハイライト用 tracking area を持たないため
+/// 実害はない。
+/// `NSTrackingInVisibleRect` を使うため、渡す矩形自体は実質無視される（ドキュメント参照）。
+extern "C" fn emoji_help_update_tracking_areas(this: &AnyObject, _cmd: Sel) {
+    unsafe {
+        let () = msg_send![super(this, class!(NSButton)), updateTrackingAreas];
+
+        let existing: *mut AnyObject = msg_send![this, trackingAreas];
+        let count: usize = msg_send![existing, count];
+        for i in 0..count {
+            let area: *mut AnyObject = msg_send![existing, objectAtIndex: i];
+            let () = msg_send![this, removeTrackingArea: area];
+        }
+
+        let bounds: NSRect = msg_send![this, bounds];
+        let area: *mut AnyObject = msg_send![class!(NSTrackingArea), alloc];
+        let area: *mut AnyObject = msg_send![
+            area,
+            initWithRect: bounds
+            options: NS_TRACKING_AREA_OPTIONS
+            owner: this
+            userInfo: ptr::null_mut::<AnyObject>()
+        ];
+        let () = msg_send![this, addTrackingArea: area];
+        // addTrackingArea: が retain するので、自前の参照は手放す
+        let () = msg_send![area, release];
+    }
+}
+
+extern "C" fn emoji_help_mouse_entered(this: &AnyObject, _cmd: Sel, _event: *mut AnyObject) {
+    unsafe {
+        crate::app::show_emoji_help_popover(this as *const AnyObject as *mut AnyObject);
+    }
+}
+
+extern "C" fn emoji_help_mouse_exited(_this: &AnyObject, _cmd: Sel, _event: *mut AnyObject) {
+    unsafe {
+        crate::app::close_emoji_help_popover();
     }
 }
 
@@ -132,6 +239,11 @@ pub(super) unsafe fn set_string_value(control: *mut AnyObject, text: &str) {
     let () = msg_send![control, setStringValue: &*ns];
 }
 
+unsafe fn set_tool_tip(control: *mut AnyObject, text: &str) {
+    let ns = NSString::from_str(text);
+    let () = msg_send![control, setToolTip: &*ns];
+}
+
 unsafe fn make_slider(
     min: f64,
     max: f64,
@@ -154,6 +266,8 @@ unsafe fn make_slider(
     slider
 }
 
+/// 編集可能な `NSTextField` を作る。`setDelegate:` により `controlTextDidChange:`
+/// （入力中フィルタ・バリデーション）を受け取れるようにする。
 unsafe fn make_editable_field(
     text: &str,
     tag: isize,
@@ -168,6 +282,7 @@ unsafe fn make_editable_field(
     let () = msg_send![field, setTag: tag];
     let () = msg_send![field, setTarget: delegate];
     let () = msg_send![field, setAction: sel!(settingChanged:)];
+    let () = msg_send![field, setDelegate: delegate];
     field
 }
 
@@ -259,6 +374,7 @@ pub(super) unsafe fn add_slider_row(
     index: usize,
     lang: Lang,
     label_msg: Msg,
+    tooltip_msg: Msg,
     key: ConfigKey,
     min: f64,
     max: f64,
@@ -294,6 +410,9 @@ pub(super) unsafe fn add_slider_row(
         slider_rect,
         delegate,
     );
+    let tooltip = tooltip_text(lang, tooltip_msg);
+    set_tool_tip(label, &tooltip);
+    set_tool_tip(slider, &tooltip);
     let value_label = make_label(&format!("{value:.2}"), value_rect);
 
     let () = msg_send![document_view, addSubview: label];
@@ -304,6 +423,16 @@ pub(super) unsafe fn add_slider_row(
         control: label,
         msg: label_msg,
         kind: LocalizedKind::StringValue,
+    });
+    localized.push(LocalizedControl {
+        control: label,
+        msg: tooltip_msg,
+        kind: LocalizedKind::ToolTip,
+    });
+    localized.push(LocalizedControl {
+        control: slider,
+        msg: tooltip_msg,
+        kind: LocalizedKind::ToolTip,
     });
 
     (slider, value_label)
@@ -316,6 +445,7 @@ pub(super) unsafe fn add_stepper_row(
     index: usize,
     lang: Lang,
     label_msg: Msg,
+    tooltip_msg: Msg,
     key: ConfigKey,
     min: usize,
     max: usize,
@@ -353,6 +483,10 @@ pub(super) unsafe fn add_stepper_row(
         stepper_rect,
         delegate,
     );
+    let tooltip = tooltip_text(lang, tooltip_msg);
+    set_tool_tip(label, &tooltip);
+    set_tool_tip(field, &tooltip);
+    set_tool_tip(stepper, &tooltip);
 
     let () = msg_send![document_view, addSubview: label];
     let () = msg_send![document_view, addSubview: field];
@@ -362,6 +496,21 @@ pub(super) unsafe fn add_stepper_row(
         control: label,
         msg: label_msg,
         kind: LocalizedKind::StringValue,
+    });
+    localized.push(LocalizedControl {
+        control: label,
+        msg: tooltip_msg,
+        kind: LocalizedKind::ToolTip,
+    });
+    localized.push(LocalizedControl {
+        control: field,
+        msg: tooltip_msg,
+        kind: LocalizedKind::ToolTip,
+    });
+    localized.push(LocalizedControl {
+        control: stepper,
+        msg: tooltip_msg,
+        kind: LocalizedKind::ToolTip,
     });
 
     (field, stepper)
@@ -459,16 +608,201 @@ pub(super) unsafe fn add_language_row(
     popup
 }
 
-/// 絵文字フィールド専用の行。入力中バリデーションのため `controlTextDidChange:` を
-/// 受け取れるよう `setDelegate:` し、メッセージラベルを追加する。ラベルの位置は
-/// 行の並びではなくウィンドウ下端が基準（`SETTINGS_EMOJI_MESSAGE_HEIGHT`）。
+/// 絵文字欄の右隣に置く、控えめなヘルプボタン（`?`）を作る。SF Symbols の
+/// `questionmark.circle` をボーダレスボタンの画像として使い、macOS 標準の丸いベゼル付き
+/// ヘルプボタンより小さく目立たない見た目にする。SF Symbols がロードできない環境
+/// （macOS 11 未満）では、従来のベゼル付きヘルプボタンにフォールバックする。
 ///
-/// 行（label/field）はスクロールする documentView（`document_view`）へ、
-/// メッセージラベルはスクロールしないペイン（`pane_view`）へ addSubview する。
+/// `emoji_help_button_class()` で作るため、クリック（`showEmojiHelp:`）に加えて
+/// マウスオーバーでも popover が出る。
+unsafe fn make_help_button(delegate: &AnyObject, row_bottom: f64) -> *mut AnyObject {
+    let button: *mut AnyObject = msg_send![emoji_help_button_class(), alloc];
+    let button: *mut AnyObject = msg_send![button, init];
+    let title = NSString::from_str("");
+    let () = msg_send![button, setTitle: &*title];
+    let () = msg_send![button, setTarget: delegate];
+    let () = msg_send![button, setAction: sel!(showEmojiHelp:)];
+
+    let symbol_name = NSString::from_str(EMOJI_HELP_SYMBOL_NAME);
+    let image: *mut AnyObject = msg_send![
+        class!(NSImage),
+        imageWithSystemSymbolName: &*symbol_name
+        accessibilityDescription: ptr::null_mut::<AnyObject>()
+    ];
+    let rect = if image.is_null() {
+        eprintln!(
+            "warning: SF Symbol \"{EMOJI_HELP_SYMBOL_NAME}\" is unavailable; \
+             falling back to the default help button"
+        );
+        let () = msg_send![button, setBezelStyle: NS_BEZEL_STYLE_HELP_BUTTON];
+        let size: NSSize = msg_send![button, intrinsicContentSize];
+        centered_rect(
+            SETTINGS_EMOJI_HELP_BUTTON_X,
+            size.width,
+            size.height,
+            row_bottom,
+        )
+    } else {
+        let () = msg_send![button, setImage: image];
+        let () = msg_send![button, setBordered: false];
+        let () = msg_send![button, setImagePosition: NS_IMAGE_ONLY];
+        let tint: *mut AnyObject = msg_send![class!(NSColor), secondaryLabelColor];
+        let () = msg_send![button, setContentTintColor: tint];
+        centered_rect(
+            SETTINGS_EMOJI_HELP_BUTTON_X,
+            SETTINGS_EMOJI_HELP_BUTTON_SIZE,
+            SETTINGS_EMOJI_HELP_BUTTON_SIZE,
+            row_bottom,
+        )
+    };
+    let () = msg_send![button, setFrame: rect];
+    button
+}
+
+/// ヘルプボタンの `NSPopover` と、その本文ラベルを作る。返り値の `label` は
+/// `contentViewController.view` の子として popover が所有するため、popover 自身を
+/// 手放さない限り生存する（`SettingsControls::hud_emoji_help_popover` のドキュメント参照）。
+/// 高さは組み立て直後に `resize_help_popover_to_fit_label` が実測して差し替えるため、
+/// ここでの初期値は仮の値でよい。
+unsafe fn make_help_popover(text: &str) -> (*mut AnyObject, *mut AnyObject) {
+    let label_rect = NSRect {
+        origin: NSPoint {
+            x: EMOJI_HELP_POPOVER_INSET,
+            y: EMOJI_HELP_POPOVER_INSET,
+        },
+        size: NSSize {
+            width: EMOJI_HELP_POPOVER_WIDTH - EMOJI_HELP_POPOVER_INSET * 2.0,
+            height: 0.0,
+        },
+    };
+    let label = make_label(text, label_rect);
+    // 支援ページのメッセージ欄と同じ理由（改行を反映させ、折り返させる）
+    let () = msg_send![label, setUsesSingleLineMode: false];
+    let label_cell: *mut AnyObject = msg_send![label, cell];
+    let () = msg_send![label_cell, setWraps: true];
+    let () = msg_send![label_cell, setLineBreakMode: NS_LINE_BREAK_BY_WORD_WRAPPING];
+
+    let popover = wrap_label_in_popover(
+        label,
+        EMOJI_HELP_POPOVER_WIDTH,
+        EMOJI_HELP_POPOVER_INSET * 2.0,
+    );
+    resize_help_popover_to_fit_label(popover, label);
+    (popover, label)
+}
+
+/// 絵文字ヘルプ popover 本文の実測に基づき、ラベルの frame と popover の `contentSize`
+/// を更新する。固定高さだと文言の行数（言語によって変わる）とずれて下部に余白や欠けが
+/// 出るため、`cellSizeForBounds:` で実際に必要な高さを測る（`hud.rs::measure_text_height`
+/// と同じ手法。10,000pt は折り返しの上限に掛からないよう十分大きくとった計測用の高さ）。
+/// build 時（`make_help_popover`）と言語切替時（`sync::apply_language`）の両方から呼ぶ
+/// （行数が言語で変わるため）。
+///
+/// # Safety
+/// - `popover`・`label` は `make_help_popover` が作った有効なインスタンスであること。
+/// - AppKit のメインスレッドから呼ぶこと。
+pub(super) unsafe fn resize_help_popover_to_fit_label(
+    popover: *mut AnyObject,
+    label: *mut AnyObject,
+) {
+    if popover.is_null() || label.is_null() {
+        return;
+    }
+
+    let available_width = EMOJI_HELP_POPOVER_WIDTH - EMOJI_HELP_POPOVER_INSET * 2.0;
+    let cell: *mut AnyObject = msg_send![label, cell];
+    let measure_bounds = NSRect {
+        origin: NSPoint { x: 0.0, y: 0.0 },
+        size: NSSize {
+            width: available_width,
+            height: 10_000.0,
+        },
+    };
+    let measured: NSSize = msg_send![cell, cellSizeForBounds: measure_bounds];
+    let label_height = measured.height.ceil();
+
+    let () = msg_send![
+        label,
+        setFrame: NSRect {
+            origin: NSPoint {
+                x: EMOJI_HELP_POPOVER_INSET,
+                y: EMOJI_HELP_POPOVER_INSET,
+            },
+            size: NSSize {
+                width: available_width,
+                height: label_height,
+            },
+        }
+    ];
+    let () = msg_send![
+        popover,
+        setContentSize: NSSize {
+            width: EMOJI_HELP_POPOVER_WIDTH,
+            height: label_height + EMOJI_HELP_POPOVER_INSET * 2.0,
+        }
+    ];
+}
+
+/// 数値欄が共用する範囲ヒント popover とその本文ラベルを作る。本文は表示のたびに
+/// `sync.rs` 側で差し替えるため、ここでは空文字列で構わない。短い1行の想定で
+/// 折り返しは有効にしない（`make_help_popover` と違い長文を想定しない）。
+pub(super) unsafe fn make_range_hint_popover() -> (*mut AnyObject, *mut AnyObject) {
+    let label_rect = NSRect {
+        origin: NSPoint {
+            x: RANGE_HINT_POPOVER_INSET,
+            y: RANGE_HINT_POPOVER_INSET,
+        },
+        size: NSSize {
+            width: RANGE_HINT_POPOVER_WIDTH - RANGE_HINT_POPOVER_INSET * 2.0,
+            height: RANGE_HINT_POPOVER_HEIGHT - RANGE_HINT_POPOVER_INSET * 2.0,
+        },
+    };
+    let label = make_label("", label_rect);
+    let popover = wrap_label_in_popover(label, RANGE_HINT_POPOVER_WIDTH, RANGE_HINT_POPOVER_HEIGHT);
+    (popover, label)
+}
+
+/// `label` を単一の子ビューとする transient popover を作る。`make_help_popover`・
+/// `make_range_hint_popover` で共有する組み立て処理。所有権の考え方は
+/// `SettingsControls::hud_emoji_help_popover` のドキュメント参照
+/// （popover 自身はここでは release しない。呼び出し側が保持して使い回す）。
+unsafe fn wrap_label_in_popover(label: *mut AnyObject, width: f64, height: f64) -> *mut AnyObject {
+    let content_view: *mut AnyObject = msg_send![class!(NSView), alloc];
+    let content_view: *mut AnyObject = msg_send![
+        content_view,
+        initWithFrame: NSRect {
+            origin: NSPoint { x: 0.0, y: 0.0 },
+            size: NSSize { width, height },
+        }
+    ];
+    let () = msg_send![content_view, addSubview: label];
+
+    let controller: *mut AnyObject = msg_send![class!(NSViewController), alloc];
+    let controller: *mut AnyObject = msg_send![controller, init];
+    let () = msg_send![controller, setView: content_view];
+    // content_view の所有は controller に移った（addSubview 前に持っていた自前の参照を手放す）
+    let () = msg_send![content_view, release];
+
+    let popover: *mut AnyObject = msg_send![class!(NSPopover), alloc];
+    let popover: *mut AnyObject = msg_send![popover, init];
+    let () = msg_send![popover, setContentViewController: controller];
+    // controller の所有は popover に移った
+    let () = msg_send![controller, release];
+    let () = msg_send![popover, setBehavior: NS_POPOVER_BEHAVIOR_TRANSIENT];
+
+    popover
+}
+
+/// 絵文字フィールド専用の行。他のテキストフィールド行（`add_stepper_row`）と違い
+/// ペア表示のコントロールを持たないため専用の関数にしている。
+///
+/// ツールチップ・ヘルプボタン popover の文言はどちらも `Msg::TooltipHudEmoji` 固定で、
+/// 引数化していない。この関数自体が絵文字欄専用（呼び出しは build.rs に1箇所のみ）なので、
+/// 引数にすると `sync.rs` の popover 直書き（`apply_language`）と二重管理になり、
+/// 呼び出し側だけ別の Msg に差し替えても popover 側が追随しないバグを作れてしまう。
 #[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn add_field_row(
     document_view: *mut AnyObject,
-    pane_view: *mut AnyObject,
     delegate: &AnyObject,
     index: usize,
     lang: Lang,
@@ -476,7 +810,7 @@ pub(super) unsafe fn add_field_row(
     key: ConfigKey,
     value: &str,
     localized: &mut Vec<LocalizedControl>,
-) -> (*mut AnyObject, *mut AnyObject) {
+) -> (*mut AnyObject, *mut AnyObject, *mut AnyObject) {
     let row_bottom = row_bottom_y(index);
     let label_rect = centered_rect(
         SETTINGS_LABEL_X,
@@ -490,37 +824,37 @@ pub(super) unsafe fn add_field_row(
         SETTINGS_CONTROL_HEIGHT,
         row_bottom,
     );
-    // 行スタックの下、ボタン領域の上に確保された専用の帯にメッセージを出す
-    let message_rect = NSRect {
-        origin: NSPoint {
-            x: SETTINGS_LABEL_X,
-            y: SETTINGS_BOTTOM_MARGIN + SETTINGS_BUTTON_AREA_HEIGHT,
-        },
-        size: NSSize {
-            width: SETTINGS_WINDOW_WIDTH - SETTINGS_LABEL_X - SETTINGS_BUTTON_RIGHT_MARGIN,
-            height: SETTINGS_EMOJI_MESSAGE_HEIGHT,
-        },
-    };
 
     let label = make_label(i18n::text(lang, label_msg), label_rect);
     let field = make_editable_field(value, config_key_to_tag(key), field_rect, delegate);
-    let () = msg_send![field, setDelegate: delegate];
+    let tooltip = tooltip_text(lang, Msg::TooltipHudEmoji);
+    set_tool_tip(label, &tooltip);
+    set_tool_tip(field, &tooltip);
 
-    let message_label = make_label("", message_rect);
-    let red: *mut AnyObject = msg_send![class!(NSColor), systemRedColor];
-    let () = msg_send![message_label, setTextColor: red];
+    let help_button = make_help_button(delegate, row_bottom);
+    let (help_popover, help_label) = make_help_popover(&tooltip);
 
     let () = msg_send![document_view, addSubview: label];
     let () = msg_send![document_view, addSubview: field];
-    let () = msg_send![pane_view, addSubview: message_label];
+    let () = msg_send![document_view, addSubview: help_button];
 
     localized.push(LocalizedControl {
         control: label,
         msg: label_msg,
         kind: LocalizedKind::StringValue,
     });
+    localized.push(LocalizedControl {
+        control: label,
+        msg: Msg::TooltipHudEmoji,
+        kind: LocalizedKind::ToolTip,
+    });
+    localized.push(LocalizedControl {
+        control: field,
+        msg: Msg::TooltipHudEmoji,
+        kind: LocalizedKind::ToolTip,
+    });
 
-    (field, message_label)
+    (field, help_popover, help_label)
 }
 
 // NSControlStateValue
@@ -764,14 +1098,16 @@ mod tests {
         );
     }
 
+    // document_height() は SETTINGS_SCROLL_HEIGHT へ .max でクランプされるため、
+    // 行スタック自身の高さ（462pt）より 16pt 大きい。非 flipped の documentView は
+    // 上端を基準に積むため、この差分は最終行の下（documentView 下端）に空きとして残る。
     #[test]
-    fn row_bottom_y_reaches_document_bottom_for_last_row() {
-        assert_eq!(row_bottom_y(SETTINGS_TOTAL_ROW_COUNT - 1), 0.0);
+    fn row_bottom_y_leaves_clamp_gap_below_last_row() {
+        assert_eq!(row_bottom_y(SETTINGS_TOTAL_ROW_COUNT - 1), 16.0);
     }
 
     // 行を足してこれが落ちたらスクロールが現れる = 設定ペインのベースライン更新と
-    // documentView 撮影モードの追加が必要。あわせて絵文字バリデーションメッセージの
-    // 置き場所（フッター固定のままか、フィールド直下に移すか）も決めること
+    // documentView 撮影モードの追加が必要
     #[test]
     fn document_height_still_fits_without_scrolling() {
         assert_eq!(document_height(), SETTINGS_SCROLL_HEIGHT);
@@ -785,5 +1121,80 @@ mod tests {
     #[test]
     fn document_height_for_clamps_to_scroll_height_when_rows_are_few() {
         assert_eq!(document_height_for(1), SETTINGS_SCROLL_HEIGHT);
+    }
+
+    /// 絵文字ヘルプボタン・popover が使う ObjC API のセレクタを突き合わせる。セレクタ名は
+    /// 文字列なのでコンパイルでは食い違いを検出できず、綴りを間違えると呼び出し時に
+    /// unrecognized selector で落ちる。
+    #[test]
+    fn appkit_responds_to_emoji_help_selectors() {
+        use objc2::{class, sel};
+
+        assert!(class!(NSButton).responds_to(sel!(setBezelStyle:)));
+        assert!(class!(NSButton).responds_to(sel!(intrinsicContentSize)));
+        assert!(class!(NSButton).responds_to(sel!(setImagePosition:)));
+        assert!(class!(NSButton).responds_to(sel!(setContentTintColor:)));
+        assert!(class!(NSImage)
+            .metaclass()
+            .responds_to(sel!(imageWithSystemSymbolName:accessibilityDescription:)));
+        assert!(class!(NSColor)
+            .metaclass()
+            .responds_to(sel!(secondaryLabelColor)));
+        assert!(class!(NSPopover).responds_to(sel!(setContentViewController:)));
+        assert!(class!(NSPopover).responds_to(sel!(setBehavior:)));
+        assert!(class!(NSPopover).responds_to(sel!(showRelativeToRect:ofView:preferredEdge:)));
+        assert!(class!(NSPopover).responds_to(sel!(close)));
+        assert!(class!(NSView).responds_to(sel!(addTrackingArea:)));
+        assert!(class!(NSView).responds_to(sel!(removeTrackingArea:)));
+        assert!(class!(NSView).responds_to(sel!(trackingAreas)));
+        assert!(class!(NSView).responds_to(sel!(updateTrackingAreas)));
+        assert!(class!(NSTrackingArea).responds_to(sel!(initWithRect:options:owner:userInfo:)));
+        assert!(class!(NSResponder).responds_to(sel!(mouseEntered:)));
+        assert!(class!(NSResponder).responds_to(sel!(mouseExited:)));
+        assert!(class!(NSCell).responds_to(sel!(cellSizeForBounds:)));
+        assert!(class!(NSPopover).responds_to(sel!(setContentSize:)));
+    }
+
+    /// 範囲ヒント popover の本文（`range_hint_text` の全対象 Msg）が、実際に表示に使う枠
+    /// （`RANGE_HINT_POPOVER_WIDTH`/`HEIGHT` からインセットを引いた領域）に収まるかを近似で
+    /// 確認する。AppKit を起動せず折返しを計算する手段が無いため、13pt システムフォントの
+    /// おおよその字幅（全角 ja ≈ 13pt/字、半角 en ≈ 7pt/字）と行高（16pt）で見積もる。
+    /// 実測とは誤差がありうるが、文言が伸びて明らかに入り切らなくなる変更を検出する保険と
+    /// しては十分な精度とする。絵文字ヘルプ popover は高さを実測（`cellSizeForBounds:`）で
+    /// 決めるため切り詰めが構造上起きず、この種の UT は対象外。
+    #[test]
+    fn range_hint_popover_text_fits_within_its_frame() {
+        use super::super::range_hint::range_hint_text;
+        use super::{
+            RANGE_HINT_POPOVER_HEIGHT, RANGE_HINT_POPOVER_INSET, RANGE_HINT_POPOVER_WIDTH,
+        };
+        use crate::i18n::{Lang, Msg};
+
+        const CHAR_WIDTH_JA: f64 = 13.0;
+        const CHAR_WIDTH_EN: f64 = 7.0;
+        const LINE_HEIGHT: f64 = 16.0;
+
+        let available_width = RANGE_HINT_POPOVER_WIDTH - RANGE_HINT_POPOVER_INSET * 2.0;
+        let available_height = RANGE_HINT_POPOVER_HEIGHT - RANGE_HINT_POPOVER_INSET * 2.0;
+
+        let msgs = [
+            Msg::LabelMaxCharsPerLine,
+            Msg::LabelMaxLines,
+            Msg::LabelHudImageMaxHeight,
+        ];
+
+        for (lang, char_width) in [(Lang::Ja, CHAR_WIDTH_JA), (Lang::En, CHAR_WIDTH_EN)] {
+            for msg in msgs {
+                let text = range_hint_text(lang, msg);
+                let chars_per_line = (available_width / char_width).floor().max(1.0) as usize;
+                let estimated_lines = text.chars().count().div_ceil(chars_per_line).max(1);
+                let estimated_height = estimated_lines as f64 * LINE_HEIGHT;
+                assert!(
+                    estimated_height <= available_height,
+                    "{lang:?} {msg:?}: 見積もり高さ {estimated_height} が枠 {available_height}\
+                     を超える（{estimated_lines} 行、本文: {text}）"
+                );
+            }
+        }
     }
 }

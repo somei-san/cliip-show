@@ -6,6 +6,7 @@ use std::time::SystemTime;
 use objc2::declare::ClassBuilder;
 use objc2::runtime::{AnyClass, AnyObject, Sel};
 use objc2::{class, msg_send, sel};
+use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
 use crate::config::{display_settings, DisplaySettings};
 use crate::hud::create_hud_window;
@@ -99,6 +100,14 @@ pub fn get_delegate_class() -> &'static AnyClass {
         builder.add_method(
             sel!(toggleLoginItem:),
             toggle_login_item as extern "C" fn(_, _, _),
+        );
+        builder.add_method(
+            sel!(showEmojiHelp:),
+            show_emoji_help as extern "C" fn(_, _, _),
+        );
+        builder.add_method(
+            sel!(closeRangeHintPopover:),
+            close_range_hint_popover as extern "C" fn(_, _, _),
         );
         builder.add_method(
             sel!(windowWillClose:),
@@ -245,7 +254,7 @@ extern "C" fn open_settings(this: &AnyObject, _: Sel, _: *mut AnyObject) {
             // state.settings が外部から変わっていても、開き直せば食い違わない。
             state.settings_controls.draft = state.settings.clone();
             crate::settings_window::sync_controls_from_settings(
-                &state.settings_controls,
+                &mut state.settings_controls,
                 &state.settings,
             );
             // ログイン項目は設定ファイルではなく OS 側の状態なので、下書きとは別に毎回同期する。
@@ -267,13 +276,20 @@ extern "C" fn open_settings(this: &AnyObject, _: Sel, _: *mut AnyObject) {
 
 extern "C" fn setting_changed(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
     unsafe {
-        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
-        let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
-        let Some(state) = guard.as_mut() else {
-            return;
+        let hint = {
+            // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+            let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+            let Some(state) = guard.as_mut() else {
+                return;
+            };
+
+            crate::settings_window::apply_setting_change(state, sender)
         };
 
-        crate::settings_window::apply_setting_change(state, sender);
+        // 範囲ヒント popover の表示はロックを手放してから行う（show_range_hint_popover のドキュメント参照）
+        if let Some(hint) = hint {
+            show_range_hint_popover(hint.anchor, &hint.text);
+        }
     }
 }
 
@@ -299,6 +315,201 @@ extern "C" fn toggle_login_item(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
             // 失敗したのにチェックだけ付いた状態を避け、実際の状態に表示を戻す。
             crate::settings_window::sync_login_item_toggle(&state.settings_controls);
         }
+    }
+}
+
+// NSRectEdge: maxX。ボタン/フィールドの右側に popover を出す（`show_emoji_help_popover`・
+// `show_range_hint_popover` で共用）。
+const NS_RECT_EDGE_MAX_X: usize = 2;
+
+/// 絵文字欄のヘルプボタン（`?`）の `showEmojiHelp:`。クリックで popover を出す。
+/// マウスオーバーでも同じ popover を出す（`settings_window::rows::emoji_help_mouse_entered`）
+/// ため、実処理は共用の `show_emoji_help_popover` に切り出してある。
+extern "C" fn show_emoji_help(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
+    unsafe {
+        show_emoji_help_popover(sender);
+    }
+}
+
+/// 絵文字欄のヘルプ popover を `anchor`（ヘルプボタン）の右側に出す。クリック
+/// （`show_emoji_help`）とホバー（`mouseEntered:`）の両方から呼ぶ。
+/// `SettingsControls::hud_emoji_help_popover` のドキュメント参照。
+///
+/// `showRelativeToRect:` は `APP_STATE` のロックを手放してから呼ぶこと。popover の表示は
+/// 同期的に別のイベント（`settingChanged:` 等）を誘発することがあり、それらは `lock()` する
+/// ため、ロック保持中に呼ぶとデッドロックする（`open_settings`/`save_settings` と同じ理由）。
+///
+/// # Safety
+/// - `APP_STATE` をロックしないこと（内部で取得・解放する）。
+/// - AppKit のメインスレッドから呼ぶこと。
+pub(crate) unsafe fn show_emoji_help_popover(anchor: *mut AnyObject) {
+    if anchor.is_null() {
+        return;
+    }
+
+    let popover = {
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+        let guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+        let Some(state) = guard.as_ref() else {
+            return;
+        };
+        state.settings_controls.hud_emoji_help_popover
+    };
+    if popover.is_null() {
+        return;
+    }
+
+    // 空の矩形を渡すとボタンの bounds が使われる（NSPopover のドキュメント参照）
+    let zero_rect = NSRect {
+        origin: NSPoint { x: 0.0, y: 0.0 },
+        size: NSSize {
+            width: 0.0,
+            height: 0.0,
+        },
+    };
+    let () = msg_send![
+        popover,
+        showRelativeToRect: zero_rect
+        ofView: anchor
+        preferredEdge: NS_RECT_EDGE_MAX_X
+    ];
+}
+
+/// 絵文字欄のヘルプ popover を閉じる。`mouseExited:`（`settings_window::rows`）から呼ぶ。
+///
+/// # Safety
+/// - `APP_STATE` をロックしないこと（内部で取得・解放する）。
+/// - AppKit のメインスレッドから呼ぶこと。
+pub(crate) unsafe fn close_emoji_help_popover() {
+    let popover = {
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+        let guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+        let Some(state) = guard.as_ref() else {
+            return;
+        };
+        state.settings_controls.hud_emoji_help_popover
+    };
+    if popover.is_null() {
+        return;
+    }
+    let () = msg_send![popover, close];
+}
+
+/// 数値欄の範囲ヒント popover の自動 close までの秒数。
+const RANGE_HINT_AUTO_CLOSE_SECS: f64 = 2.5;
+
+/// 数値欄の範囲ヒント popover を `anchor`（値を入力したフィールド）の右側に `text` で表示し、
+/// `RANGE_HINT_AUTO_CLOSE_SECS` 秒後に自動で閉じるタイマーを張る。`setting_changed` が
+/// `apply_setting_change` から `Some(RangeHint)` を受け取ったときに呼ぶ。
+///
+/// タイマーの張り替えは `present_hud`（`hide_timer`）と同じ考え方: 前回分がまだ生きていれば
+/// `invalidate` してから新しく張る。`showRelativeToRect:` は再入の危険があるため
+/// （`show_emoji_help_popover` のドキュメント参照）ロックを手放してから呼ぶ。
+///
+/// # Safety
+/// - `APP_STATE` をロックしないこと（内部で取得・解放する）。
+/// - AppKit のメインスレッドから呼ぶこと。
+unsafe fn show_range_hint_popover(anchor: *mut AnyObject, text: &str) {
+    if anchor.is_null() {
+        return;
+    }
+
+    let popover = {
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+        let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+        let Some(state) = guard.as_mut() else {
+            return;
+        };
+        let controls = &mut state.settings_controls;
+        if controls.range_hint_popover.is_null() {
+            return;
+        }
+
+        let ns = NSString::from_str(text);
+        let () = msg_send![controls.range_hint_label, setStringValue: &*ns];
+
+        if !controls.range_hint_close_timer.is_null() {
+            let () = msg_send![controls.range_hint_close_timer, invalidate];
+        }
+        let timer: *mut AnyObject = msg_send![
+            class!(NSTimer),
+            scheduledTimerWithTimeInterval: RANGE_HINT_AUTO_CLOSE_SECS
+            target: state.delegate
+            selector: sel!(closeRangeHintPopover:)
+            userInfo: ptr::null_mut::<AnyObject>()
+            repeats: false
+        ];
+        controls.range_hint_close_timer = timer;
+
+        controls.range_hint_popover
+    };
+
+    let zero_rect = NSRect {
+        origin: NSPoint { x: 0.0, y: 0.0 },
+        size: NSSize {
+            width: 0.0,
+            height: 0.0,
+        },
+    };
+    // 表示中に別フィールドで再トリガーされた場合の anchor 付け替えを AppKit 任せにせず、
+    // 一旦明示的に閉じてから出し直す（close 済みの popover への close は無害）。
+    let () = msg_send![popover, close];
+    let () = msg_send![
+        popover,
+        showRelativeToRect: zero_rect
+        ofView: anchor
+        preferredEdge: NS_RECT_EDGE_MAX_X
+    ];
+}
+
+/// 範囲ヒント popover の自動 close タイマー `closeRangeHintPopover:`。
+extern "C" fn close_range_hint_popover(_: &AnyObject, _: Sel, _: *mut AnyObject) {
+    unsafe {
+        let popover = {
+            // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+            let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+            let Some(state) = guard.as_mut() else {
+                return;
+            };
+            // 発火済みタイマーへの再 invalidate を避けるため、フィールドを先に空にする
+            state.settings_controls.range_hint_close_timer = ptr::null_mut();
+            state.settings_controls.range_hint_popover
+        };
+        if popover.is_null() {
+            return;
+        }
+        let () = msg_send![popover, close];
+    }
+}
+
+/// 設定ウィンドウを閉じる直前に、開いたままの範囲ヒント・絵文字ヘルプ popover を明示的に
+/// 閉じる。閉じかけのウィンドウの view を anchor にした popover が表示され続けるのを防ぐ
+/// （`save_settings`（`performClose:` の直前）と `window_will_close` の双方から呼ぶ）。
+/// Enter/保存で確定する経路では新たに範囲ヒントを出さない仕様のため、ここでは既存分の
+/// close のみを扱う。
+///
+/// # Safety
+/// - `APP_STATE` をロックしないこと（内部で取得・解放する）。
+/// - AppKit のメインスレッドから呼ぶこと。
+unsafe fn close_settings_popovers() {
+    let (range_hint_popover, emoji_help_popover) = {
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+        let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+        let Some(state) = guard.as_mut() else {
+            return;
+        };
+        let controls = &mut state.settings_controls;
+        if !controls.range_hint_close_timer.is_null() {
+            let () = msg_send![controls.range_hint_close_timer, invalidate];
+            controls.range_hint_close_timer = ptr::null_mut();
+        }
+        (controls.range_hint_popover, controls.hud_emoji_help_popover)
+    };
+    if !range_hint_popover.is_null() {
+        let () = msg_send![range_hint_popover, close];
+    }
+    if !emoji_help_popover.is_null() {
+        let () = msg_send![emoji_help_popover, close];
     }
 }
 
@@ -346,6 +557,9 @@ extern "C" fn save_settings(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
 
         // windowWillClose: が APP_STATE をロックするため、ガードを手放してから閉じる
         if !window.is_null() {
+            // 閉じかけのウィンドウの view を anchor にした popover が残らないよう、
+            // performClose: の前に明示的に閉じておく
+            close_settings_popovers();
             let () = msg_send![window, performClose: ptr::null_mut::<AnyObject>()];
         }
     }
@@ -380,6 +594,8 @@ extern "C" fn window_will_close(_: &AnyObject, _: Sel, notification: *mut AnyObj
             msg_send![notification, object]
         };
         commit_pending_field_edit(window);
+        // 保存せず × ボタン等で閉じた経路でも、開いたままの popover を残さない
+        close_settings_popovers();
 
         // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
         let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
@@ -404,9 +620,9 @@ extern "C" fn window_will_close(_: &AnyObject, _: Sel, notification: *mut AnyObj
     }
 }
 
-/// 絵文字フィールドの入力中バリデーション表示を更新する。
+/// 設定ウィンドウのテキストフィールドの入力中フィルタ・バリデーションを行う。
 ///
-/// `sync_controls_from_settings` 等がロック保持中にこのフィールドへ `setStringValue:` すると、
+/// `sync_controls_from_settings` 等がロック保持中にフィールドへ `setStringValue:` すると、
 /// それがこの通知を同期的に誘発して再入しうる。`try_lock` で失敗時は何もせず戻ることで、
 /// プログラム側の更新中の再入ハングを避ける（その場合は更新側が表示の同期を担う）。
 extern "C" fn control_text_did_change(_: &AnyObject, _: Sel, notification: *mut AnyObject) {
@@ -423,11 +639,8 @@ extern "C" fn control_text_did_change(_: &AnyObject, _: Sel, notification: *mut 
         } else {
             msg_send![notification, object]
         };
-        if object != state.settings_controls.hud_emoji_field {
-            return;
-        }
 
-        crate::settings_window::update_emoji_validation_message(state);
+        crate::settings_window::handle_text_change(state, object);
     }
 }
 
@@ -487,6 +700,29 @@ mod tests {
             sel!(quitApp:),
             sel!(hideHud:),
             sel!(fadeTick:),
+        ] {
+            assert!(
+                class.responds_to(selector),
+                "delegate does not respond to {selector:?}"
+            );
+        }
+    }
+
+    /// 設定ウィンドウのボタン・コントロールが送るセレクタの分。`controlTextDidChange:` は
+    /// `make_editable_field`（rows.rs）が `setDelegate:` した全フィールドから届く。
+    #[test]
+    fn delegate_responds_to_settings_window_selectors() {
+        let class = get_delegate_class();
+        for selector in [
+            sel!(settingChanged:),
+            sel!(resetSettings:),
+            sel!(previewSettings:),
+            sel!(saveSettings:),
+            sel!(toggleLoginItem:),
+            sel!(showEmojiHelp:),
+            sel!(closeRangeHintPopover:),
+            sel!(windowWillClose:),
+            sel!(controlTextDidChange:),
         ] {
             assert!(
                 class.responds_to(selector),

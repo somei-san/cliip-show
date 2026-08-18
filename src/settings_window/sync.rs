@@ -1,6 +1,6 @@
 use objc2::msg_send;
 use objc2::runtime::AnyObject;
-use objc2_foundation::NSString;
+use objc2_foundation::{NSRange, NSString};
 
 use crate::app::{
     apply_settings_now, present_hud, show_sample_image_content, show_text_content, AppState,
@@ -14,10 +14,14 @@ use crate::i18n::{self, Lang, Msg};
 use crate::objc_helpers::nsstring_to_string;
 use crate::png::create_preview_sample_image;
 
+use super::input_filter::filter_digits;
+use super::range_hint::range_hint_text;
 use super::rows::{
-    login_item_control_state, select_language_item, select_popup_item, set_string_value,
+    login_item_control_state, resize_help_popover_to_fit_label, select_language_item,
+    select_popup_item, set_string_value,
 };
-use super::{tag_to_config_key, LocalizedKind, SettingsControls};
+use super::tooltip::tooltip_text;
+use super::{tag_to_config_key, LocalizedKind, RangeHint, SettingsControls};
 
 enum PreviewSample {
     ShortText,
@@ -71,9 +75,21 @@ unsafe fn sync_slider(slider: *mut AnyObject, value_label: *mut AnyObject, value
     set_string_value(value_label, &format!("{value:.2}"));
 }
 
+/// field・stepper 双方を `value` へ揃える。初期同期・確定後の再同期・拒否された値の
+/// revert のいずれも同じ操作（両方へ書き戻す）なので共通化してある。確定後の再同期・
+/// revert はどちらも `settingChanged:`（編集終了後にしか発火せず、Enter は保存ボタンに
+/// 先取りされる）の処理中にしか呼ばないため、sender 自身のフィールドへ書いても
+/// 編集中の内容を壊さない。
 unsafe fn sync_stepper_field(field: *mut AnyObject, stepper: *mut AnyObject, value: usize) {
     let () = msg_send![stepper, setIntegerValue: value as isize];
     set_string_value(field, &value.to_string());
+}
+
+/// `hud_emoji_field` への書き込みを一本化する。不変条件（`SettingsControls::hud_emoji_shadow`
+/// のドキュメント参照）: フィールドへ書く箇所は必ずこれを通し、shadow も一緒に更新する。
+unsafe fn set_emoji_field(controls: &mut SettingsControls, value: &str) {
+    set_string_value(controls.hud_emoji_field, value);
+    controls.hud_emoji_shadow = value.to_string();
 }
 
 /// 現在の `DisplaySettings` の値をすべてのコントロールに反映する。
@@ -82,7 +98,10 @@ unsafe fn sync_stepper_field(field: *mut AnyObject, stepper: *mut AnyObject, val
 /// # Safety
 /// - `controls` は `build_settings_window` が返した有効なポインタを保持していること。
 /// - AppKit のメインスレッドから呼ぶこと。
-pub unsafe fn sync_controls_from_settings(controls: &SettingsControls, settings: &DisplaySettings) {
+pub unsafe fn sync_controls_from_settings(
+    controls: &mut SettingsControls,
+    settings: &DisplaySettings,
+) {
     sync_slider(
         controls.poll_interval_slider,
         controls.poll_interval_value_label,
@@ -127,11 +146,7 @@ pub unsafe fn sync_controls_from_settings(controls: &SettingsControls, settings:
     );
     select_language_item(controls.language_popup, settings.language);
 
-    set_string_value(controls.hud_emoji_field, &settings.hud_emoji);
-    // プログラムによる同期はすべて妥当な値のみを書き戻すため、残っているメッセージは消す。
-    // controlTextDidChange: 側の再入防止（try_lock）に任せると、ロック保持中の呼び出しでは
-    // 通知が黙って捨てられメッセージが古いまま残りうるため、ここで確実にクリアする。
-    set_string_value(controls.hud_emoji_message_label, "");
+    set_emoji_field(controls, &settings.hud_emoji);
 }
 
 /// ログイン項目トグルの表示を実際の LaunchAgent の状態に合わせる。
@@ -153,33 +168,26 @@ pub unsafe fn sync_language_popup(controls: &SettingsControls, setting: Language
     select_language_item(controls.language_popup, setting);
 }
 
-/// `controlTextDidChange:` から呼ぶ。絵文字フィールドの現在の入力値を判定し、
-/// 不正なら理由をメッセージラベルに表示する。妥当なら空にする。
-///
-/// # Safety
-/// - `APP_STATE` のロックは呼び出し側が `try_lock` で取得済みであること。
-/// - AppKit のメインスレッドから呼ぶこと。
-pub unsafe fn update_emoji_validation_message(state: &AppState) {
-    let raw: *mut AnyObject = msg_send![state.settings_controls.hud_emoji_field, stringValue];
-    let text = nsstring_to_string(raw).unwrap_or_default();
-    let lang = i18n::resolve(state.settings.language);
-    let message = hud_emoji_validation_error(&text)
-        .map(|msg| i18n::text(lang, msg))
-        .unwrap_or("");
-    set_string_value(state.settings_controls.hud_emoji_message_label, message);
-}
-
 /// `field`/`stepper` はペアで同じ値を表示する。どちらが `sender` でも、変更後の値を
 /// もう一方に同期しつつ文字列として返す。
+///
+/// `sender == field` でパースできない場合（空欄・オーバーフロー等）は `None` を返す前に
+/// フィールドを `draft_value` へ戻す。クランプではなく revert になるのは、キーストローク
+/// 単位のフィルタ（`handle_text_change`）をすり抜けた入力（巨大数字ペースト等）を
+/// 確定時点で下書きへ引き戻すための最終防衛線のため。
 unsafe fn sync_paired_value(
     sender: *mut AnyObject,
     field: *mut AnyObject,
     stepper: *mut AnyObject,
+    draft_value: usize,
 ) -> Option<String> {
     if sender == field {
         let raw: *mut AnyObject = msg_send![field, stringValue];
-        let text = nsstring_to_string(raw)?;
-        let parsed: isize = text.trim().parse().ok()?;
+        let text = nsstring_to_string(raw).unwrap_or_default();
+        let Ok(parsed) = text.trim().parse::<isize>() else {
+            set_string_value(field, &draft_value.to_string());
+            return None;
+        };
         let () = msg_send![stepper, setIntegerValue: parsed];
         Some(parsed.to_string())
     } else {
@@ -203,14 +211,19 @@ unsafe fn raw_value_for_control(
             sender,
             controls.max_chars_per_line_field,
             controls.max_chars_per_line_stepper,
+            controls.draft.truncate_max_width,
         ),
-        ConfigKey::MaxLines => {
-            sync_paired_value(sender, controls.max_lines_field, controls.max_lines_stepper)
-        }
+        ConfigKey::MaxLines => sync_paired_value(
+            sender,
+            controls.max_lines_field,
+            controls.max_lines_stepper,
+            controls.draft.truncate_max_lines,
+        ),
         ConfigKey::HudImageMaxHeight => sync_paired_value(
             sender,
             controls.hud_image_max_height_field,
             controls.hud_image_max_height_stepper,
+            controls.draft.hud_image_max_height,
         ),
         _ => raw_value_for_key(key, sender),
     }
@@ -221,24 +234,31 @@ unsafe fn raw_value_for_control(
 ///
 /// クランプ・バリデーションは `set_config_value` に委ねる。
 ///
+/// 戻り値が `Some` のときは、数値欄の入力が revert・クランプされたことを示す。呼び出し側
+/// （`setting_changed`）はロックを手放してから範囲ヒント popover を表示すること
+/// （`RangeHint` のドキュメント参照）。
+///
 /// # Safety
 /// - `APP_STATE` をロックしないこと（呼び出し側が既にロックを保持している）。
 /// - AppKit のメインスレッドから呼ぶこと。
-pub unsafe fn apply_setting_change(state: &mut AppState, sender: *mut AnyObject) {
+pub unsafe fn apply_setting_change(
+    state: &mut AppState,
+    sender: *mut AnyObject,
+) -> Option<RangeHint> {
     let tag: isize = msg_send![sender, tag];
-    let Some(key) = tag_to_config_key(tag) else {
-        return;
-    };
+    let key = tag_to_config_key(tag)?;
 
     // 言語は下書き（保存ボタンで確定するモデル）の対象外。選んだ瞬間に設定ファイルへ
     // 保存し、HUD・設定ウィンドウ・メニューへ即時反映する（自動起動トグルと同じ扱い）。
     if key == ConfigKey::Language {
         apply_language_setting_change(state, sender);
-        return;
+        return None;
     }
 
     let Some(raw_value) = raw_value_for_control(key, sender, &state.settings_controls) else {
-        return;
+        // 数値欄でパースに失敗したとき（フィールド表示は既に下書きへ戻している）。
+        // それ以外の key の None は range_hint_for が対象外として弾く。
+        return range_hint_for(&state.settings_controls, state.settings.language, key);
     };
 
     let mut config = settings_to_config_file(state.settings_controls.draft.clone());
@@ -248,17 +268,38 @@ pub unsafe fn apply_setting_change(state: &mut AppState, sender: *mut AnyObject)
             eprintln!("warning: {error}");
             // 拒否された文字列がフィールドに残ると下書きと食い違うので、下書きの値に戻す。
             // setStringValue: は action を発火しないため settingChanged: の再入は起きない。
-            if key == ConfigKey::HudEmoji {
-                set_string_value(
-                    state.settings_controls.hud_emoji_field,
-                    &state.settings_controls.draft.hud_emoji,
-                );
-                set_string_value(state.settings_controls.hud_emoji_message_label, "");
+            match key {
+                ConfigKey::HudEmoji => {
+                    let draft_emoji = state.settings_controls.draft.hud_emoji.clone();
+                    set_emoji_field(&mut state.settings_controls, &draft_emoji);
+                }
+                ConfigKey::MaxCharsPerLine => sync_stepper_field(
+                    state.settings_controls.max_chars_per_line_field,
+                    state.settings_controls.max_chars_per_line_stepper,
+                    state.settings_controls.draft.truncate_max_width,
+                ),
+                ConfigKey::MaxLines => sync_stepper_field(
+                    state.settings_controls.max_lines_field,
+                    state.settings_controls.max_lines_stepper,
+                    state.settings_controls.draft.truncate_max_lines,
+                ),
+                ConfigKey::HudImageMaxHeight => sync_stepper_field(
+                    state.settings_controls.hud_image_max_height_field,
+                    state.settings_controls.hud_image_max_height_stepper,
+                    state.settings_controls.draft.hud_image_max_height,
+                ),
+                _ => {}
             }
-            return;
+            return None;
         }
     };
-    if let Some(warning) = warning {
+    // クランプが起きたときだけ範囲ヒントの対象にする。拒否（Err）はクランプではないため対象外
+    let hint = if warning.is_some() {
+        range_hint_for(&state.settings_controls, state.settings.language, key)
+    } else {
+        None
+    };
+    if let Some(warning) = &warning {
         eprintln!("warning: {warning}");
     }
 
@@ -266,15 +307,140 @@ pub unsafe fn apply_setting_change(state: &mut AppState, sender: *mut AnyObject)
         apply_config_file(state.settings_controls.draft.clone(), &config);
 
     // クランプ・拒否された場合に備え、実際に反映された値でコントロール表示を揃える。
-    // sender（今まさに編集/操作していたコントロール）自身への setStringValue は避ける:
-    // フィールドエディタが終了処理中に再入すると settingChanged: が再度発火し、
-    // 非再入の APP_STATE ロックでハングしうるため。
+    // settingChanged: は編集終了後（フォーカス喪失か Enter。Enter は保存ボタンに先取り
+    // される）にしか発火しないため、sender 自身のフィールドへ書き戻してよい。万一
+    // 編集中に再入しても controlTextDidChange: 側は try_lock で弾かれる。
     resync_controls_after_apply(
         &state.settings_controls,
         &state.settings_controls.draft,
         key,
-        sender,
     );
+
+    hint
+}
+
+/// `key` が範囲ヒント popover の対象（数値欄3つ）なら、案内文言と表示位置（対象フィールド）
+/// を返す。対象外なら `None`。
+unsafe fn range_hint_for(
+    controls: &SettingsControls,
+    language: LanguageSetting,
+    key: ConfigKey,
+) -> Option<RangeHint> {
+    let msg = match key {
+        ConfigKey::MaxCharsPerLine => Msg::LabelMaxCharsPerLine,
+        ConfigKey::MaxLines => Msg::LabelMaxLines,
+        ConfigKey::HudImageMaxHeight => Msg::LabelHudImageMaxHeight,
+        _ => return None,
+    };
+    let anchor = control_for_key(controls, key);
+    if anchor.is_null() {
+        return None;
+    }
+    let lang = i18n::resolve(language);
+    Some(RangeHint {
+        anchor,
+        text: range_hint_text(lang, msg),
+    })
+}
+
+/// `controlTextDidChange:` の実処理。数値 3 欄は入力文字を数字だけへ絞り込み、絵文字欄は
+/// 確定前の全文を検証して不正なら直前の妥当な内容（shadow）へ丸ごと戻す。
+///
+/// IME 変換中（`hasMarkedText`）はキーストローク単位の書き換えが合成中の文字を壊すため
+/// 何もしない。変換確定時に同じ通知が改めて届くので、そこが最終防衛線になる。
+///
+/// # Safety
+/// - `APP_STATE` のロックは呼び出し側が `try_lock` で取得済みであること。
+/// - AppKit のメインスレッドから呼ぶこと。
+pub unsafe fn handle_text_change(state: &mut AppState, object: *mut AnyObject) {
+    if object.is_null() || is_marked_text_active(object) {
+        return;
+    }
+    let tag: isize = msg_send![object, tag];
+    let Some(key) = tag_to_config_key(tag) else {
+        return;
+    };
+
+    match key {
+        ConfigKey::MaxCharsPerLine | ConfigKey::MaxLines | ConfigKey::HudImageMaxHeight => {
+            filter_digit_field(object);
+        }
+        ConfigKey::HudEmoji => validate_emoji_field(state, object),
+        _ => {}
+    }
+}
+
+/// `field` の `currentEditor` が変換中の合成文字（marked text）を持っているか。
+/// エディタが取れない（フィールドが編集中でない）場合は変換中ではないとみなす。
+unsafe fn is_marked_text_active(field: *mut AnyObject) -> bool {
+    let editor: *mut AnyObject = msg_send![field, currentEditor];
+    if editor.is_null() {
+        return false;
+    }
+    msg_send![editor, hasMarkedText]
+}
+
+/// `field` のフィールドエディタのキャレット位置（UTF-16 単位）。編集中でなければ `None`。
+unsafe fn caret_position(field: *mut AnyObject) -> Option<usize> {
+    let editor: *mut AnyObject = msg_send![field, currentEditor];
+    if editor.is_null() {
+        return None;
+    }
+    let range: NSRange = msg_send![editor, selectedRange];
+    Some(range.location)
+}
+
+/// `field` のフィールドエディタのキャレットを `position`（UTF-16 単位）へ移す。
+/// 編集中でなければ何もしない（`setStringValue:` 側の反映だけで足りる）。
+///
+/// `position` はエディタの実テキスト長（`[editor string] length`）へクランプする。
+/// 絵文字欄で全選択 → 1 文字入力すると、直前に読んだ shadow の長さがエディタの
+/// 現在の内容より長くなり、範囲外の `setSelectedRange:` になりうるため。
+unsafe fn set_caret_position(field: *mut AnyObject, position: usize) {
+    let editor: *mut AnyObject = msg_send![field, currentEditor];
+    if editor.is_null() {
+        return;
+    }
+    let text: *mut AnyObject = msg_send![editor, string];
+    let length: usize = if text.is_null() {
+        0
+    } else {
+        msg_send![text, length]
+    };
+    let range = NSRange {
+        location: position.min(length),
+        length: 0,
+    };
+    let () = msg_send![editor, setSelectedRange: range];
+}
+
+/// 数値 3 欄の入力を数字だけへ絞り込む。変化が無ければ `setStringValue:` を呼ばない
+/// （キャレットを動かさないため）。
+unsafe fn filter_digit_field(field: *mut AnyObject) {
+    let raw: *mut AnyObject = msg_send![field, stringValue];
+    let text = nsstring_to_string(raw).unwrap_or_default();
+    let caret = caret_position(field).unwrap_or_else(|| text.encode_utf16().count());
+    let (filtered, caret_out) = filter_digits(&text, caret);
+    if filtered == text {
+        return;
+    }
+    set_string_value(field, &filtered);
+    set_caret_position(field, caret_out);
+}
+
+/// 絵文字欄の全文を検証する。妥当なら shadow を更新し、不正なら shadow の内容へ丸ごと戻す
+/// （キーストローク単位の文字除去はキーキャップ・国旗・ZWJ 合成を壊すため行わない）。
+unsafe fn validate_emoji_field(state: &mut AppState, field: *mut AnyObject) {
+    let raw: *mut AnyObject = msg_send![field, stringValue];
+    let text = nsstring_to_string(raw).unwrap_or_default();
+    match hud_emoji_validation_error(&text) {
+        None => state.settings_controls.hud_emoji_shadow = text,
+        Some(_) => {
+            let shadow = state.settings_controls.hud_emoji_shadow.clone();
+            set_emoji_field(&mut state.settings_controls, &shadow);
+            set_caret_position(field, shadow.encode_utf16().count());
+        }
+    }
 }
 
 /// 言語ポップアップの `settingChanged:` から呼ぶ。他の設定と違い下書きを経由せず、選択した
@@ -334,32 +500,52 @@ unsafe fn save_language_setting(
     crate::app::display_settings_from_file(&path).map_err(|error| error.to_string())
 }
 
-/// 言語切り替えで、設定ウィンドウ内の静的なラベル・タイトルをすべて差し替える。
+/// 言語切り替えで、設定ウィンドウ内の静的なラベル・タイトル・ツールチップをすべて差し替える。
 ///
-/// `APP_STATE` のロックを保持したまま呼んでよい: ここで触るのは非編集の `NSTextField`
-/// ラベルと `NSButton`/`NSWindow` のタイトルだけで、いずれも action やテキスト編集の
-/// デリゲート通知（`controlTextDidChange:` 等）を発火しないため、Objective-C 側からの
-/// 再入は起きない。
+/// `APP_STATE` のロックを保持したまま呼んでよい: `NSTextField` ラベル・`NSButton`/`NSWindow`
+/// のタイトルに加え、編集可能なフィールド・スライダー・ステッパーへの `setToolTip:` も含めて
+/// 触るが、いずれも action やテキスト編集のデリゲート通知（`controlTextDidChange:` 等）を
+/// 発火しないため、Objective-C 側からの再入は起きない。
 ///
 /// # Safety
 /// AppKit のメインスレッドから呼ぶこと。
 pub unsafe fn apply_language(controls: &SettingsControls, lang: Lang) {
     for entry in &controls.localized {
-        let text = i18n::text(lang, entry.msg);
         match entry.kind {
-            LocalizedKind::StringValue => set_string_value(entry.control, text),
+            LocalizedKind::StringValue => {
+                set_string_value(entry.control, i18n::text(lang, entry.msg))
+            }
             LocalizedKind::Title => {
-                let ns = NSString::from_str(text);
+                let ns = NSString::from_str(i18n::text(lang, entry.msg));
                 let () = msg_send![entry.control, setTitle: &*ns];
             }
             LocalizedKind::TabLabel => {
-                let ns = NSString::from_str(text);
+                let ns = NSString::from_str(i18n::text(lang, entry.msg));
                 let () = msg_send![entry.control, setLabel: &*ns];
+            }
+            LocalizedKind::ToolTip => {
+                let ns = NSString::from_str(&tooltip_text(lang, entry.msg));
+                let () = msg_send![entry.control, setToolTip: &*ns];
             }
         }
     }
     // 「システムに合わせる」は表示言語で書き分けるため、選択肢のラベルも差し替える。
     retitle_language_popup(controls.language_popup, lang);
+
+    // 絵文字ヘルプの popover 本文はツールチップと同じ文言（tooltip_text）を使うため、
+    // 汎用ループ（StringValue は i18n::text 経由）には乗せずここで直接差し替える。
+    // ウィンドウ未生成（ポインタが null）のときは何もしない。文言の行数は言語で変わるため、
+    // 差し替えのたびに popover の大きさも実測し直す。
+    if !controls.hud_emoji_help_label.is_null() {
+        set_string_value(
+            controls.hud_emoji_help_label,
+            &tooltip_text(lang, Msg::TooltipHudEmoji),
+        );
+        resize_help_popover_to_fit_label(
+            controls.hud_emoji_help_popover,
+            controls.hud_emoji_help_label,
+        );
+    }
 }
 
 /// 下書きを既定値に戻し、コントロール表示を同期する。保存も HUD への適用もしない。
@@ -372,7 +558,8 @@ pub unsafe fn reset_settings(state: &mut AppState) {
     let language = state.settings_controls.draft.language;
     state.settings_controls.draft = default_display_settings();
     state.settings_controls.draft.language = language;
-    sync_controls_from_settings(&state.settings_controls, &state.settings_controls.draft);
+    let draft = state.settings_controls.draft.clone();
+    sync_controls_from_settings(&mut state.settings_controls, &draft);
 }
 
 /// 下書きを HUD に適用したうえで固定サンプルを表示する。クリップボードの内容には依存せず、
@@ -526,7 +713,6 @@ unsafe fn resync_controls_after_apply(
     controls: &SettingsControls,
     settings: &DisplaySettings,
     key: ConfigKey,
-    sender: *mut AnyObject,
 ) {
     match key {
         ConfigKey::PollIntervalSecs => {
@@ -553,20 +739,17 @@ unsafe fn resync_controls_after_apply(
                 &format!("{:.2}", settings.hud_scale),
             );
         }
-        ConfigKey::MaxCharsPerLine => resync_stepper_field(
-            sender,
+        ConfigKey::MaxCharsPerLine => sync_stepper_field(
             controls.max_chars_per_line_field,
             controls.max_chars_per_line_stepper,
             settings.truncate_max_width,
         ),
-        ConfigKey::MaxLines => resync_stepper_field(
-            sender,
+        ConfigKey::MaxLines => sync_stepper_field(
             controls.max_lines_field,
             controls.max_lines_stepper,
             settings.truncate_max_lines,
         ),
-        ConfigKey::HudImageMaxHeight => resync_stepper_field(
-            sender,
+        ConfigKey::HudImageMaxHeight => sync_stepper_field(
             controls.hud_image_max_height_field,
             controls.hud_image_max_height_stepper,
             settings.hud_image_max_height,
@@ -574,23 +757,26 @@ unsafe fn resync_controls_after_apply(
         // ポップアップの選択肢は常に妥当な値のみを取りうるためクランプが発生せず、再同期は不要
         ConfigKey::HudPosition | ConfigKey::HudBackgroundColor => {}
         // 拒否された入力は set_config_value のエラー側で戻すため、ここでは触らない。
-        // 編集中フィールドへの setStringValue を避ける狙いもある。
         ConfigKey::HudEmoji => {}
         // 言語は下書きモデルの対象外で、保存の成否にかかわらず再同期する対象が無い。
         ConfigKey::Language => {}
     }
 }
 
-/// stepper は常に更新する（テキスト編集の再入リスクがないため）。
-/// field は `sender` 自身でない場合のみ更新する（sender の場合は編集中の可能性があるため触れない）。
-unsafe fn resync_stepper_field(
-    sender: *mut AnyObject,
-    field: *mut AnyObject,
-    stepper: *mut AnyObject,
-    value: usize,
-) {
-    let () = msg_send![stepper, setIntegerValue: value as isize];
-    if sender != field {
-        set_string_value(field, &value.to_string());
+#[cfg(test)]
+mod tests {
+    use objc2::{class, sel};
+
+    /// `handle_text_change` が使う ObjC API のセレクタを突き合わせる。セレクタ名は文字列
+    /// なのでコンパイルでは食い違いを検出できず、綴りを間違えると呼び出し時に
+    /// unrecognized selector で落ちる。
+    #[test]
+    fn appkit_responds_to_text_editing_selectors() {
+        assert!(class!(NSTextField).responds_to(sel!(currentEditor)));
+        assert!(class!(NSTextView).responds_to(sel!(hasMarkedText)));
+        assert!(class!(NSTextView).responds_to(sel!(selectedRange)));
+        assert!(class!(NSTextView).responds_to(sel!(setSelectedRange:)));
+        assert!(class!(NSTextView).responds_to(sel!(string)));
+        assert!(class!(NSString).responds_to(sel!(length)));
     }
 }

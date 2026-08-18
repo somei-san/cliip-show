@@ -18,8 +18,8 @@ use crate::objc_helpers::template_image_from_png;
 use super::rows::{
     add_button_row, add_divider_row, add_field_row, add_language_row, add_login_item_row,
     add_popup_row, add_slider_row, add_stepper_row, document_height, make_button, make_label,
-    make_pane_view, make_scroll_view, SETTINGS_PANE_HEIGHT, SETTINGS_STYLE_MASK,
-    SETTINGS_TOTAL_ROW_COUNT, SETTINGS_WINDOW_WIDTH,
+    make_pane_view, make_range_hint_popover, make_scroll_view, SETTINGS_PANE_HEIGHT,
+    SETTINGS_STYLE_MASK, SETTINGS_TOTAL_ROW_COUNT, SETTINGS_WINDOW_WIDTH,
 };
 use super::{LocalizedControl, LocalizedKind, SettingsControls};
 
@@ -268,6 +268,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         row.next(),
         lang,
         Msg::LabelPollInterval,
+        Msg::TooltipPollInterval,
         ConfigKey::PollIntervalSecs,
         MIN_POLL_INTERVAL_SECS,
         MAX_POLL_INTERVAL_SECS,
@@ -280,6 +281,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         row.next(),
         lang,
         Msg::LabelHudDuration,
+        Msg::TooltipHudDuration,
         ConfigKey::HudDurationSecs,
         MIN_HUD_DURATION_SECS,
         MAX_HUD_DURATION_SECS,
@@ -292,6 +294,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         row.next(),
         lang,
         Msg::LabelHudFadeDuration,
+        Msg::TooltipHudFadeDuration,
         ConfigKey::HudFadeDurationSecs,
         MIN_HUD_FADE_DURATION_SECS,
         MAX_HUD_FADE_DURATION_SECS,
@@ -304,6 +307,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         row.next(),
         lang,
         Msg::LabelHudScale,
+        Msg::TooltipHudScale,
         ConfigKey::HudScale,
         MIN_HUD_SCALE,
         MAX_HUD_SCALE,
@@ -316,6 +320,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         row.next(),
         lang,
         Msg::LabelMaxCharsPerLine,
+        Msg::TooltipMaxCharsPerLine,
         ConfigKey::MaxCharsPerLine,
         MIN_TRUNCATE_MAX_WIDTH,
         MAX_TRUNCATE_MAX_WIDTH,
@@ -328,6 +333,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         row.next(),
         lang,
         Msg::LabelMaxLines,
+        Msg::TooltipMaxLines,
         ConfigKey::MaxLines,
         MIN_TRUNCATE_MAX_LINES,
         MAX_TRUNCATE_MAX_LINES,
@@ -340,6 +346,7 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         row.next(),
         lang,
         Msg::LabelHudImageMaxHeight,
+        Msg::TooltipHudImageMaxHeight,
         ConfigKey::HudImageMaxHeight,
         MIN_HUD_IMAGE_MAX_HEIGHT,
         MAX_HUD_IMAGE_MAX_HEIGHT,
@@ -368,9 +375,8 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         placeholder.hud_background_color.as_str(),
         &mut localized,
     );
-    let (hud_emoji_field, hud_emoji_message_label) = add_field_row(
+    let (hud_emoji_field, hud_emoji_help_popover, hud_emoji_help_label) = add_field_row(
         document_view,
-        content_view,
         delegate,
         row.next(),
         lang,
@@ -399,6 +405,9 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
     );
     // 行数が定数からずれると document_height と row_bottom_y の前提が崩れ、行がはみ出す
     debug_assert_eq!(row.0, SETTINGS_TOTAL_ROW_COUNT);
+
+    // 数値欄3つが共用する範囲ヒント popover。特定の行に属さないため、行ループの外で1つだけ作る
+    let (range_hint_popover, range_hint_label) = make_range_hint_popover();
 
     let scroll_view = make_scroll_view(document_view);
     let () = msg_send![document_view, release];
@@ -462,7 +471,12 @@ pub unsafe fn build_settings_window(delegate: &AnyObject, lang: Lang) -> Setting
         hud_position_popup,
         hud_background_color_popup,
         hud_emoji_field,
-        hud_emoji_message_label,
+        hud_emoji_help_popover,
+        hud_emoji_help_label,
+        range_hint_popover,
+        range_hint_label,
+        range_hint_close_timer: ptr::null_mut(),
+        hud_emoji_shadow: placeholder.hud_emoji.clone(),
         language_popup,
         login_item_toggle,
         draft: placeholder,
@@ -490,7 +504,8 @@ mod tests {
         assert!(class!(NSWindow).responds_to(sel!(setContentViewController:)));
     }
 
-    /// 設定タブをスクロール化する NSScrollView / documentView 側のセレクタも同じ理由で突き合わせる。
+    /// 設定タブをスクロール化する NSScrollView / documentView 側のセレクタも同じ理由で突き合わせる
+    /// （ツールチップの `setToolTip:` も rows.rs から送る NSView 系セレクタなのでここに含める）。
     #[test]
     fn appkit_responds_to_scroll_selectors() {
         assert!(class!(NSScrollView).responds_to(sel!(setBorderType:)));
@@ -500,5 +515,6 @@ mod tests {
         assert!(class!(NSScrollView).responds_to(sel!(setAutohidesScrollers:)));
         assert!(class!(NSScrollView).responds_to(sel!(setDocumentView:)));
         assert!(class!(NSView).responds_to(sel!(scrollPoint:)));
+        assert!(class!(NSView).responds_to(sel!(setToolTip:)));
     }
 }

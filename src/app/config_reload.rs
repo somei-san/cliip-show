@@ -120,10 +120,6 @@ pub(crate) unsafe fn apply_settings_now(state: &mut AppState, new_settings: Disp
             &state.settings_controls,
             state.settings.language,
         );
-        // 絵文字の検証メッセージは内容が動的で `localized` に載せられないため、個別に描き直す。
-        if !state.settings_controls.hud_emoji_field.is_null() {
-            crate::settings_window::update_emoji_validation_message(state);
-        }
         // draft は「保存」で丸ごと書き戻されるため、古い言語で上書きしないようここでも揃える。
         state.settings_controls.draft.language = state.settings.language;
     }

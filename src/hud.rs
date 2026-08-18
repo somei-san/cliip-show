@@ -13,8 +13,9 @@ pub const BORDERLESS_MASK: usize = 0;
 pub const BACKING_BUFFERED: isize = 2;
 pub const FLOATING_WINDOW_LEVEL: isize = 3;
 
-// NSLineBreakMode
-const NS_LINE_BREAK_BY_WORD_WRAPPING: isize = 1;
+// NSLineBreakMode: ByCharWrapping。HUD は CJK を含む任意テキストの切り詰め表示のため、
+// 単語境界ではなく文字単位で折り返す。
+const NS_LINE_BREAK_BY_CHAR_WRAPPING: isize = 1;
 // NSTextAlignment
 const NS_TEXT_ALIGNMENT_LEFT: isize = 0;
 // NSImageScaling
@@ -299,7 +300,7 @@ pub unsafe fn create_hud_window(
     let () = msg_send![label, setEditable: false];
     let () = msg_send![label, setSelectable: false];
     let () = msg_send![label, setDrawsBackground: false];
-    let () = msg_send![label, setLineBreakMode: NS_LINE_BREAK_BY_WORD_WRAPPING];
+    let () = msg_send![label, setLineBreakMode: NS_LINE_BREAK_BY_CHAR_WRAPPING];
     let () = msg_send![label, setUsesSingleLineMode: false];
     let () = msg_send![label, setMaximumNumberOfLines: 0isize];
     let () = msg_send![label, setAlignment: NS_TEXT_ALIGNMENT_LEFT];
@@ -319,7 +320,7 @@ pub unsafe fn create_hud_window(
     if !cell.is_null() {
         let () = msg_send![cell, setWraps: true];
         let () = msg_send![cell, setScrollable: false];
-        let () = msg_send![cell, setLineBreakMode: NS_LINE_BREAK_BY_WORD_WRAPPING];
+        let () = msg_send![cell, setLineBreakMode: NS_LINE_BREAK_BY_CHAR_WRAPPING];
     }
 
     let default_text = NSString::from_str("Clipboard text");

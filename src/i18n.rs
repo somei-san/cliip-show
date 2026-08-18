@@ -59,6 +59,17 @@ pub enum Msg {
     LabelHudPosition,
     LabelHudBackgroundColor,
     LabelHudEmoji,
+    TooltipPollInterval,
+    TooltipHudDuration,
+    TooltipHudFadeDuration,
+    TooltipHudScale,
+    TooltipMaxCharsPerLine,
+    TooltipMaxLines,
+    TooltipHudImageMaxHeight,
+    TooltipHudEmoji,
+    /// 数値欄の範囲ヒント popover の接頭辞。`range_hint::range_hint_text` が
+    /// 半角の範囲表記（例: "1–500"）の先頭に付ける。
+    RangeHintPrefix,
     LabelLanguage,
     LanguageAuto,
     ButtonRestoreDefaults,
@@ -117,6 +128,36 @@ pub fn text(lang: Lang, msg: Msg) -> &'static str {
         Msg::LabelHudPosition => ("表示位置", "Position"),
         Msg::LabelHudBackgroundColor => ("背景色", "Background color"),
         Msg::LabelHudEmoji => ("アイコン絵文字", "Icon emoji"),
+        Msg::TooltipPollInterval => (
+            "クリップボードの内容を確認する間隔。",
+            "How often the clipboard is checked for changes.",
+        ),
+        Msg::TooltipHudDuration => ("HUD を表示し続ける時間。", "How long the HUD stays visible."),
+        Msg::TooltipHudFadeDuration => (
+            "HUD が消えるときのフェード時間。0 秒にするとフェードせず即座に消えます。",
+            "Fade-out duration when the HUD disappears. Set to 0 to disappear instantly with no fade.",
+        ),
+        Msg::TooltipHudScale => (
+            "HUD 全体の表示サイズの倍率。画像サムネイル高さの上限にも掛かります。",
+            "Overall display scale of the HUD. Also multiplies the image thumbnail height limit.",
+        ),
+        Msg::TooltipMaxCharsPerLine => (
+            "1行に表示する最大文字数。超えた分は省略されます。",
+            "Maximum number of characters shown per line. Extra characters are truncated.",
+        ),
+        Msg::TooltipMaxLines => (
+            "表示する最大行数。超えた行は省略されます。",
+            "Maximum number of lines shown. Extra lines are truncated.",
+        ),
+        Msg::TooltipHudImageMaxHeight => (
+            "画像プレビューのサムネイル高さの上限（px）。実際の上限はこの値に HUDサイズ倍率を掛けた値になります。",
+            "Maximum thumbnail height for image previews (px). The actual limit is this value multiplied by the HUD scale.",
+        ),
+        Msg::TooltipHudEmoji => (
+            "HUD の左端に表示するアイコン絵文字。絵文字1文字だけ入力できます。空にするとアイコンは出ません。",
+            "The icon emoji shown at the left edge of the HUD. Only a single emoji is allowed. Leave it empty to show no icon.",
+        ),
+        Msg::RangeHintPrefix => ("有効範囲：", "Valid range: "),
         Msg::LabelLanguage => ("言語", "Language"),
         Msg::LanguageAuto => ("システムに合わせる", "Match System"),
         Msg::ButtonRestoreDefaults => ("デフォルトに戻す", "Restore Defaults"),
