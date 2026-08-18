@@ -242,7 +242,7 @@ run_case \
   "hello clipboard" \
   "CLIIP_SHOW_HUD_BACKGROUND_COLOR=purple"
 
-# Settings profile: hud_background_opacity (multiplies each color's default alpha; text stays opaque)
+# Settings profile: hud_background_opacity (the background alpha itself; text stays opaque)
 run_case \
   "setting_hud_background_opacity_03" \
   "hello clipboard" \

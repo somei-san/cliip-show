@@ -4,7 +4,7 @@ use std::sync::{Mutex, Once};
 use std::time::SystemTime;
 
 use objc2::declare::ClassBuilder;
-use objc2::runtime::{AnyClass, AnyObject, Sel};
+use objc2::runtime::{AnyClass, AnyObject, Bool, Sel};
 use objc2::{class, msg_send, sel};
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
@@ -63,6 +63,10 @@ pub fn get_delegate_class() -> &'static AnyClass {
         builder.add_method(
             sel!(applicationDidFinishLaunching:),
             application_did_finish_launching as extern "C" fn(_, _, _),
+        );
+        builder.add_method(
+            sel!(applicationShouldHandleReopen:hasVisibleWindows:),
+            application_should_handle_reopen as extern "C" fn(_, _, _, _) -> Bool,
         );
         builder.add_method(
             sel!(pollPasteboard:),
@@ -237,6 +241,22 @@ extern "C" fn poll_pasteboard(this: &AnyObject, _: Sel, _: *mut AnyObject) {
     }
 }
 
+/// Spotlight や Finder から起動し直したときに AppKit が呼ぶ。Launch Services が
+/// 二重起動を止めるため、この経路では新しいプロセスは立ち上がらない。
+///
+/// 常駐アプリはウィンドウを持たないので、既定の復帰動作に任せると何も起きたように
+/// 見えない。設定ウィンドウを開いて、起動済みであることを示す。`false` を返すのは
+/// 復帰させるウィンドウが無いため。
+extern "C" fn application_should_handle_reopen(
+    this: &AnyObject,
+    _: Sel,
+    _: *mut AnyObject,
+    _has_visible_windows: Bool,
+) -> Bool {
+    open_settings(this, sel!(openSettings:), ptr::null_mut());
+    Bool::NO
+}
+
 extern "C" fn open_settings(this: &AnyObject, _: Sel, _: *mut AnyObject) {
     unsafe {
         let window = {
@@ -250,13 +270,19 @@ extern "C" fn open_settings(this: &AnyObject, _: Sel, _: *mut AnyObject) {
                 let lang = i18n::resolve(state.settings.language);
                 state.settings_controls = crate::settings_window::build_settings_window(this, lang);
             }
-            // 下書きは開くたびに現在の実効設定へ合わせる。ファイル監視の再読み込み等で
-            // state.settings が外部から変わっていても、開き直せば食い違わない。
-            state.settings_controls.draft = state.settings.clone();
-            crate::settings_window::sync_controls_from_settings(
-                &mut state.settings_controls,
-                &state.settings,
-            );
+
+            // 既に開いているウィンドウは前面に出すだけにする。他のインスタンスの起動でも
+            // ここへ来るため、下書きを作り直すと編集中の内容がユーザーの操作なしに消える。
+            let already_visible: bool = msg_send![state.settings_controls.window, isVisible];
+            if !already_visible {
+                // 下書きは開くたびに現在の実効設定へ合わせる。ファイル監視の再読み込み等で
+                // state.settings が外部から変わっていても、開き直せば食い違わない。
+                state.settings_controls.draft = state.settings.clone();
+                crate::settings_window::sync_controls_from_settings(
+                    &mut state.settings_controls,
+                    &state.settings,
+                );
+            }
             // ログイン項目は設定ファイルではなく OS 側の状態なので、下書きとは別に毎回同期する。
             crate::settings_window::sync_login_item_toggle(&state.settings_controls);
             state.settings_controls.window
@@ -700,6 +726,22 @@ mod tests {
             sel!(quitApp:),
             sel!(hideHud:),
             sel!(fadeTick:),
+        ] {
+            assert!(
+                class.responds_to(selector),
+                "delegate does not respond to {selector:?}"
+            );
+        }
+    }
+
+    /// AppKit 自身が送るセレクタの分。`applicationShouldHandleReopen:hasVisibleWindows:` に
+    /// 応答しないと、起動済みのアプリを Spotlight から選び直しても何も起きない。
+    #[test]
+    fn delegate_responds_to_appkit_selectors() {
+        let class = get_delegate_class();
+        for selector in [
+            sel!(applicationDidFinishLaunching:),
+            sel!(applicationShouldHandleReopen:hasVisibleWindows:),
         ] {
             assert!(
                 class.responds_to(selector),

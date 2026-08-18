@@ -9,4 +9,5 @@ pub mod menu;
 pub mod objc_helpers;
 pub mod png;
 pub mod settings_window;
+pub mod single_instance;
 pub mod text;
