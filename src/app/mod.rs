@@ -112,6 +112,10 @@ pub fn get_delegate_class() -> &'static AnyClass {
             toggle_login_item as extern "C" fn(_, _, _),
         );
         builder.add_method(
+            sel!(toggleMenuBarIcon:),
+            toggle_menu_bar_icon as extern "C" fn(_, _, _),
+        );
+        builder.add_method(
             sel!(showEmojiHelp:),
             show_emoji_help as extern "C" fn(_, _, _),
         );
@@ -155,6 +159,12 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
         }
 
         let status_handles = crate::menu::create_status_item(this, lang);
+        // NSStatusItem.visible は AppKit 側が永続化するため、差分判定なしで毎回設定を当てる
+        // （前回の残骸で消えたままになるのを防ぐ）。
+        crate::menu::apply_menu_bar_icon_visibility(
+            status_handles.status_item,
+            settings.show_menu_bar_icon,
+        );
         let menu_handles = MenuHandles {
             status: status_handles,
             edit: edit_handles,
@@ -302,8 +312,14 @@ extern "C" fn open_settings(this: &AnyObject, _: Sel, _: *mut AnyObject) {
 
             if state.settings_controls.window.is_null() {
                 let lang = i18n::resolve(state.settings.language);
-                state.settings_controls =
-                    crate::settings_window::build_settings_window(this, lang, state.start_at_login);
+                state.settings_controls = crate::settings_window::build_settings_window(
+                    this,
+                    lang,
+                    crate::settings_window::InitialToggles {
+                        start_at_login: state.start_at_login,
+                        show_menu_bar_icon: state.settings.show_menu_bar_icon,
+                    },
+                );
             }
 
             // 既に開いているウィンドウは前面に出すだけにする。他のインスタンスの起動でも
@@ -411,6 +427,56 @@ fn persist_start_at_login(state: &mut AppState, value: bool) -> bool {
         .ok()
         .and_then(|m| m.modified().ok());
     true
+}
+
+/// メニューバーアイコン表示トグルの `toggleMenuBarIcon:`。ログイン項目トグルと同じく下書きを
+/// 経由せず、チェックした瞬間に設定ファイルへ保存し `apply_settings_now` で status item・
+/// 設定ウィンドウへ即時反映する。非表示にした場合だけ、復帰方法（アプリを再起動すると
+/// 設定ウィンドウが開く）を知らせるダイアログを出す。
+extern "C" fn toggle_menu_bar_icon(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
+    unsafe {
+        let hidden_dialog_lang = {
+            // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+            let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+            let Some(state) = guard.as_mut() else {
+                return;
+            };
+
+            let checked: isize = msg_send![sender, state];
+            let desired = checked != 0;
+            let was_visible = state.settings.show_menu_bar_icon;
+
+            match crate::settings_window::save_show_menu_bar_icon(state, desired) {
+                Ok(new_settings) => {
+                    apply_settings_now(state, new_settings);
+                    // 環境変数が show_menu_bar_icon を固定していると、設定ファイルへ保存しても
+                    // 実効値は動かない。トグルの表示を実効値へ揃え、ダイアログも実際に
+                    // アイコンが消えたときだけ出す。
+                    let visible = state.settings.show_menu_bar_icon;
+                    crate::settings_window::sync_menu_bar_icon_toggle(
+                        &state.settings_controls,
+                        visible,
+                    );
+                    (was_visible && !visible).then(|| i18n::resolve(state.settings.language))
+                }
+                Err(error) => {
+                    eprintln!("warning: {error}");
+                    // 失敗したのにチェックだけ付いた状態を避け、実際の状態に表示を戻す。
+                    crate::settings_window::sync_menu_bar_icon_toggle(
+                        &state.settings_controls,
+                        state.settings.show_menu_bar_icon,
+                    );
+                    None
+                }
+            }
+        };
+
+        // runModal は実行ループを止めるため、APP_STATE のロックを手放した後に呼ぶ
+        // （prompt_login_item_if_needed と同じ理由）。
+        if let Some(lang) = hidden_dialog_lang {
+            panels::prompt_menu_bar_icon_hidden(lang);
+        }
+    }
 }
 
 // NSRectEdge: maxX。ボタン/フィールドの右側に popover を出す（`show_emoji_help_popover`・
@@ -831,6 +897,7 @@ mod tests {
             sel!(previewSettings:),
             sel!(saveSettings:),
             sel!(toggleLoginItem:),
+            sel!(toggleMenuBarIcon:),
             sel!(showEmojiHelp:),
             sel!(closeRangeHintPopover:),
             sel!(windowWillClose:),

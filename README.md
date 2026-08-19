@@ -45,6 +45,8 @@ Launching it shows "Cliip Show started" in the HUD. It stays quiet when launched
 
 Launching it again while it is running opens the settings window instead of starting a second copy.
 
+You can hide the menu bar icon from "Show icon in menu bar" in the settings window. If you do, that also cuts off the menu (settings, pause, quit); launch the app again to bring the settings window to the front and show the icon again.
+
 ### Coming from the formula
 
 The formula is replaced by the cask, so uninstall it first:

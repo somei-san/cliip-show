@@ -77,6 +77,7 @@ pub struct DisplaySettings {
     pub hud_emoji: String,
     pub hud_image_max_height: usize,
     pub language: LanguageSetting,
+    pub show_menu_bar_icon: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -101,6 +102,7 @@ pub struct DisplayConfigFile {
     pub hud_emoji: Option<String>,
     pub hud_image_max_height: Option<usize>,
     pub language: Option<LanguageSetting>,
+    pub show_menu_bar_icon: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -122,12 +124,13 @@ pub enum ConfigKey {
     HudEmoji,
     HudImageMaxHeight,
     Language,
+    ShowMenuBarIcon,
     StartAtLogin,
 }
 
 impl ConfigKey {
     /// 設定ファイルに並ぶ順。キーを網羅して回りたい箇所はここを使う。
-    pub const ALL: [ConfigKey; 13] = [
+    pub const ALL: [ConfigKey; 14] = [
         ConfigKey::PollIntervalSecs,
         ConfigKey::HudDurationSecs,
         ConfigKey::HudFadeDurationSecs,
@@ -140,6 +143,7 @@ impl ConfigKey {
         ConfigKey::HudEmoji,
         ConfigKey::HudImageMaxHeight,
         ConfigKey::Language,
+        ConfigKey::ShowMenuBarIcon,
         ConfigKey::StartAtLogin,
     ];
 
@@ -157,6 +161,7 @@ impl ConfigKey {
             ConfigKey::HudEmoji => "hud_emoji",
             ConfigKey::HudImageMaxHeight => "hud_image_max_height",
             ConfigKey::Language => "language",
+            ConfigKey::ShowMenuBarIcon => "show_menu_bar_icon",
             ConfigKey::StartAtLogin => "start_at_login",
         }
     }

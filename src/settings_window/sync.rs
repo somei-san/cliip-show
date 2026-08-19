@@ -18,8 +18,8 @@ use crate::png::create_preview_sample_image;
 use super::input_filter::filter_digits;
 use super::range_hint::range_hint_text;
 use super::rows::{
-    login_item_control_state, resize_help_popover_to_fit_label, select_language_item,
-    select_popup_item, set_string_value,
+    resize_help_popover_to_fit_label, select_language_item, select_popup_item, set_string_value,
+    set_toggle_state,
 };
 use super::tooltip::tooltip_text;
 use super::{tag_to_config_key, LocalizedKind, RangeHint, SettingsControls};
@@ -151,6 +151,7 @@ pub unsafe fn sync_controls_from_settings(
         settings.hud_background_color.as_str(),
     );
     select_language_item(controls.language_popup, settings.language);
+    sync_menu_bar_icon_toggle(controls, settings.show_menu_bar_icon);
 
     set_emoji_field(controls, &settings.hud_emoji);
 }
@@ -162,8 +163,17 @@ pub unsafe fn sync_controls_from_settings(
 /// # Safety
 /// AppKit のメインスレッドから呼ぶこと。
 pub unsafe fn sync_login_item_toggle(controls: &SettingsControls, start_at_login: bool) {
-    let state = login_item_control_state(start_at_login);
-    let () = msg_send![controls.login_item_toggle, setState: state];
+    set_toggle_state(controls.login_item_toggle, start_at_login);
+}
+
+/// メニューバーアイコン表示トグルの表示を `show_menu_bar_icon` に合わせる。下書きモデルの
+/// 対象外のため、`sync_controls_from_settings`・ファイル監視の再読み込み・
+/// `toggleMenuBarIcon:` が保存に失敗したときの巻き戻しの各経路から呼ぶ。
+///
+/// # Safety
+/// AppKit のメインスレッドから呼ぶこと。
+pub unsafe fn sync_menu_bar_icon_toggle(controls: &SettingsControls, show_menu_bar_icon: bool) {
+    set_toggle_state(controls.show_menu_bar_icon_toggle, show_menu_bar_icon);
 }
 
 /// 言語ポップアップの選択を、いま効いている設定値に合わせる。
@@ -509,6 +519,37 @@ unsafe fn save_language_setting(
     crate::app::display_settings_from_file(&path).map_err(|error| error.to_string())
 }
 
+/// メニューバーアイコン表示の設定を保存し、保存後のファイル内容から `DisplaySettings` を
+/// 組み直す。`show_menu_bar_icon` だけ差し替えると、外部エディタでの変更を取り込まないまま
+/// `config_mtime` だけ進み、ファイル監視がその変更を二度と拾わなくなるため、
+/// `display_settings_from_file` でファイルから組み直す。`toggleMenuBarIcon:` から呼ぶ。
+///
+/// # Safety
+/// - `APP_STATE` をロックしないこと（呼び出し側が既にロックを保持している）。
+/// - AppKit のメインスレッドから呼ぶこと。
+pub unsafe fn save_show_menu_bar_icon(
+    state: &mut AppState,
+    value: bool,
+) -> Result<DisplaySettings, String> {
+    let Some(path) = state.config_path.clone() else {
+        return Err(
+            "config path is not resolved; cannot save show_menu_bar_icon setting".to_string(),
+        );
+    };
+    let (mut config, _) = load_config_file(&path).map_err(|error| error.to_string())?;
+    let start_at_login = start_at_login_from_config(&config);
+    let raw = if value { "true" } else { "false" };
+    set_config_value(&mut config, ConfigKey::ShowMenuBarIcon, raw)
+        .map_err(|error| error.to_string())?;
+    save_config_file(&path, &config).map_err(|error| error.to_string())?;
+    state.config_mtime = std::fs::metadata(&path)
+        .ok()
+        .and_then(|m| m.modified().ok());
+    apply_start_at_login_if_changed(state, start_at_login);
+
+    crate::app::display_settings_from_file(&path).map_err(|error| error.to_string())
+}
+
 /// 言語切り替えで、設定ウィンドウ内の静的なラベル・タイトル・ツールチップをすべて差し替える。
 ///
 /// `APP_STATE` のロックを保持したまま呼んでよい: `NSTextField` ラベル・`NSButton`/`NSWindow`
@@ -558,15 +599,17 @@ pub unsafe fn apply_language(controls: &SettingsControls, lang: Lang) {
 }
 
 /// 下書きを既定値に戻し、コントロール表示を同期する。保存も HUD への適用もしない。
-/// 言語は下書きモデルの対象外のため、既定値へは戻さず現在値を保つ。
+/// 言語・メニューバーアイコン表示は下書きモデルの対象外のため、既定値へは戻さず現在値を保つ。
 ///
 /// # Safety
 /// - `APP_STATE` をロックしないこと（呼び出し側が既にロックを保持している）。
 /// - AppKit のメインスレッドから呼ぶこと。
 pub unsafe fn reset_settings(state: &mut AppState) {
     let language = state.settings_controls.draft.language;
+    let show_menu_bar_icon = state.settings_controls.draft.show_menu_bar_icon;
     state.settings_controls.draft = default_display_settings();
     state.settings_controls.draft.language = language;
+    state.settings_controls.draft.show_menu_bar_icon = show_menu_bar_icon;
     let draft = state.settings_controls.draft.clone();
     sync_controls_from_settings(&mut state.settings_controls, &draft);
 }
@@ -703,6 +746,7 @@ fn control_for_key(controls: &SettingsControls, key: ConfigKey) -> *mut AnyObjec
         ConfigKey::HudBackgroundOpacity => controls.hud_background_opacity_slider,
         ConfigKey::HudEmoji => controls.hud_emoji_field,
         ConfigKey::Language => controls.language_popup,
+        ConfigKey::ShowMenuBarIcon => controls.show_menu_bar_icon_toggle,
         ConfigKey::StartAtLogin => controls.login_item_toggle,
     }
 }
@@ -736,6 +780,8 @@ unsafe fn raw_value_for_key(key: ConfigKey, control: *mut AnyObject) -> Option<S
         }
         // 自動起動トグルは専用の toggleLoginItem: を持ち、この汎用パスからは呼ばれない
         ConfigKey::StartAtLogin => None,
+        // メニューバーアイコン表示トグルも専用の toggleMenuBarIcon: を持ち、同じ理由で対象外
+        ConfigKey::ShowMenuBarIcon => None,
     }
 }
 
@@ -799,6 +845,9 @@ unsafe fn resync_controls_after_apply(
         // 自動起動も下書きモデルの対象外（専用の toggleLoginItem: が設定ファイルへ保存し、
         // plist はその派生物として合わせる）。
         ConfigKey::StartAtLogin => {}
+        // メニューバーアイコン表示も下書きモデルの対象外（専用の toggleMenuBarIcon: が
+        // 設定ファイルへ保存し、status item の表示はその派生物として合わせる）。
+        ConfigKey::ShowMenuBarIcon => {}
     }
 }
 
@@ -817,5 +866,16 @@ mod tests {
         assert!(class!(NSTextView).responds_to(sel!(setSelectedRange:)));
         assert!(class!(NSTextView).responds_to(sel!(string)));
         assert!(class!(NSString).responds_to(sel!(length)));
+    }
+
+    /// 設定ウィンドウを一度も開いていないとトグルのコントロールは null。設定ファイルの
+    /// 手編集はその状態でもトグルの同期まで来るため、null へ `setState:` を送らないこと。
+    #[test]
+    fn syncing_toggles_without_a_settings_window_does_not_message_nil() {
+        let controls = super::SettingsControls::default();
+        unsafe {
+            super::sync_login_item_toggle(&controls, true);
+            super::sync_menu_bar_icon_toggle(&controls, false);
+        }
     }
 }

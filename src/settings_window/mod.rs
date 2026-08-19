@@ -16,7 +16,8 @@ pub use build::build_settings_window;
 pub(crate) use build::{TAB_INDEX_SETTINGS, TAB_INDEX_SUPPORT};
 pub use sync::{
     apply_language, apply_setting_change, handle_text_change, preview_settings, reset_settings,
-    save_settings, sync_controls_from_settings, sync_language_popup, sync_login_item_toggle,
+    save_settings, save_show_menu_bar_icon, sync_controls_from_settings, sync_language_popup,
+    sync_login_item_toggle, sync_menu_bar_icon_toggle,
 };
 
 /// 言語切り替えで表示テキストを差し替える対象コントロール。
@@ -46,10 +47,21 @@ pub struct RangeHint {
     /// popover 本文（言語・接頭辞込みで解決済み）。
     pub text: String,
 }
+
+/// `build_settings_window` へ渡す、下書きモデルの対象外なトグル行の初期表示値。
+/// bool を並べて渡すと引数の取り違えでもコンパイルが通ってしまうため、
+/// 意味のある名前を持つ struct にまとめる。
+pub struct InitialToggles {
+    pub start_at_login: bool,
+    pub show_menu_bar_icon: bool,
+}
 /// 設定ウィンドウを構成するコントロールへのポインタ。`AppState` に保持し、
 /// `openSettings:` で使い回す（ウィンドウは初回だけ生成する）。
 pub struct SettingsControls {
     pub window: *mut AnyObject,
+    /// 行スタック全体（`NSScrollView` の documentView）。VRT が可視域の外の行まで撮るために持つ
+    /// （`render_settings_png` の `SettingsRows`）。
+    pub document_view: *mut AnyObject,
     pub poll_interval_slider: *mut AnyObject,
     pub poll_interval_value_label: *mut AnyObject,
     pub hud_duration_slider: *mut AnyObject,
@@ -98,12 +110,16 @@ pub struct SettingsControls {
     /// 設定ファイルへ保存し、`login_item::enable`/`disable` で plist をそれに合わせる
     /// （`toggleLoginItem:`）。
     pub login_item_toggle: *mut AnyObject,
+    /// メニューバーアイコン表示のトグル。下書き→保存のモデルには乗らず、チェックした瞬間に
+    /// 設定ファイルへ保存し、`menu::apply_menu_bar_icon_visibility` で status item をそれに
+    /// 合わせる（`toggleMenuBarIcon:`）。
+    pub show_menu_bar_icon_toggle: *mut AnyObject,
     /// ウィンドウ内で編集中の下書き。「保存」（`saveSettings:`）を押すまで設定ファイルには
     /// 反映しない。`settingChanged:` はこの下書きだけを更新する。
     ///
-    /// `language` はこの下書きの対象外だが、フィールド自体は `DisplaySettings` の一部として
-    /// 常に持つ。「保存」時に古い言語で上書きしないよう、言語が変わるたびに
-    /// `apply_settings_now`／`reset_settings` の側でここも一緒に同期すること。
+    /// `language`・`show_menu_bar_icon` はこの下書きの対象外だが、フィールド自体は
+    /// `DisplaySettings` の一部として常に持つ。「保存」時に古い値で上書きしないよう、
+    /// 値が変わるたびに `apply_settings_now`／`reset_settings` の側でここも一緒に同期すること。
     pub draft: DisplaySettings,
     /// 「お試し表示」を押すたびに進める、次に表示するサンプルの番号（`PREVIEW_SAMPLES` を巡回）。
     pub preview_sample_index: usize,
@@ -118,6 +134,7 @@ impl Default for SettingsControls {
             hud_emoji_shadow: draft.hud_emoji.clone(),
             draft,
             window: ptr::null_mut(),
+            document_view: ptr::null_mut(),
             poll_interval_slider: ptr::null_mut(),
             poll_interval_value_label: ptr::null_mut(),
             hud_duration_slider: ptr::null_mut(),
@@ -144,6 +161,7 @@ impl Default for SettingsControls {
             range_hint_close_timer: ptr::null_mut(),
             language_popup: ptr::null_mut(),
             login_item_toggle: ptr::null_mut(),
+            show_menu_bar_icon_toggle: ptr::null_mut(),
             preview_sample_index: 0,
             localized: Vec::new(),
         }
@@ -165,6 +183,7 @@ pub fn config_key_to_tag(key: ConfigKey) -> isize {
         ConfigKey::Language => 10,
         ConfigKey::HudBackgroundOpacity => 11,
         ConfigKey::StartAtLogin => 12,
+        ConfigKey::ShowMenuBarIcon => 13,
     }
 }
 
@@ -183,6 +202,7 @@ pub fn tag_to_config_key(tag: isize) -> Option<ConfigKey> {
         10 => Some(ConfigKey::Language),
         11 => Some(ConfigKey::HudBackgroundOpacity),
         12 => Some(ConfigKey::StartAtLogin),
+        13 => Some(ConfigKey::ShowMenuBarIcon),
         _ => None,
     }
 }
@@ -202,7 +222,7 @@ mod tests {
     #[test]
     fn tag_to_config_key_rejects_unknown_tags() {
         assert_eq!(tag_to_config_key(-1), None);
-        assert_eq!(tag_to_config_key(13), None);
+        assert_eq!(tag_to_config_key(14), None);
         assert_eq!(tag_to_config_key(9999), None);
     }
 }

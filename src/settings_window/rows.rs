@@ -18,9 +18,9 @@ pub(super) const SETTINGS_STYLE_MASK: usize = 1 | 2;
 pub(super) const SETTINGS_WINDOW_WIDTH: f64 = 520.0;
 const SETTINGS_ROW_HEIGHT: f64 = 34.0;
 const SETTINGS_ROW_COUNT: usize = 11;
-// HUD の見た目を決める上記 11 行とは別に、区切り行・言語・ログイン項目の 3 行を末尾に置く。
-// 各行の番号は build_settings_window が出現順に払い出す。
-pub(super) const SETTINGS_TOTAL_ROW_COUNT: usize = SETTINGS_ROW_COUNT + 3;
+// HUD の見た目を決める上記 11 行とは別に、区切り行・言語・自動起動・メニューバーアイコン
+// 表示の 4 行を末尾に置く。各行の番号は build_settings_window が出現順に払い出す。
+pub(super) const SETTINGS_TOTAL_ROW_COUNT: usize = SETTINGS_ROW_COUNT + 4;
 const SETTINGS_TOP_MARGIN: f64 = 20.0;
 const SETTINGS_BOTTOM_MARGIN: f64 = 20.0;
 // ウィンドウ下部、行の並びとは別に「デフォルトに戻す」「お試し表示」「保存」ボタンを置くための領域
@@ -879,13 +879,19 @@ pub(super) unsafe fn add_divider_row(document_view: *mut AnyObject, index: usize
     let () = msg_send![document_view, addSubview: divider];
 }
 
-/// ログイン時の自動起動の行。`enabled` は表示専用の初期値で、
-/// 実際の値はウィンドウを開くたびに `sync_login_item_toggle` が上書きする。
-pub(super) unsafe fn add_login_item_row(
+/// NSSwitch トグル行の組み立て。下書きモデルの対象外で、操作した瞬間に専用アクションへ
+/// 保存・反映が飛ぶ設定行（自動起動・メニューバーアイコン表示）はどちらもこの形。
+/// `enabled` は表示専用の初期値で、実際の値はウィンドウを開くたびに呼び出し側の
+/// `sync_login_item_toggle`／`sync_menu_bar_icon_toggle` が上書きする。
+#[allow(clippy::too_many_arguments)]
+pub(super) unsafe fn add_toggle_row(
     document_view: *mut AnyObject,
     delegate: &AnyObject,
     index: usize,
     lang: Lang,
+    label_msg: Msg,
+    key: ConfigKey,
+    action: Sel,
     enabled: bool,
     localized: &mut Vec<LocalizedControl>,
 ) -> *mut AnyObject {
@@ -896,7 +902,7 @@ pub(super) unsafe fn add_login_item_row(
         SETTINGS_LABEL_HEIGHT,
         row_bottom,
     );
-    let label = make_label(i18n::text(lang, Msg::SettingsStartAtLogin), label_rect);
+    let label = make_label(i18n::text(lang, label_msg), label_rect);
     let toggle: *mut AnyObject = msg_send![class!(NSSwitch), alloc];
     let toggle: *mut AnyObject = msg_send![toggle, init];
     let () = msg_send![toggle, setControlSize: NS_CONTROL_SIZE_SMALL];
@@ -910,29 +916,41 @@ pub(super) unsafe fn add_login_item_row(
         row_bottom,
     );
     let () = msg_send![toggle, setFrame: toggle_rect];
-    let () = msg_send![toggle, setState: login_item_control_state(enabled)];
-    let () = msg_send![toggle, setTag: config_key_to_tag(ConfigKey::StartAtLogin)];
+    let () = msg_send![toggle, setState: toggle_control_state(enabled)];
+    let () = msg_send![toggle, setTag: config_key_to_tag(key)];
     let () = msg_send![toggle, setTarget: delegate];
-    let () = msg_send![toggle, setAction: sel!(toggleLoginItem:)];
+    let () = msg_send![toggle, setAction: action];
 
     let () = msg_send![document_view, addSubview: label];
     let () = msg_send![document_view, addSubview: toggle];
 
     localized.push(LocalizedControl {
         control: label,
-        msg: Msg::SettingsStartAtLogin,
+        msg: label_msg,
         kind: LocalizedKind::StringValue,
     });
 
     toggle
 }
 
-pub(super) fn login_item_control_state(enabled: bool) -> isize {
+fn toggle_control_state(enabled: bool) -> isize {
     if enabled {
         NS_CONTROL_STATE_VALUE_ON
     } else {
         NS_CONTROL_STATE_VALUE_OFF
     }
+}
+
+/// トグル行のスイッチの表示を合わせる。設定ウィンドウを一度も開いていないとコントロールは
+/// null で、ファイル監視の再読み込みはその状態でもここへ来る（`select_language_item` と同じ）。
+///
+/// # Safety
+/// AppKit のメインスレッドから呼ぶこと。
+pub(super) unsafe fn set_toggle_state(toggle: *mut AnyObject, enabled: bool) {
+    if toggle.is_null() {
+        return;
+    }
+    let () = msg_send![toggle, setState: toggle_control_state(enabled)];
 }
 
 /// タブ 1 枚分のビュー。余白クリックでテキストフィールドの編集を確定させる動きを
@@ -1088,7 +1106,7 @@ mod tests {
     // 下の行を見せる（ウィンドウは伸ばさない）。
     #[test]
     fn document_height_exceeds_scroll_height() {
-        assert_eq!(document_height(), 496.0);
+        assert_eq!(document_height(), 530.0);
         assert!(document_height() > SETTINGS_SCROLL_HEIGHT);
     }
 
@@ -1096,7 +1114,7 @@ mod tests {
     // 起きるとここで落ちる
     #[test]
     fn row_bottom_y_pins_the_first_row() {
-        assert_eq!(row_bottom_y(0), 442.0);
+        assert_eq!(row_bottom_y(0), 476.0);
     }
 
     // 最終行はちょうど documentView の下端に載る（負なら下へはみ出して見えなくなる）

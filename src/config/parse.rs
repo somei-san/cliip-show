@@ -48,6 +48,15 @@ pub fn parse_hud_background_color(raw: &str) -> Option<HudBackgroundColor> {
     }
 }
 
+/// `"true"`/`"false"`（前後空白は trim）以外は `None`。
+pub fn parse_bool(raw: &str) -> Option<bool> {
+    match raw.trim() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
 pub fn parse_language(raw: &str) -> Option<LanguageSetting> {
     let normalized = raw.trim().to_ascii_lowercase().replace('-', "_");
     match normalized.as_str() {
@@ -193,6 +202,10 @@ pub(crate) fn parse_language_setting(raw: &str, default: LanguageSetting) -> Lan
     parse_language(raw).unwrap_or(default)
 }
 
+pub(crate) fn parse_bool_setting(raw: &str, default: bool) -> bool {
+    parse_bool(raw).unwrap_or(default)
+}
+
 pub fn set_config_value(
     config: &mut AppConfigFile,
     key: ConfigKey,
@@ -335,18 +348,20 @@ pub fn set_config_value(
                 )));
             }
         }
+        ConfigKey::ShowMenuBarIcon => {
+            let raw = value.trim();
+            let parsed = parse_bool(raw).ok_or_else(|| AppError::InvalidValue {
+                key: "show_menu_bar_icon",
+                message: format!("{raw} (allowed: true, false)"),
+            })?;
+            config.display.show_menu_bar_icon = Some(parsed);
+        }
         ConfigKey::StartAtLogin => {
             let raw = value.trim();
-            let parsed = match raw {
-                "true" => true,
-                "false" => false,
-                _ => {
-                    return Err(AppError::InvalidValue {
-                        key: "start_at_login",
-                        message: format!("{raw} (allowed: true, false)"),
-                    })
-                }
-            };
+            let parsed = parse_bool(raw).ok_or_else(|| AppError::InvalidValue {
+                key: "start_at_login",
+                message: format!("{raw} (allowed: true, false)"),
+            })?;
             config.startup.start_at_login = Some(parsed);
         }
     }
@@ -543,6 +558,16 @@ mod tests {
     }
 
     #[test]
+    fn parse_bool_accepts_true_and_false_only() {
+        assert_eq!(parse_bool("true"), Some(true));
+        assert_eq!(parse_bool("false"), Some(false));
+        assert_eq!(parse_bool("  true  "), Some(true));
+        assert_eq!(parse_bool("True"), None);
+        assert_eq!(parse_bool("1"), None);
+        assert_eq!(parse_bool(""), None);
+    }
+
+    #[test]
     fn parse_language_accepts_valid_values() {
         assert_eq!(parse_language("auto"), Some(LanguageSetting::Auto));
         assert_eq!(parse_language("ja"), Some(LanguageSetting::Ja));
@@ -562,6 +587,22 @@ mod tests {
         let err = set_config_value(&mut config, ConfigKey::Language, "fr")
             .expect_err("reject invalid language");
         assert!(err.to_string().contains("language"));
+    }
+
+    #[test]
+    fn set_config_value_accepts_show_menu_bar_icon() {
+        let mut config = AppConfigFile::default();
+        let warning =
+            set_config_value(&mut config, ConfigKey::ShowMenuBarIcon, "false").expect("set value");
+        assert_eq!(config.display.show_menu_bar_icon, Some(false));
+        assert!(warning.is_none());
+
+        set_config_value(&mut config, ConfigKey::ShowMenuBarIcon, "true").expect("set value");
+        assert_eq!(config.display.show_menu_bar_icon, Some(true));
+
+        let err = set_config_value(&mut config, ConfigKey::ShowMenuBarIcon, "maybe")
+            .expect_err("reject invalid value");
+        assert!(err.to_string().contains("show_menu_bar_icon"));
     }
 
     #[test]
