@@ -24,11 +24,6 @@
 - アプリはバックグラウンドで常駐して動作します
 - 表示位置・サイズ・色などはメニューバーの「設定…」から変更できます
 
-## 動作環境
-
-- macOS（AppKitを使用）
-- Homebrew（通常利用時のインストール手段）
-
 ## インストール手順 （Homebrew経由）
 
 ```bash
@@ -37,29 +32,9 @@ brew install --cask somei-san/tap/cliip-show
 open -a "Cliip Show"
 ```
 
-`brew trust` は初回のみ必要です。Homebrew 6 以降、信頼していない tap の cask は読み込まれず、`brew upgrade` もエラーを出さずに飛ばします。
-
-Apple の Developer ID で署名していないため、cask のインストール時に quarantine 属性を外します。
-
-起動すると自動起動の確認ダイアログが出て、あとから設定ウィンドウの「ログイン時に自動起動」でも切り替えられます。
-
-起動すると HUD に「Cliip Show を起動しました」と出ます。ログイン時の自動起動では出ません。
-
-起動中にもう一度起動すると、2 つ目は立ち上がらず設定ウィンドウが開きます。
-
-設定ウィンドウの「メニューバーにアイコンを表示」でメニューバーのアイコンを非表示にできます。非表示にするとメニュー（設定・一時停止・終了）にも触れなくなりますが、アプリをもう一度起動すると設定ウィンドウが前面に出るので、そこから再び表示できます。
-
-### formula から乗り換える
-
-formula は cask に置き換わったので、先にアンインストールします。
-
-```bash
-brew uninstall cliip-show
-brew install --cask somei-san/tap/cliip-show
-open -a "Cliip Show"
-```
-
-自動起動を有効にしていた場合、アプリを一度起動すると新しい場所を指すようになります。
+- `brew trust` は初回のみ必要です。Homebrew 6 は信頼していない tap の cask を読み込みません
+- Apple の Developer ID で署名していないため、quarantine 属性は cask が外します
+- 初回起動時にログイン時の自動起動を確認されます。設定ウィンドウからいつでも変更できます
 
 ## リンク
 
@@ -70,6 +45,6 @@ open -a "Cliip Show"
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/somei)
 
-## 解説
+## 名前の由来
 
 アプリ名は[Creepy Nutsのアルバム](https://ja.wikipedia.org/wiki/%E3%82%AF%E3%83%AA%E3%83%BC%E3%83%97%E3%83%BB%E3%82%B7%E3%83%A7%E3%83%BC)のもじりです

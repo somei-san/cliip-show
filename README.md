@@ -22,11 +22,6 @@ So here it is: Cliip Show, a macOS menu bar app that shows what you just copied 
 - Runs in the background as a menu bar app
 - Position, size, colour and the rest are changed from "Settings…" in the menu bar
 
-## Requirements
-
-- macOS (built on AppKit)
-- Homebrew (how you normally install it)
-
 ## Install (Homebrew)
 
 ```bash
@@ -35,29 +30,9 @@ brew install --cask somei-san/tap/cliip-show
 open -a "Cliip Show"
 ```
 
-`brew trust` is needed once. Homebrew 6 does not load casks from taps you have not trusted, and `brew upgrade` skips them without an error.
-
-Cliip Show is not signed with an Apple Developer ID, so the cask clears the quarantine attribute for you.
-
-On first launch it asks whether to start at login, and you can toggle that any time under "Start at login" in the settings window.
-
-Launching it shows "Cliip Show started" in the HUD. It stays quiet when launched at login.
-
-Launching it again while it is running opens the settings window instead of starting a second copy.
-
-You can hide the menu bar icon from "Show icon in menu bar" in the settings window. If you do, that also cuts off the menu (settings, pause, quit); launch the app again to bring the settings window to the front and show the icon again.
-
-### Coming from the formula
-
-The formula is replaced by the cask, so uninstall it first:
-
-```bash
-brew uninstall cliip-show
-brew install --cask somei-san/tap/cliip-show
-open -a "Cliip Show"
-```
-
-If you had start at login turned on, launching the app once points it at the new location.
+- `brew trust` is needed once; Homebrew 6 does not load casks from taps you have not trusted
+- Cliip Show is not signed with an Apple Developer ID, so the cask clears the quarantine attribute for you
+- On first launch it asks whether to start at login; you can change that any time in the settings window
 
 ## Links
 
