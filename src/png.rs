@@ -102,6 +102,9 @@ pub fn render_hud_image_png(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsPane {
     Settings,
+    /// 設定タブの行スタック全体（`NSScrollView` の documentView）。可視域でクリップされず、
+    /// スクロール位置に関わらず全行が1枚に収まる。
+    SettingsRows,
     Support,
 }
 
@@ -116,8 +119,14 @@ pub enum SettingsPane {
 /// - 実ウィンドウの背景（ここでは決定性のために不透明背景を合成しており、
 ///   実アプリの背景まわりの退行はこのスナップショットでは検出できない）
 ///
+/// `SettingsRows` は設定タブの行スタック全体（documentView）を撮る。`Settings` と違い
+/// スクロール位置に関わらず全行が写るが、documentView の外にあるフッターのボタン列
+/// （「デフォルトに戻す」「お試し表示」「保存」）は写らない。
+///
 /// 自動起動トグルは環境依存の値（LaunchAgent の有無・設定ファイルの内容）に触れず、
-/// ベースラインが環境非依存になるよう OFF 固定で渡す。
+/// ベースラインが環境非依存になるよう OFF 固定で渡す。メニューバーアイコン表示トグルは
+/// `sync_controls_from_settings` が実効設定の値で上書きするため、渡す初期値自体は
+/// 描画結果に影響しない。
 pub fn render_settings_png(pane: SettingsPane, output_path: &str) -> Result<(), AppError> {
     unsafe {
         let _app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
@@ -126,7 +135,14 @@ pub fn render_settings_png(pane: SettingsPane, output_path: &str) -> Result<(), 
 
         // アクションは一切発火させないので、AppState 未初期化の素の delegate でよい
         let delegate: *mut AnyObject = msg_send![crate::app::get_delegate_class(), new];
-        let mut controls = crate::settings_window::build_settings_window(&*delegate, lang, false);
+        let mut controls = crate::settings_window::build_settings_window(
+            &*delegate,
+            lang,
+            crate::settings_window::InitialToggles {
+                start_at_login: false,
+                show_menu_bar_icon: true,
+            },
+        );
         if controls.window.is_null() {
             let () = msg_send![delegate, release];
             return Err(AppError::RenderFailed(
@@ -137,7 +153,9 @@ pub fn render_settings_png(pane: SettingsPane, output_path: &str) -> Result<(), 
         crate::settings_window::sync_controls_from_settings(&mut controls, &settings);
 
         let tab_index: isize = match pane {
-            SettingsPane::Settings => crate::settings_window::TAB_INDEX_SETTINGS,
+            SettingsPane::Settings | SettingsPane::SettingsRows => {
+                crate::settings_window::TAB_INDEX_SETTINGS
+            }
             SettingsPane::Support => crate::settings_window::TAB_INDEX_SUPPORT,
         };
         let tab_controller: *mut AnyObject = msg_send![controls.window, contentViewController];
@@ -157,20 +175,25 @@ pub fn render_settings_png(pane: SettingsPane, output_path: &str) -> Result<(), 
         }
         let () = msg_send![controls.window, setAppearance: aqua];
 
-        // contentView は透明で、ウィンドウ背景は contentView の外にあるため PNG に写らない。
-        // ラベルの黒文字が読めるよう、不透明な明色を背景に敷く
-        let content_view: *mut AnyObject = msg_send![controls.window, contentView];
-        let () = msg_send![content_view, setWantsLayer: true];
-        let layer: *mut AnyObject = msg_send![content_view, layer];
+        // 撮る view（ペインは contentView、行スタック全体は documentView）は透明で、実ウィンドウの
+        // 背景はその外にあるため PNG に写らない。ラベルの黒文字が読めるよう、不透明な明色を背景に敷く
+        let target_view: *mut AnyObject = match pane {
+            SettingsPane::SettingsRows => controls.document_view,
+            SettingsPane::Settings | SettingsPane::Support => {
+                msg_send![controls.window, contentView]
+            }
+        };
+        let () = msg_send![target_view, setWantsLayer: true];
+        let layer: *mut AnyObject = msg_send![target_view, layer];
         let bg: *mut AnyObject =
             msg_send![class!(NSColor), colorWithCalibratedWhite: 0.93f64 alpha: 1.0f64];
         let cg_color: *mut std::ffi::c_void = msg_send![bg, CGColor];
         let () = msg_send![layer, setBackgroundColor: cg_color];
 
         // ウィンドウを画面に出さないため、レイアウトを明示的に確定させる
-        let () = msg_send![content_view, layoutSubtreeIfNeeded];
+        let () = msg_send![target_view, layoutSubtreeIfNeeded];
 
-        let result = write_window_png(controls.window, output_path);
+        let result = write_view_png(controls.window, target_view, output_path);
         let () = msg_send![delegate, release];
         result
     }
@@ -294,7 +317,7 @@ unsafe fn draw_preview_sample_label(canvas_width: f64, canvas_height: f64) {
     let () = msg_send![shadow, release];
 }
 
-/// ウィンドウの contentView を PNG にして書き出す（HUD・設定ウィンドウ共用）。
+/// ウィンドウの contentView を PNG にして書き出す（HUD・設定ウィンドウのペイン撮影共用）。
 ///
 /// # Safety
 /// - `window` は有効な NSWindow であること。呼び出し後にクローズされる。
@@ -308,7 +331,23 @@ unsafe fn write_window_png(window: *mut AnyObject, output_path: &str) -> Result<
         ));
     }
 
-    let bounds: NSRect = msg_send![content_view, bounds];
+    write_view_png(window, content_view, output_path)
+}
+
+/// 指定した `view` を PNG にして書き出し、`window` をクローズする。`write_window_png` の
+/// 実装本体で、documentView など contentView 以外を撮る撮影（`render_settings_png` の
+/// `SettingsRows`）とも共有する。
+///
+/// # Safety
+/// - `window` は有効な NSWindow、`view` はその中の有効な NSView であること。
+///   呼び出し後 `window` はクローズされる。
+/// - AppKit のメインスレッドから呼ぶこと。
+unsafe fn write_view_png(
+    window: *mut AnyObject,
+    view: *mut AnyObject,
+    output_path: &str,
+) -> Result<(), AppError> {
+    let bounds: NSRect = msg_send![view, bounds];
     let bitmap = match create_bitmap_rep_for_bounds(bounds) {
         Ok(b) => b,
         Err(e) => {
@@ -317,7 +356,7 @@ unsafe fn write_window_png(window: *mut AnyObject, output_path: &str) -> Result<
         }
     };
 
-    let () = msg_send![content_view, cacheDisplayInRect: bounds toBitmapImageRep: bitmap];
+    let () = msg_send![view, cacheDisplayInRect: bounds toBitmapImageRep: bitmap];
     let properties: *mut AnyObject = msg_send![class!(NSDictionary), dictionary];
     let data: *mut AnyObject = msg_send![
         bitmap,

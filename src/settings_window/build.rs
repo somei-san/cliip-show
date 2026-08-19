@@ -16,12 +16,12 @@ use crate::i18n::{self, Lang, Msg};
 use crate::objc_helpers::template_image_from_png;
 
 use super::rows::{
-    add_button_row, add_divider_row, add_field_row, add_language_row, add_login_item_row,
-    add_popup_row, add_slider_row, add_stepper_row, document_height, make_button, make_label,
+    add_button_row, add_divider_row, add_field_row, add_language_row, add_popup_row,
+    add_slider_row, add_stepper_row, add_toggle_row, document_height, make_button, make_label,
     make_pane_view, make_range_hint_popover, make_scroll_view, SETTINGS_PANE_HEIGHT,
     SETTINGS_STYLE_MASK, SETTINGS_TOTAL_ROW_COUNT, SETTINGS_WINDOW_WIDTH,
 };
-use super::{LocalizedControl, LocalizedKind, SettingsControls};
+use super::{InitialToggles, LocalizedControl, LocalizedKind, SettingsControls};
 
 const GEAR_TEMPLATE_PNG: &[u8] = include_bytes!("../../assets/gear-template.png");
 const BEER_TEMPLATE_PNG: &[u8] = include_bytes!("../../assets/beer-template.png");
@@ -230,7 +230,7 @@ unsafe fn add_pane_tab(
 pub unsafe fn build_settings_window(
     delegate: &AnyObject,
     lang: Lang,
-    start_at_login: bool,
+    toggles: InitialToggles,
 ) -> SettingsControls {
     let placeholder = default_display_settings();
     let mut localized: Vec<LocalizedControl> = Vec::new();
@@ -404,7 +404,8 @@ pub unsafe fn build_settings_window(
         placeholder.hud_image_max_height,
         &mut localized,
     );
-    // 区切りから下（言語・ログイン項目）は下書き→保存のモデルに乗らず、操作した瞬間に保存・反映する
+    // 区切りから下（言語・ログイン項目・メニューバーアイコン表示）は下書き→保存のモデルに
+    // 乗らず、操作した瞬間に保存・反映する
     add_divider_row(document_view, row.next());
     let language_popup = add_language_row(
         document_view,
@@ -414,12 +415,26 @@ pub unsafe fn build_settings_window(
         placeholder.language,
         &mut localized,
     );
-    let login_item_toggle = add_login_item_row(
+    let login_item_toggle = add_toggle_row(
         document_view,
         delegate,
         row.next(),
         lang,
-        start_at_login,
+        Msg::SettingsStartAtLogin,
+        ConfigKey::StartAtLogin,
+        sel!(toggleLoginItem:),
+        toggles.start_at_login,
+        &mut localized,
+    );
+    let show_menu_bar_icon_toggle = add_toggle_row(
+        document_view,
+        delegate,
+        row.next(),
+        lang,
+        Msg::SettingsShowMenuBarIcon,
+        ConfigKey::ShowMenuBarIcon,
+        sel!(toggleMenuBarIcon:),
+        toggles.show_menu_bar_icon,
         &mut localized,
     );
     // 行数が定数からずれると document_height と row_bottom_y の前提が崩れ、行がはみ出す
@@ -473,6 +488,7 @@ pub unsafe fn build_settings_window(
 
     SettingsControls {
         window,
+        document_view,
         poll_interval_slider,
         poll_interval_value_label,
         hud_duration_slider,
@@ -500,6 +516,7 @@ pub unsafe fn build_settings_window(
         hud_emoji_shadow: placeholder.hud_emoji.clone(),
         language_popup,
         login_item_toggle,
+        show_menu_bar_icon_toggle,
         draft: placeholder,
         preview_sample_index: 0,
         localized,

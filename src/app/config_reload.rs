@@ -140,8 +140,25 @@ pub(crate) unsafe fn apply_settings_now(state: &mut AppState, new_settings: Disp
             super::schedule_poll_timer(state.delegate, new_settings.poll_interval_secs);
     }
 
+    let menu_bar_icon_changed =
+        new_settings.show_menu_bar_icon != state.settings.show_menu_bar_icon;
     let language_changed = new_settings.language != state.settings.language;
     state.settings = new_settings;
+
+    // show_menu_bar_icon が変わったら status item の表示と設定ウィンドウのトグルを即時更新。
+    // 手編集・環境変数・GUI のトグル操作のいずれもここを通るため、更新箇所は一箇所で済む。
+    if menu_bar_icon_changed {
+        crate::menu::apply_menu_bar_icon_visibility(
+            state.menu_handles.status.status_item,
+            state.settings.show_menu_bar_icon,
+        );
+        crate::settings_window::sync_menu_bar_icon_toggle(
+            &state.settings_controls,
+            state.settings.show_menu_bar_icon,
+        );
+        // draft は「保存」で丸ごと書き戻されるため、古い値で上書きしないようここでも揃える。
+        state.settings_controls.draft.show_menu_bar_icon = state.settings.show_menu_bar_icon;
+    }
 
     // language が変わったら設定ウィンドウとメニューの文言を即時更新。
     // ファイル監視の再読み込みと設定ウィンドウの言語ポップアップのどちらの経路もここを

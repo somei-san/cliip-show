@@ -45,10 +45,14 @@ pub enum Msg {
     LoginPromptLater,
     LoginPromptSuppress,
 
+    MenuBarIconHiddenMessage,
+    MenuBarIconHiddenDetail,
+
     SettingsTitle,
     TabSettings,
     TabSupport,
     SettingsStartAtLogin,
+    SettingsShowMenuBarIcon,
     LabelPollInterval,
     LabelHudDuration,
     LabelHudFadeDuration,
@@ -115,10 +119,20 @@ pub fn text(lang: Lang, msg: Msg) -> &'static str {
         Msg::LoginPromptLater => ("あとで", "Not Now"),
         Msg::LoginPromptSuppress => ("今後表示しない", "Don’t ask again"),
 
+        Msg::MenuBarIconHiddenMessage => (
+            "メニューバーのアイコンを非表示にしました",
+            "The menu bar icon is now hidden",
+        ),
+        Msg::MenuBarIconHiddenDetail => (
+            "Cliip Show をもう一度起動すると設定ウィンドウが開きます。アイコンはそこから表示に戻せます。",
+            "Launch Cliip Show again to open the settings window, where you can show the icon again.",
+        ),
+
         Msg::SettingsTitle => ("Cliip Show 設定", "Cliip Show Settings"),
         Msg::TabSettings => ("設定", "Settings"),
         Msg::TabSupport => ("寄付", "Support"),
         Msg::SettingsStartAtLogin => ("ログイン時に自動起動", "Start at login"),
+        Msg::SettingsShowMenuBarIcon => ("メニューバーにアイコンを表示", "Show icon in menu bar"),
         Msg::LabelPollInterval => ("ポーリング間隔（秒）", "Polling interval (sec)"),
         Msg::LabelHudDuration => ("表示時間（秒）", "Display duration (sec)"),
         Msg::LabelHudFadeDuration => ("フェード時間（秒）", "Fade duration (sec)"),
@@ -345,6 +359,7 @@ mod tests {
             Msg::MenuAbout,
             Msg::MenuQuit,
             Msg::LoginPromptMessage,
+            Msg::MenuBarIconHiddenDetail,
             Msg::SettingsTitle,
             Msg::SupportMessage,
             Msg::LaunchNotice,

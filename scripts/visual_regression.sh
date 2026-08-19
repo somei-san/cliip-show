@@ -57,6 +57,7 @@ render_and_compare() {
     -u CLIIP_SHOW_HUD_IMAGE_MAX_HEIGHT
     -u CLIIP_SHOW_HUD_EMOJI
     -u CLIIP_SHOW_LANGUAGE
+    -u CLIIP_SHOW_SHOW_MENU_BAR_ICON
     "CLIIP_SHOW_CONFIG_PATH=$VRT_CONFIG_PATH"
   )
   if [[ $# -gt 0 ]]; then
@@ -143,8 +144,9 @@ run_image_case() {
   render_and_compare "$id" --render-hud-png --image-fixture "$size" "$@"
 }
 
-# 設定ウィンドウのペイン（settings | support）。タブバーは contentView の外なので写らない。
-# 言語は必ず CLIIP_SHOW_LANGUAGE で固定して呼ぶこと（auto は実行マシンの言語に依存する）
+# 設定ウィンドウのペイン（settings | settings-rows | support）。タブバーは contentView の外
+# なので写らない。言語は必ず CLIIP_SHOW_LANGUAGE で固定して呼ぶこと（auto は実行マシンの
+# 言語に依存する）
 run_settings_case() {
   local id="$1"
   local pane="$2"
@@ -363,6 +365,18 @@ run_settings_case \
 run_settings_case \
   "settings_pane_en" \
   "settings" \
+  "CLIIP_SHOW_LANGUAGE=en"
+
+# Settings tab document view: full row stack (NSScrollView documentView), unclipped by the
+# visible scroll area, so rows below the fold are captured too.
+run_settings_case \
+  "settings_rows_ja" \
+  "settings-rows" \
+  "CLIIP_SHOW_LANGUAGE=ja"
+
+run_settings_case \
+  "settings_rows_en" \
+  "settings-rows" \
   "CLIIP_SHOW_LANGUAGE=en"
 
 run_settings_case \

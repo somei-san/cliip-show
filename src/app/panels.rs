@@ -97,6 +97,33 @@ pub(super) unsafe fn prompt_login_item_if_needed(lang: Lang, start_at_login: boo
     }
 }
 
+/// メニューバーのアイコンを非表示にした直後に出す、復帰方法の案内ダイアログ。
+/// ボタンは追加しない（NSAlert の既定である「OK」1つで足りる）。抑止チェックボックスも
+/// 持たない。この経路は「今しがた非表示にした」操作の直後にしか出ないため、
+/// `prompt_login_item_if_needed` のように繰り返し表示を避ける仕組みは不要。
+///
+/// # Safety
+/// - `APP_STATE` のロックを保持したまま呼ばないこと。`runModal` が実行ループを止めるため、
+///   他の経路がロック待ちで固まる。
+/// - AppKit のメインスレッドから呼ぶこと。
+pub(super) unsafe fn prompt_menu_bar_icon_hidden(lang: Lang) {
+    // accessory アプリ（setActivationPolicy: 1）はこれを呼ばないとダイアログが前面に来ない
+    let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+    let () = msg_send![app, activateIgnoringOtherApps: true];
+
+    let alert: *mut AnyObject = msg_send![class!(NSAlert), alloc];
+    let alert: *mut AnyObject = msg_send![alert, init];
+
+    let message = NSString::from_str(i18n::text(lang, Msg::MenuBarIconHiddenMessage));
+    let () = msg_send![alert, setMessageText: &*message];
+
+    let informative = NSString::from_str(i18n::text(lang, Msg::MenuBarIconHiddenDetail));
+    let () = msg_send![alert, setInformativeText: &*informative];
+
+    let _: isize = msg_send![alert, runModal];
+    let () = msg_send![alert, release];
+}
+
 /// macOS 標準の About パネルを出す。バンドルを持たないので、表示内容は options で渡す。
 pub(super) extern "C" fn show_about_panel(_: &AnyObject, _: Sel, _: *mut AnyObject) {
     unsafe {

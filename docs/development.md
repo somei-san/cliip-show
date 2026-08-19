@@ -55,6 +55,7 @@ cliip-show --config-show
 - `hud_emoji`（既定値: `📋`、任意の絵文字。空でアイコンなし）
 - `hud_image_max_height`（既定値: `160`、`40` - `240`）画像サムネイルの高さ上限（px）。実際の上限は `hud_scale` 倍され、元画像より大きくは表示しません
 - `language`（既定値: `auto`、`auto` / `ja` / `en`）メニューバーと設定ウィンドウの表示言語。`auto` は macOS の優先言語に従います
+- `show_menu_bar_icon`（既定値: `true`）メニューバーアイコンの表示。`false` にすると、メニューから開く設定・一時停止・終了に触れなくなります。アプリをもう一度起動すると設定ウィンドウが前面に出るので、そこから表示に戻せます
 
 設定キー（`[startup]` 節）:
 - `start_at_login`（既定値: `false`）設定ウィンドウの「ログイン時に自動起動」と同じ値です。LaunchAgent の plist はこの値から書き出すため、plist を手で消してもこの値が残っていれば次の起動で書き直します
@@ -72,6 +73,7 @@ CLIIP_SHOW_HUD_BACKGROUND_OPACITY=0.6 \
 CLIIP_SHOW_HUD_EMOJI=🍣 \
 CLIIP_SHOW_HUD_IMAGE_MAX_HEIGHT=120 \
 CLIIP_SHOW_LANGUAGE=en \
+CLIIP_SHOW_SHOW_MENU_BAR_ICON=true \
 cargo run
 ```
 
@@ -137,6 +139,7 @@ HUDと設定ウィンドウの各ペインの描画結果をPNGで比較しま�
 - デフォルト設定での表示
 - 設定プロファイルごとの表示（例: `max_lines=2`, `max_chars_per_line=24`）
 - 設定ウィンドウのペイン（設定・寄付 × 日本語・英語。タブバーはウィンドウのツールバー領域にあるため写りません）
+- 設定タブの行スタック全体（`NSScrollView` の documentView。可視域でクリップされず全行が1枚に収まります。フッターのボタン列は documentView の外にあるため写りません）
 
 ### 生成物
 

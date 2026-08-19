@@ -106,10 +106,12 @@ fn parse_settings_png_args(args: impl Iterator<Item = String>) -> Result<Setting
                 };
                 pane = Some(match value.as_str() {
                     "settings" => SettingsPane::Settings,
+                    "settings-rows" => SettingsPane::SettingsRows,
                     "support" => SettingsPane::Support,
                     unknown => {
                         return Err(format!(
-                            "Invalid value for --pane: {unknown} (expected settings or support)"
+                            "Invalid value for --pane: {unknown} \
+                             (expected settings, settings-rows, or support)"
                         ));
                     }
                 });
@@ -225,7 +227,7 @@ pub fn handle_cli_flags() -> bool {
             );
             let _ = writeln!(
                 help,
-                "  --render-settings-png --pane <settings|support> --output <PATH>    Render settings window pane PNG and exit"
+                "  --render-settings-png --pane <settings|settings-rows|support> --output <PATH>    Render settings window pane PNG and exit"
             );
             let _ = writeln!(
                 help,
@@ -304,6 +306,10 @@ pub fn handle_cli_flags() -> bool {
             let _ = writeln!(
                 help,
                 "  CLIIP_SHOW_LANGUAGE             UI language (auto|ja|en)"
+            );
+            let _ = writeln!(
+                help,
+                "  CLIIP_SHOW_SHOW_MENU_BAR_ICON   Show the menu bar icon (true|false)"
             );
             print!("{help}");
             true
@@ -605,13 +611,21 @@ mod tests {
                 .map(|parsed| parsed.pane),
             Ok(SettingsPane::Settings)
         );
+        assert_eq!(
+            parse_settings_png_args(args(&["--pane", "settings-rows", "--output", "/tmp/s.png"]))
+                .map(|parsed| parsed.pane),
+            Ok(SettingsPane::SettingsRows)
+        );
     }
 
     #[test]
     fn settings_args_reject_invalid_or_missing_options() {
         assert_eq!(
             parse_settings_png_args(args(&["--pane", "about", "--output", "/tmp/s.png"])),
-            Err("Invalid value for --pane: about (expected settings or support)".to_string())
+            Err(
+                "Invalid value for --pane: about (expected settings, settings-rows, or support)"
+                    .to_string()
+            )
         );
         assert_eq!(
             parse_settings_png_args(args(&["--output", "/tmp/s.png"])),

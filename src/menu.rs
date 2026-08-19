@@ -245,6 +245,16 @@ pub unsafe fn apply_paused_state(
     let () = msg_send![button, setAlphaValue: alpha];
 }
 
+/// メニューバー常駐アイコンの表示/非表示を切り替える。status item 自体は作り直さない
+/// （設定ファイルを正とし、表示状態はその派生物という設計のため）。
+///
+/// # Safety
+/// - `status_item` は `create_status_item` が返した有効なポインタであること。
+/// - AppKit のメインスレッドから呼ぶこと。
+pub unsafe fn apply_menu_bar_icon_visibility(status_item: *mut AnyObject, visible: bool) {
+    let () = msg_send![status_item, setVisible: visible];
+}
+
 /// 言語切り替えで、メニューバー常駐アイコンのメニューとメインメニューの「編集」サブメニューの
 /// タイトルをすべて差し替える。
 ///

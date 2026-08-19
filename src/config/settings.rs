@@ -1,8 +1,8 @@
 use super::io::{config_file_path, load_config_file};
 use super::parse::{
-    parse_f64_config_value, parse_f64_setting, parse_hud_background_color_setting, parse_hud_emoji,
-    parse_hud_position_setting, parse_language_setting, parse_usize_config_value,
-    parse_usize_setting,
+    parse_bool_setting, parse_f64_config_value, parse_f64_setting,
+    parse_hud_background_color_setting, parse_hud_emoji, parse_hud_position_setting,
+    parse_language_setting, parse_usize_config_value, parse_usize_setting,
 };
 use super::types::HudBackgroundColor;
 use super::types::{
@@ -33,6 +33,7 @@ pub fn default_display_settings() -> DisplaySettings {
         hud_emoji: "📋".to_string(),
         hud_image_max_height: DEFAULT_HUD_IMAGE_MAX_HEIGHT,
         language: LanguageSetting::default(),
+        show_menu_bar_icon: true,
     }
 }
 
@@ -137,6 +138,9 @@ pub fn apply_config_file(base: DisplaySettings, config: &AppConfigFile) -> Displ
     if let Some(value) = config.display.language {
         settings.language = value;
     }
+    if let Some(value) = config.display.show_menu_bar_icon {
+        settings.show_menu_bar_icon = value;
+    }
     settings
 }
 
@@ -226,6 +230,9 @@ fn apply_env_overrides_with(
     if let Some(value) = read_env_option("CLIIP_SHOW_LANGUAGE") {
         settings.language = parse_language_setting(&value, settings.language);
     }
+    if let Some(value) = read_env_option("CLIIP_SHOW_SHOW_MENU_BAR_ICON") {
+        settings.show_menu_bar_icon = parse_bool_setting(&value, settings.show_menu_bar_icon);
+    }
     settings
 }
 
@@ -256,6 +263,7 @@ fn saved_value(config: &AppConfigFile, key: ConfigKey) -> Option<String> {
         ConfigKey::HudEmoji => display.hud_emoji.clone(),
         ConfigKey::HudImageMaxHeight => display.hud_image_max_height.map(|v| v.to_string()),
         ConfigKey::Language => display.language.map(|v| v.as_str().to_string()),
+        ConfigKey::ShowMenuBarIcon => display.show_menu_bar_icon.map(|v| v.to_string()),
         ConfigKey::StartAtLogin => config.startup.start_at_login.map(|v| v.to_string()),
     }
 }
@@ -282,6 +290,7 @@ pub fn print_effective_settings(settings: DisplaySettings, start_at_login: bool)
     println!("hud_emoji = {}", settings.hud_emoji);
     println!("hud_image_max_height = {}", settings.hud_image_max_height);
     println!("language = {}", settings.language.as_str());
+    println!("show_menu_bar_icon = {}", settings.show_menu_bar_icon);
     println!("start_at_login = {start_at_login}");
 }
 
@@ -307,6 +316,7 @@ pub fn settings_to_config_file(settings: DisplaySettings) -> AppConfigFile {
             hud_emoji: Some(settings.hud_emoji.clone()),
             hud_image_max_height: Some(settings.hud_image_max_height),
             language: Some(settings.language),
+            show_menu_bar_icon: Some(settings.show_menu_bar_icon),
         },
         // `DisplaySettings` は自動起動の値を持たないため、ここは常に未設定
         // （`StartupConfigFile::default()`）。`Some(false)` を返すと、この関数の
@@ -499,6 +509,7 @@ mod tests {
                 ConfigKey::HudEmoji => "🍺",
                 ConfigKey::HudImageMaxHeight => "80",
                 ConfigKey::Language => "ja",
+                ConfigKey::ShowMenuBarIcon => "false",
                 ConfigKey::StartAtLogin => continue,
             };
             let env_name = format!("CLIIP_SHOW_{}", key.as_str().to_uppercase());
