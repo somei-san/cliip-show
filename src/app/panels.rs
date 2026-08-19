@@ -25,12 +25,14 @@ const NS_LINK_ATTRIBUTE_NAME: &str = "NSLink";
 /// 常駐が前提のアプリで自動起動が切れている状態は設定が未完了なので、断られても促し続ける。
 /// 抑止チェックボックスを入れて閉じたときだけ `mark_prompted` を記録し、以後は出さない。
 ///
+/// `start_at_login` は `login_item::resolved_start_at_login` で解決済みの値を渡すこと。
+///
 /// # Safety
 /// - `APP_STATE` のロックを保持したまま呼ばないこと。`runModal` が実行ループを止めるため、
 ///   他の経路がロック待ちで固まる。
 /// - AppKit のメインスレッドから呼ぶこと。
-pub(super) unsafe fn prompt_login_item_if_needed(lang: Lang) {
-    if crate::login_item::is_enabled() || crate::login_item::has_prompted() {
+pub(super) unsafe fn prompt_login_item_if_needed(lang: Lang, start_at_login: bool) {
+    if start_at_login || crate::login_item::has_prompted() {
         return;
     }
 
@@ -80,8 +82,17 @@ pub(super) unsafe fn prompt_login_item_if_needed(lang: Lang) {
     }
 
     if response == NS_ALERT_FIRST_BUTTON_RETURN {
-        if let Err(error) = crate::login_item::enable() {
-            eprintln!("warning: {error}");
+        // 設定ファイルを正とするため、plist の enable より先に保存する。
+        // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
+        let mut guard = APP_STATE.lock().expect("APP_STATE lock poisoned");
+        if let Some(state) = guard.as_mut() {
+            if super::persist_start_at_login(state, true) {
+                if let Err(error) = crate::login_item::enable() {
+                    // 設定ファイルは正しい値のまま。次回起動の
+                    // login_item::sync_plist_with_config が plist を設定に合わせ直す。
+                    eprintln!("warning: {error}");
+                }
+            }
         }
     }
 }

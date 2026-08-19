@@ -6,7 +6,7 @@ use objc2_foundation::NSString;
 
 use crate::config::{
     apply_config_file, apply_env_overrides, default_display_settings, load_config_file,
-    DisplaySettings,
+    start_at_login_from_config, DisplaySettings,
 };
 use crate::error::AppError;
 use crate::hud::{hud_background_rgba, hud_border_white_alpha};
@@ -18,17 +18,27 @@ use super::AppState;
 // デフォルト poll_interval_secs=0.3 × 10 = 約3秒ごと
 const CONFIG_CHECK_EVERY_N_POLLS: u32 = 10;
 
-/// 設定ファイルを読み込み、既定値・環境変数オーバーライドを適用した `DisplaySettings` を返す。
+/// 設定ファイルを1回読み込み、既定値・環境変数オーバーライドを適用した `DisplaySettings` と
+/// `start_at_login`（`[startup]` 節が無い、またはキーが無ければ `None`）の両方を導く。
 /// ファイル監視の再読み込み（`reload_config_if_changed`）とウィンドウを閉じたときの
-/// 再読み込み（`window_will_close`）の両方から使う。
-pub(crate) fn display_settings_from_file(path: &Path) -> Result<DisplaySettings, AppError> {
+/// 再読み込み（`window_will_close`）の両方から使う。読み込みを1回にまとめているのは、
+/// 2回読むと1回目と2回目の間の外部変更を取りこぼしうるため。
+pub(crate) fn resolved_config_from_file(
+    path: &Path,
+) -> Result<(DisplaySettings, Option<bool>), AppError> {
     let (config, _) = load_config_file(path)?;
     let base = default_display_settings();
-    Ok(apply_env_overrides(apply_config_file(base, &config)))
+    let settings = apply_env_overrides(apply_config_file(base, &config));
+    Ok((settings, start_at_login_from_config(&config)))
+}
+
+/// `resolved_config_from_file` のうち `DisplaySettings` だけを使う呼び出し元向け。
+pub(crate) fn display_settings_from_file(path: &Path) -> Result<DisplaySettings, AppError> {
+    resolved_config_from_file(path).map(|(settings, _)| settings)
 }
 
 pub(super) unsafe fn reload_config_if_changed(state: &mut AppState) {
-    let Some(ref path) = state.config_path else {
+    let Some(path) = state.config_path.clone() else {
         return;
     };
     state.config_check_counter += 1;
@@ -36,12 +46,14 @@ pub(super) unsafe fn reload_config_if_changed(state: &mut AppState) {
         return;
     }
     state.config_check_counter = 0;
-    let current_mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
+    let current_mtime = std::fs::metadata(&path)
+        .ok()
+        .and_then(|m| m.modified().ok());
     if current_mtime == state.config_mtime {
         return;
     }
-    let new_settings = match display_settings_from_file(path) {
-        Ok(settings) => settings,
+    let (new_settings, start_at_login) = match resolved_config_from_file(&path) {
+        Ok(result) => result,
         Err(err) => {
             eprintln!("warning: config reload failed, keeping current settings: {err}");
             return;
@@ -50,7 +62,29 @@ pub(super) unsafe fn reload_config_if_changed(state: &mut AppState) {
     state.config_mtime = current_mtime;
 
     apply_settings_now(state, new_settings);
+    apply_start_at_login_if_changed(state, start_at_login);
     eprintln!("config reloaded");
+}
+
+/// 手で設定ファイルを書き換えたときも LaunchAgent へ反映する。設定ファイルを読み直す経路と
+/// 保存する経路から使う。`desired` が `None`（`[startup]` 節が無い、または `start_at_login`
+/// キーが無い）なら何もしない。
+pub(crate) unsafe fn apply_start_at_login_if_changed(state: &mut AppState, desired: Option<bool>) {
+    let Some(desired) = desired else {
+        return;
+    };
+    if desired == state.start_at_login {
+        return;
+    }
+
+    // 設定ファイルは既に新しい値を持っている（手で書き換えたのはここに来た理由）ため、
+    // plist の操作が失敗しても state はその値に揃える。次回起動の
+    // login_item::sync_plist_with_config が plist を設定に合わせ直す。
+    if let Err(error) = crate::login_item::apply_desired_state(desired) {
+        eprintln!("warning: {error}");
+    }
+    state.start_at_login = desired;
+    crate::settings_window::sync_login_item_toggle(&state.settings_controls, desired);
 }
 
 /// 新しい設定を state に反映する。ファイル監視の再読み込み・設定ウィンドウからの変更の両方から呼ばれる。

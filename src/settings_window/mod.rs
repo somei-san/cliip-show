@@ -94,8 +94,9 @@ pub struct SettingsControls {
     /// 表示言語のポップアップ。他の設定行と違い下書き→保存のモデルには乗らず、選択した瞬間に
     /// 設定ファイルへ保存する（`apply_language_setting_change`）。
     pub language_popup: *mut AnyObject,
-    /// ログイン時の自動起動トグル。下書き→保存のモデルには乗らず、
-    /// チェックした瞬間に `login_item::enable`/`disable` を呼ぶ（`toggleLoginItem:`）。
+    /// ログイン時の自動起動トグル。下書き→保存のモデルには乗らず、チェックした瞬間に
+    /// 設定ファイルへ保存し、`login_item::enable`/`disable` で plist をそれに合わせる
+    /// （`toggleLoginItem:`）。
     pub login_item_toggle: *mut AnyObject,
     /// ウィンドウ内で編集中の下書き。「保存」（`saveSettings:`）を押すまで設定ファイルには
     /// 反映しない。`settingChanged:` はこの下書きだけを更新する。
@@ -163,6 +164,7 @@ pub fn config_key_to_tag(key: ConfigKey) -> isize {
         ConfigKey::HudImageMaxHeight => 9,
         ConfigKey::Language => 10,
         ConfigKey::HudBackgroundOpacity => 11,
+        ConfigKey::StartAtLogin => 12,
     }
 }
 
@@ -180,6 +182,7 @@ pub fn tag_to_config_key(tag: isize) -> Option<ConfigKey> {
         9 => Some(ConfigKey::HudImageMaxHeight),
         10 => Some(ConfigKey::Language),
         11 => Some(ConfigKey::HudBackgroundOpacity),
+        12 => Some(ConfigKey::StartAtLogin),
         _ => None,
     }
 }
@@ -199,7 +202,7 @@ mod tests {
     #[test]
     fn tag_to_config_key_rejects_unknown_tags() {
         assert_eq!(tag_to_config_key(-1), None);
-        assert_eq!(tag_to_config_key(12), None);
+        assert_eq!(tag_to_config_key(13), None);
         assert_eq!(tag_to_config_key(9999), None);
     }
 }

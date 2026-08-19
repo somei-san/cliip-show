@@ -42,7 +42,7 @@ cliip-show --config-show
 
 ファイルへの変更は再起動なしで反映されます。
 
-設定キー:
+設定キー（`[display]` 節）:
 - `poll_interval_secs`（既定値: `0.3`、`0.05` - `5.0`）
 - `hud_duration_secs`（既定値: `1.0`、`0.1` - `10.0`）
 - `hud_fade_duration_secs`（既定値: `0.3`、`0.0` - `2.0`、`0.0` でフェードなし）
@@ -56,7 +56,10 @@ cliip-show --config-show
 - `hud_image_max_height`（既定値: `160`、`40` - `240`）画像サムネイルの高さ上限（px）。実際の上限は `hud_scale` 倍され、元画像より大きくは表示しません
 - `language`（既定値: `auto`、`auto` / `ja` / `en`）メニューバーと設定ウィンドウの表示言語。`auto` は macOS の優先言語に従います
 
-環境変数は設定ファイルより優先します。キー名を大文字にして `CLIIP_SHOW_` を付けた名前です。
+設定キー（`[startup]` 節）:
+- `start_at_login`（既定値: `false`）設定ウィンドウの「ログイン時に自動起動」と同じ値です。LaunchAgent の plist はこの値から書き出すため、plist を手で消してもこの値が残っていれば次の起動で書き直します
+
+環境変数は設定ファイルより優先します。キー名を大文字にして `CLIIP_SHOW_` を付けた名前です（`start_at_login` は対象外）。
 
 ```bash
 CLIIP_SHOW_HUD_DURATION_SECS=2.5 \

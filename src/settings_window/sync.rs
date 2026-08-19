@@ -3,12 +3,13 @@ use objc2::runtime::AnyObject;
 use objc2_foundation::{NSRange, NSString};
 
 use crate::app::{
-    apply_settings_now, present_hud, show_sample_image_content, show_text_content, AppState,
+    apply_settings_now, apply_start_at_login_if_changed, present_hud, show_sample_image_content,
+    show_text_content, AppState,
 };
 use crate::config::{
     apply_config_file, default_display_settings, hud_emoji_validation_error, load_config_file,
-    save_config_file, set_config_value, settings_to_config_file, ConfigKey, DisplaySettings,
-    LanguageSetting,
+    merge_display_settings, save_config_file, set_config_value, settings_to_config_file,
+    start_at_login_from_config, ConfigKey, DisplaySettings, LanguageSetting,
 };
 use crate::i18n::{self, Lang, Msg};
 use crate::objc_helpers::nsstring_to_string;
@@ -154,14 +155,14 @@ pub unsafe fn sync_controls_from_settings(
     set_emoji_field(controls, &settings.hud_emoji);
 }
 
-/// ログイン項目トグルの表示を実際の LaunchAgent の状態に合わせる。
-/// ウィンドウを開くたびに呼び、ファイル外（Finder 等）での変更との食い違いを防ぐ。
-/// `toggleLoginItem:` が `enable`/`disable` に失敗したときの巻き戻しにも使う。
+/// ログイン項目トグルの表示を `start_at_login` に合わせる。下書きモデルの対象外の
+/// ため、ウィンドウを開くたび・ファイル監視の再読み込み・`toggleLoginItem:` が
+/// `enable`/`disable` に失敗したときの巻き戻しの各経路で、呼び出し側から実効値を渡す。
 ///
 /// # Safety
 /// AppKit のメインスレッドから呼ぶこと。
-pub unsafe fn sync_login_item_toggle(controls: &SettingsControls) {
-    let state = login_item_control_state(crate::login_item::is_enabled());
+pub unsafe fn sync_login_item_toggle(controls: &SettingsControls, start_at_login: bool) {
+    let state = login_item_control_state(start_at_login);
     let () = msg_send![controls.login_item_toggle, setState: state];
 }
 
@@ -484,7 +485,8 @@ unsafe fn apply_language_setting_change(state: &mut AppState, sender: *mut AnyOb
 ///
 /// 組み直しに `display_settings_from_file` を使うのは、`language` だけ差し替えると
 /// 外部エディタでの変更を取り込まないまま `config_mtime` だけ進んでしまい、
-/// ファイル監視がその変更を二度と拾わなくなるため。
+/// ファイル監視がその変更を二度と拾わなくなるため。`start_at_login` は読んだ値を
+/// `apply_start_at_login_if_changed` へ渡して同じ理由で反映する。
 ///
 /// 副作用として、ファイルに保存していない状態は捨てられる。「お試し表示」で下書きを
 /// HUD に当てている最中に言語を切り替えると、HUD はファイルの値に戻る。
@@ -496,11 +498,13 @@ unsafe fn save_language_setting(
         return Err("config path is not resolved; cannot save language setting".to_string());
     };
     let (mut config, _) = load_config_file(&path).map_err(|error| error.to_string())?;
+    let start_at_login = start_at_login_from_config(&config);
     set_config_value(&mut config, ConfigKey::Language, raw).map_err(|error| error.to_string())?;
     save_config_file(&path, &config).map_err(|error| error.to_string())?;
     state.config_mtime = std::fs::metadata(&path)
         .ok()
         .and_then(|m| m.modified().ok());
+    apply_start_at_login_if_changed(state, start_at_login);
 
     crate::app::display_settings_from_file(&path).map_err(|error| error.to_string())
 }
@@ -604,6 +608,10 @@ pub unsafe fn preview_settings(this: &AnyObject, state: &mut AppState) {
 /// 下書きを設定ファイルへ保存し、HUD に適用する。`config_mtime` を保存後のファイルの mtime に
 /// 更新し、直後のファイル監視ポーリングによる二重適用を防ぐ。
 ///
+/// 保存するのは `display` セクションだけ。丸ごと上書きすると、下書きの対象外である
+/// `start_at_login` が下書きの既定値で塗り潰される。既存の設定ファイルを読めなければ、
+/// 読めなかったファイルを上書きして `start_at_login` 等を消さないよう保存を中止する。
+///
 /// # Safety
 /// - `APP_STATE` をロックしないこと（呼び出し側が既にロックを保持している）。
 /// - AppKit のメインスレッドから呼ぶこと。
@@ -615,7 +623,17 @@ pub unsafe fn save_settings(state: &mut AppState) -> bool {
         return false;
     };
 
-    let config = settings_to_config_file(state.settings_controls.draft.clone());
+    let (config, _) = match load_config_file(&path) {
+        Ok(result) => result,
+        Err(error) => {
+            eprintln!("warning: {error}; not saving settings");
+            return false;
+        }
+    };
+    // 下書きの対象外のキーも、ファイルの手編集で新しい値を持っているかもしれない。
+    // merge_display_settings が draft の display で上書きする前に読んでおく。
+    let start_at_login = start_at_login_from_config(&config);
+    let config = merge_display_settings(config, state.settings_controls.draft.clone());
     if let Err(error) = save_config_file(&path, &config) {
         eprintln!("warning: {error}");
         return false;
@@ -623,6 +641,7 @@ pub unsafe fn save_settings(state: &mut AppState) -> bool {
 
     let draft = state.settings_controls.draft.clone();
     apply_settings_now(state, draft);
+    apply_start_at_login_if_changed(state, start_at_login);
     state.config_mtime = std::fs::metadata(&path)
         .ok()
         .and_then(|m| m.modified().ok());
@@ -684,6 +703,7 @@ fn control_for_key(controls: &SettingsControls, key: ConfigKey) -> *mut AnyObjec
         ConfigKey::HudBackgroundOpacity => controls.hud_background_opacity_slider,
         ConfigKey::HudEmoji => controls.hud_emoji_field,
         ConfigKey::Language => controls.language_popup,
+        ConfigKey::StartAtLogin => controls.login_item_toggle,
     }
 }
 
@@ -714,6 +734,8 @@ unsafe fn raw_value_for_key(key: ConfigKey, control: *mut AnyObject) -> Option<S
             let value: *mut AnyObject = msg_send![control, stringValue];
             nsstring_to_string(value)
         }
+        // 自動起動トグルは専用の toggleLoginItem: を持ち、この汎用パスからは呼ばれない
+        ConfigKey::StartAtLogin => None,
     }
 }
 
@@ -774,6 +796,9 @@ unsafe fn resync_controls_after_apply(
         ConfigKey::HudEmoji => {}
         // 言語は下書きモデルの対象外で、保存の成否にかかわらず再同期する対象が無い。
         ConfigKey::Language => {}
+        // 自動起動も下書きモデルの対象外（専用の toggleLoginItem: が設定ファイルへ保存し、
+        // plist はその派生物として合わせる）。
+        ConfigKey::StartAtLogin => {}
     }
 }
 

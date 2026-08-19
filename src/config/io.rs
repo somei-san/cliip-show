@@ -82,9 +82,12 @@ mod tests {
 
     use super::{config_file_path_with, load_config_file, save_config_file};
     use crate::config::settings::{
-        apply_config_file, default_display_settings, settings_to_config_file,
+        apply_config_file, default_display_settings, merge_display_settings,
+        settings_to_config_file, start_at_login_from_config,
     };
-    use crate::config::types::{HudBackgroundColor, HudPosition, LanguageSetting};
+    use crate::config::types::{
+        AppConfigFile, HudBackgroundColor, HudPosition, LanguageSetting, StartupConfigFile,
+    };
     use crate::error::AppError;
 
     /// テストごとに独立したディレクトリを使う（cargo test は並列実行のため共有すると干渉する）。
@@ -158,6 +161,70 @@ mod tests {
 
         let reloaded = apply_config_file(default_display_settings(), &loaded);
         assert_eq!(reloaded.hud_emoji, "");
+    }
+
+    /// `[startup]` セクションも他のセクションと同じく保存 → 再読込で値が変わらないこと。
+    /// `settings_to_config_file` は保存経路の中間表現で `start_at_login` を常に `Some(false)`
+    /// に固定するため通さず、`AppConfigFile` を直接組んで `Some(true)` が保たれるかを見る。
+    #[test]
+    fn start_at_login_survives_a_save_load_cycle() {
+        let temp = TempConfigDir::new("startup");
+        let config = AppConfigFile {
+            startup: StartupConfigFile {
+                start_at_login: Some(true),
+            },
+            ..Default::default()
+        };
+
+        let config_path = temp.path("config.toml");
+        save_config_file(&config_path, &config).expect("save config");
+        let (loaded, existed) = load_config_file(&config_path).expect("load config");
+        assert!(existed);
+        assert_eq!(start_at_login_from_config(&loaded), Some(true));
+    }
+
+    /// `[startup]` セクション自体が無い設定ファイルは、`false` ではなく「未設定」
+    /// （`None`）として読めること。plist の有無からの移行はこの区別に依存する。
+    #[test]
+    fn absent_startup_section_is_none() {
+        let temp = TempConfigDir::new("no-startup-section");
+        let config_path = temp.path("config.toml");
+        fs::write(&config_path, "[display]\npoll_interval_secs = 0.5\n")
+            .expect("write config without [startup]");
+
+        let (loaded, existed) = load_config_file(&config_path).expect("load config");
+        assert!(existed);
+        assert_eq!(start_at_login_from_config(&loaded), None);
+    }
+
+    /// `save_settings`（設定ウィンドウの「保存」ボタン）が使う `merge_display_settings` を
+    /// 経由して保存しても、既存の `start_at_login` を巻き戻さないこと。丸ごと上書きに
+    /// 戻す変更が起きたらここで落ちる。
+    #[test]
+    fn merge_display_settings_preserves_existing_start_at_login() {
+        let temp = TempConfigDir::new("preserve-startup");
+        let config_path = temp.path("config.toml");
+
+        let existing = AppConfigFile {
+            startup: StartupConfigFile {
+                start_at_login: Some(true),
+            },
+            ..Default::default()
+        };
+        save_config_file(&config_path, &existing).expect("save initial config");
+
+        let mut draft_settings = default_display_settings();
+        draft_settings.hud_scale = 1.7;
+        let (config, _) = load_config_file(&config_path).expect("load config");
+        let merged = merge_display_settings(config, draft_settings);
+        save_config_file(&config_path, &merged).expect("save merged config");
+
+        let (loaded, _) = load_config_file(&config_path).expect("reload config");
+        assert_eq!(start_at_login_from_config(&loaded), Some(true));
+        assert_eq!(
+            apply_config_file(default_display_settings(), &loaded).hud_scale,
+            1.7
+        );
     }
 
     /// 初回起動（設定ファイルなし）はエラーではなくデフォルト設定で立ち上がる。

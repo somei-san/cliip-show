@@ -43,9 +43,10 @@ pub use parse::{
 };
 pub use settings::{
     apply_config_file, apply_env_overrides, default_display_settings, display_settings,
-    print_effective_settings, settings_to_config_file,
+    merge_display_settings, print_effective_settings, settings_to_config_file,
+    start_at_login_from_config,
 };
 pub use types::{
     AppConfigFile, ConfigKey, DisplayConfigFile, DisplaySettings, HudBackgroundColor, HudPosition,
-    LanguageSetting,
+    LanguageSetting, StartupConfigFile,
 };

@@ -911,6 +911,7 @@ pub(super) unsafe fn add_login_item_row(
     );
     let () = msg_send![toggle, setFrame: toggle_rect];
     let () = msg_send![toggle, setState: login_item_control_state(enabled)];
+    let () = msg_send![toggle, setTag: config_key_to_tag(ConfigKey::StartAtLogin)];
     let () = msg_send![toggle, setTarget: delegate];
     let () = msg_send![toggle, setAction: sel!(toggleLoginItem:)];
 

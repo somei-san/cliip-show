@@ -18,7 +18,7 @@ fn main() {
             return;
         }
 
-        if let Err(error) = cliip_show::login_item::repair_stale_plist() {
+        if let Err(error) = cliip_show::login_item::sync_plist_with_config() {
             eprintln!("warning: {error}");
         }
 

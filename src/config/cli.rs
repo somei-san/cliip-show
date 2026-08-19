@@ -37,6 +37,7 @@ pub fn show_config<I: Iterator<Item = String>>(args: &mut I) -> bool {
     }
     println!("[effective]");
     let effective = apply_env_overrides(apply_config_file(default_display_settings(), &config));
-    print_effective_settings(effective);
+    let start_at_login = crate::login_item::resolved_start_at_login(&config);
+    print_effective_settings(effective, start_at_login);
     true
 }

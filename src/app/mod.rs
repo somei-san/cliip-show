@@ -18,7 +18,10 @@ mod config_reload;
 mod hud_show;
 mod panels;
 
-pub(crate) use config_reload::{apply_settings_now, display_settings_from_file};
+pub(crate) use config_reload::{
+    apply_settings_now, apply_start_at_login_if_changed, display_settings_from_file,
+    resolved_config_from_file,
+};
 pub(crate) use hud_show::{present_hud, show_sample_image_content, show_text_content};
 
 pub struct AppState {
@@ -33,6 +36,9 @@ pub struct AppState {
     pub fade_ticks_elapsed: u32,
     pub fade_total_ticks: u32,
     pub settings: DisplaySettings,
+    /// ログイン時の自動起動の実効値。設定ファイルの `start_at_login` を正とし、
+    /// 未設定なら plist の有無を初期値とする（`login_item::resolved_start_at_login`）。
+    pub start_at_login: bool,
     pub config_path: Option<PathBuf>,
     pub config_mtime: Option<SystemTime>,
     pub config_check_counter: u32,
@@ -160,6 +166,13 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
             .as_ref()
             .and_then(|p| std::fs::metadata(p).ok())
             .and_then(|m| m.modified().ok());
+        // `login_item::sync_plist_with_config`（main）が既に設定ファイルへ書き戻し済みのはずだが、
+        // その書き込みに失敗した場合に備えて plist の有無へのフォールバックも保つ。
+        let start_at_login = config_path
+            .as_ref()
+            .and_then(|path| crate::config::load_config_file(path).ok())
+            .map(|(config, _)| crate::login_item::resolved_start_at_login(&config))
+            .unwrap_or_else(crate::login_item::is_enabled);
 
         let poll_timer = schedule_poll_timer(this, settings.poll_interval_secs);
 
@@ -184,6 +197,7 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
             fade_ticks_elapsed: 0,
             fade_total_ticks: 0,
             settings,
+            start_at_login,
             config_path,
             config_mtime,
             config_check_counter: 0,
@@ -196,7 +210,7 @@ extern "C" fn application_did_finish_launching(this: &AnyObject, _: Sel, _: *mut
 
         // runModal は実行ループを止めるため、他の経路がロック待ちで固まらないよう
         // APP_STATE のロックを手放した後（上の代入文で既に解放済み）に呼ぶ。
-        panels::prompt_login_item_if_needed(lang);
+        panels::prompt_login_item_if_needed(lang, start_at_login);
 
         // 常駐アプリはウィンドウを持たないので、自分で起動したときは立ち上がった
         // ことが分からない。ログイン時の起動は本人が起動を待っていないため出さない。
@@ -288,7 +302,8 @@ extern "C" fn open_settings(this: &AnyObject, _: Sel, _: *mut AnyObject) {
 
             if state.settings_controls.window.is_null() {
                 let lang = i18n::resolve(state.settings.language);
-                state.settings_controls = crate::settings_window::build_settings_window(this, lang);
+                state.settings_controls =
+                    crate::settings_window::build_settings_window(this, lang, state.start_at_login);
             }
 
             // 既に開いているウィンドウは前面に出すだけにする。他のインスタンスの起動でも
@@ -303,8 +318,11 @@ extern "C" fn open_settings(this: &AnyObject, _: Sel, _: *mut AnyObject) {
                     &state.settings,
                 );
             }
-            // ログイン項目は設定ファイルではなく OS 側の状態なので、下書きとは別に毎回同期する。
-            crate::settings_window::sync_login_item_toggle(&state.settings_controls);
+            // ログイン項目は下書きモデルの対象外なので、下書きとは別に毎回同期する。
+            crate::settings_window::sync_login_item_toggle(
+                &state.settings_controls,
+                state.start_at_login,
+            );
             state.settings_controls.window
         };
 
@@ -340,7 +358,8 @@ extern "C" fn setting_changed(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
 }
 
 /// ログイン項目トグルの `toggleLoginItem:`。他の設定と違い下書きを経由せず、
-/// チェックした瞬間に `login_item::enable`/`disable` を実行して OS の状態を変える。
+/// チェックした瞬間に設定ファイルへ保存し、`login_item::enable`/`disable` で OS の
+/// 状態を変える。設定ファイルを正とするため、保存を plist の操作より先に行う。
 extern "C" fn toggle_login_item(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
     unsafe {
         // AppKit メインスレッドからのみ呼ばれるため、Mutex が poison されるケースは実質発生しない
@@ -350,18 +369,48 @@ extern "C" fn toggle_login_item(_: &AnyObject, _: Sel, sender: *mut AnyObject) {
         };
 
         let checked: isize = msg_send![sender, state];
-        let result = if checked != 0 {
+        let desired = checked != 0;
+
+        if !persist_start_at_login(state, desired) {
+            // 失敗したのにチェックだけ付いた状態を避け、実際の状態に表示を戻す。
+            // 警告は persist_start_at_login が出力済み。
+            crate::settings_window::sync_login_item_toggle(
+                &state.settings_controls,
+                state.start_at_login,
+            );
+            return;
+        }
+
+        if let Err(error) = if desired {
             crate::login_item::enable()
         } else {
             crate::login_item::disable()
-        };
-
-        if let Err(error) = result {
+        } {
+            // 設定ファイルは正しい値のまま。次回起動の login_item::sync_plist_with_config が
+            // plist を設定に合わせ直すため、ここでは警告に留める。
             eprintln!("warning: {error}");
-            // 失敗したのにチェックだけ付いた状態を避け、実際の状態に表示を戻す。
-            crate::settings_window::sync_login_item_toggle(&state.settings_controls);
         }
     }
+}
+
+/// 自動起動の値を設定ファイルへ保存し、成功したら `state.start_at_login`／`config_mtime` を
+/// 更新する。設定ファイルを正とするため、`login_item::enable`/`disable` より必ず先に呼ぶこと。
+/// 保存に失敗したら state は変えず `false` を返す（呼び出し側は表示を実際の値へ戻すだけでよい）
+/// （`toggleLoginItem:` と自動起動確認ダイアログの「有効にする」の両方から使う）。
+fn persist_start_at_login(state: &mut AppState, value: bool) -> bool {
+    let Some(path) = state.config_path.clone() else {
+        eprintln!("warning: config path is not resolved; cannot save start_at_login");
+        return false;
+    };
+    if let Err(error) = crate::login_item::save_start_at_login(&path, value) {
+        eprintln!("warning: {error}");
+        return false;
+    }
+    state.start_at_login = value;
+    state.config_mtime = std::fs::metadata(&path)
+        .ok()
+        .and_then(|m| m.modified().ok());
+    true
 }
 
 // NSRectEdge: maxX。ボタン/フィールドの右側に popover を出す（`show_emoji_help_popover`・
@@ -652,14 +701,15 @@ extern "C" fn window_will_close(_: &AnyObject, _: Sel, notification: *mut AnyObj
         let Some(path) = state.config_path.clone() else {
             return;
         };
-        let new_settings = match display_settings_from_file(&path) {
-            Ok(settings) => settings,
+        let (new_settings, start_at_login) = match resolved_config_from_file(&path) {
+            Ok(result) => result,
             Err(err) => {
                 eprintln!("warning: config reload failed, keeping current settings: {err}");
                 return;
             }
         };
         apply_settings_now(state, new_settings);
+        apply_start_at_login_if_changed(state, start_at_login);
         state.config_mtime = std::fs::metadata(&path)
             .ok()
             .and_then(|m| m.modified().ok());

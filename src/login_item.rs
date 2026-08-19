@@ -46,6 +46,13 @@ pub fn is_enabled() -> bool {
     plist_path().is_some_and(|path| path.exists())
 }
 
+/// 設定ファイルの値を正としつつ、未設定なら plist の有無を実効値として使う
+/// （`start_at_login_from_config` が区別する「未設定」を、呼び出し側が使える1つの
+/// bool へ解決する）。
+pub fn resolved_start_at_login(config: &crate::config::AppConfigFile) -> bool {
+    crate::config::start_at_login_from_config(config).unwrap_or_else(is_enabled)
+}
+
 fn current_uid() -> Result<u32, AppError> {
     let home = home_dir().ok_or_else(|| {
         AppError::ConfigResolve("failed to resolve HOME for uid lookup".to_string())
@@ -140,6 +147,104 @@ pub fn repair_stale_plist() -> Result<(), AppError> {
     Ok(())
 }
 
+/// 設定ファイルの `start_at_login` を正として、LaunchAgent の plist をその値に合わせる。
+/// `[startup]` 節を持たない設定ファイルで plist が実在するときだけ、`true` を書き戻す
+/// （plist が外から消えても、次の起動でここが設定から復元できるようにするため）。
+/// plist が無ければ書き戻さない。設定ファイルを持たない環境で自動起動を使っていない
+/// 利用者に、書き戻しのためだけの設定ファイルを作らせないため。
+///
+/// 設定ファイルの読み書きに失敗したらエラーを返す。呼び出し側（`main`）は警告に
+/// 留めて起動を続ける。
+pub fn sync_plist_with_config() -> Result<(), AppError> {
+    let config_path = crate::config::config_file_path()?;
+    let (mut config, _) = crate::config::load_config_file(&config_path)?;
+
+    let plist_exists = is_enabled();
+    let desired = match crate::config::start_at_login_from_config(&config) {
+        Some(value) => value,
+        None => {
+            if let Some(value) = start_at_login_to_persist(plist_exists) {
+                config.startup.start_at_login = Some(value);
+                crate::config::save_config_file(&config_path, &config)?;
+            }
+            plist_exists
+        }
+    };
+
+    apply_desired_state(desired)
+}
+
+/// 設定の希望値へ plist を合わせる。`login_item_action` で行動（`Enable`/`Repair`/`Disable`/
+/// 何もしない）を決めて実行する。`sync_plist_with_config` と、設定ファイルの手編集を拾う
+/// ファイル監視の再読み込みの両方から使う。
+pub fn apply_desired_state(desired_enabled: bool) -> Result<(), AppError> {
+    let plist_exists = is_enabled();
+    let action = login_item_action(
+        desired_enabled,
+        plist_exists,
+        current_exe_is_installed_app_bundle(),
+    );
+    if desired_enabled && action == LoginItemAction::None {
+        // 開発ビルドのパスを plist に焼き付けると、次のビルドで自動起動が黙って止まる。
+        // 書き出しを見送ったことは利用者から見えないので、ここで知らせる。
+        eprintln!(
+            "warning: start_at_login is enabled but the running executable is not an installed .app; skipping plist creation"
+        );
+    }
+    match action {
+        LoginItemAction::Enable => enable(),
+        LoginItemAction::Repair => repair_stale_plist(),
+        LoginItemAction::Disable => disable(),
+        LoginItemAction::None => Ok(()),
+    }
+}
+
+/// 現在の実行ファイルが、インストール済みの `.app` の中にあるか。
+/// `current_exe()` に失敗したときは安全側に倒し `false` とする。
+fn current_exe_is_installed_app_bundle() -> bool {
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+    // `current_exe()` はシンボリックリンクを解決しない。cask が張ったリンク経由で
+    // 起動すると `.app` の中かどうかを判定できないため、実体のパスに直す。
+    let exe = fs::canonicalize(&exe).unwrap_or(exe);
+    is_installed_app_bundle(&exe)
+}
+
+/// 設定に値が無いときの書き戻し判断（副作用なし）。plist があるときだけ `true` を書き戻す。
+/// plist が無いときに書き戻さないのは、自動起動を使っていない利用者に、書き戻しのためだけの
+/// 設定ファイルを作らせないため。
+fn start_at_login_to_persist(plist_exists: bool) -> Option<bool> {
+    plist_exists.then_some(true)
+}
+
+/// 設定の希望値と plist の実在から、次に取る行動を決める（副作用なし）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoginItemAction {
+    Enable,
+    Repair,
+    Disable,
+    None,
+}
+
+/// `installed_app_bundle` は `is_installed_app_bundle` の結果（実行ファイルがインストール済み
+/// `.app` の中にあるか）。plist が無い状態で新規に書き出す（`Enable`）のは、インストール済み
+/// `.app` から実行しているときだけに限る。開発ビルドや `cargo run` の実行ファイルパスを
+/// 焼き付けると、次のビルドで自動起動が黙って壊れるため。
+fn login_item_action(
+    desired_enabled: bool,
+    plist_exists: bool,
+    installed_app_bundle: bool,
+) -> LoginItemAction {
+    match (desired_enabled, plist_exists) {
+        (true, false) if installed_app_bundle => LoginItemAction::Enable,
+        (true, false) => LoginItemAction::None,
+        (true, true) => LoginItemAction::Repair,
+        (false, true) => LoginItemAction::Disable,
+        (false, false) => LoginItemAction::None,
+    }
+}
+
 /// `launchctl bootout` で読み込みを解除し、plist を削除する。
 ///
 /// `bootout` の失敗は警告に留めて plist の削除まで進める。エージェントが読み込まれていない
@@ -166,6 +271,14 @@ pub fn disable() -> Result<(), AppError> {
             source,
         }),
     }
+}
+
+/// 自動起動の値だけを設定ファイルへ書く。書き込む前に現在のファイルを読み直すのは、
+/// 外部エディタで変更された他のキーを巻き戻さないため。
+pub fn save_start_at_login(path: &Path, value: bool) -> Result<(), AppError> {
+    let (mut config, _) = crate::config::load_config_file(path)?;
+    config.startup.start_at_login = Some(value);
+    crate::config::save_config_file(path, &config)
 }
 
 /// 自動起動確認ダイアログを抑止したかどうかのマーカーファイルのパス。
@@ -357,6 +470,7 @@ pub fn plist_xml(executable: &Path, log_path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::{launched_with_login_flag, LOGIN_FLAG, LOGIN_ITEM_LABEL};
+    use super::{login_item_action, start_at_login_to_persist, LoginItemAction};
     use super::{needs_repair, plist_xml, program_arguments_in_plist, stable_executable_path};
     use std::path::Path;
 
@@ -551,5 +665,61 @@ mod tests {
         );
         assert!(xml.contains("A &amp; B"));
         assert!(!xml.contains("A & B"));
+    }
+
+    #[test]
+    fn login_item_action_enables_when_desired_missing_and_installed() {
+        assert_eq!(
+            login_item_action(true, false, true),
+            LoginItemAction::Enable
+        );
+    }
+
+    // インストール済み .app の外（`cargo run`・開発ビルド・Homebrew formula 時代のパス等）
+    // から実行しているときに新規作成すると、次のビルド・アンインストールでパスが消えて
+    // 自動起動が黙って壊れる。plist を書かず何もしない。
+    #[test]
+    fn login_item_action_does_nothing_when_desired_missing_and_not_installed() {
+        assert_eq!(login_item_action(true, false, false), LoginItemAction::None);
+    }
+
+    #[test]
+    fn login_item_action_repairs_when_desired_and_present() {
+        assert_eq!(
+            login_item_action(true, true, false),
+            LoginItemAction::Repair
+        );
+        assert_eq!(login_item_action(true, true, true), LoginItemAction::Repair);
+    }
+
+    #[test]
+    fn login_item_action_disables_when_not_desired_but_present() {
+        assert_eq!(
+            login_item_action(false, true, false),
+            LoginItemAction::Disable
+        );
+        assert_eq!(
+            login_item_action(false, true, true),
+            LoginItemAction::Disable
+        );
+    }
+
+    #[test]
+    fn login_item_action_does_nothing_when_not_desired_and_absent() {
+        assert_eq!(
+            login_item_action(false, false, false),
+            LoginItemAction::None
+        );
+        assert_eq!(login_item_action(false, false, true), LoginItemAction::None);
+    }
+
+    #[test]
+    fn start_at_login_to_persist_writes_back_true_when_plist_exists() {
+        assert_eq!(start_at_login_to_persist(true), Some(true));
+    }
+
+    #[test]
+    fn start_at_login_to_persist_writes_nothing_when_plist_is_absent() {
+        assert_eq!(start_at_login_to_persist(false), None);
     }
 }
