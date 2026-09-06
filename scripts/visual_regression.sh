@@ -10,10 +10,16 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 UPDATE=false
+UPDATE_MISSING=false
 if [[ "${1:-}" == "--update" ]]; then
   UPDATE=true
+elif [[ "${1:-}" == "--update-missing" ]]; then
+  # ベースラインが無いケースだけ書き出し、既存ケースは通常どおり判定する。
+  # --update は既存の全ベースラインも上書きするため、新規ケースを足すだけの
+  # ときに使うとアンチエイリアスの揺れが既存分の差分として混ざる
+  UPDATE_MISSING=true
 elif [[ $# -gt 0 ]]; then
-  echo "Usage: $0 [--update]" >&2
+  echo "Usage: $0 [--update|--update-missing]" >&2
   exit 2
 fi
 
@@ -81,7 +87,13 @@ render_and_compare() {
   fi
 
   if [[ ! -f "$baseline" ]]; then
-    echo "missing baseline: $baseline (run ./scripts/visual_regression.sh --update once)" >&2
+    if $UPDATE_MISSING; then
+      cp "$current" "$baseline"
+      rm -f "$diff"
+      echo "created: $baseline"
+      return
+    fi
+    echo "missing baseline: $baseline (run ./scripts/visual_regression.sh --update-missing)" >&2
     failed=1
     return
   fi

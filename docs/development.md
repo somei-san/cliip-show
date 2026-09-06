@@ -127,8 +127,11 @@ HUDと設定ウィンドウの各ペインの描画結果をPNGで比較しま�
 ### 実行方法
 
 ```bash
-# 初回または意図的なUI変更時にベースラインを更新
+# 初回または意図的なUI変更時にベースラインを更新（既存の全ケースを上書き）
 ./scripts/visual_regression.sh --update
+
+# ケースを追加したとき: ベースラインが無いケースだけ書き出し、既存ケースは通常どおり判定
+./scripts/visual_regression.sh --update-missing
 
 # 通常の差分チェック
 ./scripts/visual_regression.sh
@@ -162,6 +165,7 @@ MAX_DIFF_PERMILLE=80 ./scripts/visual_regression.sh
 
 - 通常のPRでは `./scripts/visual_regression.sh` のみ実行
 - 意図したUI変更を入れたPRのみ `./scripts/visual_regression.sh --update` を実行
+- ケースを追加しただけのPRは `--update-missing` を使う。`--update` は既存の全ベースラインも書き換えるため、アンチエイリアスの揺れが既存分の差分として混ざる
 - CI失敗時は `visual-regression-artifacts` の diff 画像を確認
 
 ## Homebrewで公開する手順
