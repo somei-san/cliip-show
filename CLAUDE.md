@@ -62,6 +62,6 @@ UI 文言を README に書くときは `src/i18n.rs` の文言テーブルと一
 
 ## リリース
 
-`./scripts/release.sh <version>` でバージョン更新から `v*` タグの push までを行う。タグを起点に `release.yml` が `.app` のビルドと zip の添付、GitHub Release の作成、[somei-san/homebrew-tap](https://github.com/somei-san/homebrew-tap) の cask 更新まで実行する。
+`cargo release <patch|minor|major> --execute` でバージョン更新（`Cargo.toml` と `Cargo.lock`）から `v*` タグの push までを行う（設定は `release.toml`。手順は `docs/development.md`）。タグを起点に `release.yml` が `.app` のビルドと zip の添付、GitHub Release の作成、[somei-san/homebrew-tap](https://github.com/somei-san/homebrew-tap) の cask 更新まで実行する。
 
 cask は `packaging/homebrew/cliip-show.rb.template` から自動生成されるが、tap の README は手書きなので追随しない。起動方法・設定コマンド・スクリーンショットを変えたら tap の README も更新すること。

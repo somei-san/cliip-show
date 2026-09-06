@@ -2,6 +2,8 @@
 name = "cliip-show"
 version = "0.5.3"
 edition = "2021"
+# crates.io には公開しない（cargo release の publish ステップも抑止する）
+publish = false
 
 [dependencies]
 objc2 = { version = "0.5", features = ["relax-sign-encoding", "relax-void-encoding"] }

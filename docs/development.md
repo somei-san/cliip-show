@@ -168,18 +168,28 @@ MAX_DIFF_PERMILLE=80 ./scripts/visual_regression.sh
 
 タグを push すると GitHub Actions が自動で Release 作成と Homebrew tap 更新を行います。
 
-### 1. リリーススクリプトを実行する
+### 1. cargo-release を実行する
+
+バージョン更新（`Cargo.toml` と `Cargo.lock`）・コミット・タグ付け・push は [cargo-release](https://github.com/crate-ci/cargo-release) が行います（`cargo install cargo-release` または `brew install cargo-release` で導入）。設定はリポジトリルートの `release.toml` にあります。
+
+上げ幅は第 1 引数で指定します。次のバージョンは `Cargo.toml` の現在値から計算されるので、番号そのものは書きません。
+
+| 引数 | 0.5.3 のとき |
+|---|---|
+| `patch` | 0.5.4 |
+| `minor` | 0.6.0 |
+| `major` | 1.0.0 |
 
 ```bash
-./scripts/release.sh 0.1.4
-```
+# dry-run で内容を確認する（--execute を付けるまで何も起きない）
+cargo release patch
 
-バージョンを引数で指定すると、`Cargo.toml` のバージョン更新 → コミット・push → タグ作成・push を一括で行います。
+# 確認できたら実行する
+cargo release patch --execute
 
-引数なしで実行すると、現在の `Cargo.toml` のバージョンでタグを作成します（事前に手動でバージョンを更新済みの場合）。
-
-```bash
-./scripts/release.sh
+# 中断からのやり直し（バージョンは上がっているがタグが無い場合）
+cargo release tag --execute
+cargo release push --execute
 ```
 
 ### 2. 自動実行される内容

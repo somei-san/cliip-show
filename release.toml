@@ -1,0 +1,7 @@
+publish = false
+tag-name = "v{{version}}"
+# main 以外のブランチでの誤実行を防ぐ
+allow-branch = ["main"]
+# 既定は英語の "chore: Release ..." で、このリポジトリの規約から外れる
+pre-release-commit-message = "🔖 v{{version}} リリース準備"
+tag-message = "🔖 v{{version}} リリース準備"
