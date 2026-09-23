@@ -4,10 +4,10 @@ cask "cliip-show" do
 
   url "https://github.com/{{OWNER}}/cliip-show/releases/download/v#{version}/Cliip-Show-#{version}-universal.zip"
   name "Cliip Show"
-  desc "Show copied clipboard text as a HUD on macOS"
+  desc "Show copied clipboard text as a HUD"
   homepage "https://github.com/{{OWNER}}/cliip-show"
 
-  depends_on macos: :big_sur
+  depends_on :macos
 
   app "Cliip Show.app"
   binary "#{appdir}/Cliip Show.app/Contents/MacOS/cliip-show"
@@ -21,6 +21,12 @@ cask "cliip-show" do
   # plist の後始末は zap に任せる。
   uninstall quit: "io.github.somei-san.cliip-show"
 
+  zap trash: [
+    "~/Library/Application Support/cliip-show",
+    "~/Library/LaunchAgents/io.github.somei-san.cliip-show.plist",
+    "~/Library/Logs/cliip-show.log",
+  ]
+
   caveats <<~EOS
     Launch it once from Spotlight, or:
       open -a "Cliip Show"
@@ -28,10 +34,4 @@ cask "cliip-show" do
     #{token} is not signed with an Apple Developer ID.
     The quarantine attribute has been automatically removed during installation.
   EOS
-
-  zap trash: [
-    "~/Library/Application Support/cliip-show",
-    "~/Library/LaunchAgents/io.github.somei-san.cliip-show.plist",
-    "~/Library/Logs/cliip-show.log",
-  ]
 end
