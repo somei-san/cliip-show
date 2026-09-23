@@ -12,8 +12,8 @@ cask "cliip-show" do
   app "Cliip Show.app"
   binary "#{appdir}/Cliip Show.app/Contents/MacOS/cliip-show"
 
-  postflight do
-    system_command "/usr/bin/xattr", args: ["-cr", "#{appdir}/Cliip Show.app"]
+  postflight_steps do
+    run "/usr/bin/xattr", args: ["-cr", "{{appdir}}/Cliip Show.app"]
   end
 
   # launchctl: は指定しない。読み込みの有無に関わらず LaunchAgent の plist を消すうえ、
