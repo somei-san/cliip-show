@@ -196,6 +196,8 @@ cargo release tag --execute
 cargo release push --execute
 ```
 
+`--execute` は実行前に確認プロンプト `[y/N]` を出します。Claude Code の `!` のように標準入力を受けられない環境から実行すると、ここで止まるので、`--no-confirm` を付けてください。
+
 ### 2. 自動実行される内容
 
 GitHub Actions（`.github/workflows/release.yml`）が以下を自動実行します。
