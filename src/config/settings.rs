@@ -1,14 +1,14 @@
 use super::io::{config_file_path, load_config_file};
 use super::parse::{
-    parse_bool_setting, parse_f64_config_value, parse_f64_setting,
+    parse_bool_setting, parse_copy_sound_setting, parse_f64_config_value, parse_f64_setting,
     parse_hud_background_color_setting, parse_hud_emoji, parse_hud_position_setting,
     parse_language_setting, parse_usize_config_value, parse_usize_setting,
 };
-use super::types::HudBackgroundColor;
 use super::types::{
     AppConfigFile, ConfigKey, DisplayConfigFile, DisplaySettings, HudPosition, LanguageSetting,
     StartupConfigFile,
 };
+use super::types::{CopySound, HudBackgroundColor};
 use super::{
     DEFAULT_HUD_BACKGROUND_OPACITY, DEFAULT_HUD_FADE_DURATION_SECS, DEFAULT_HUD_IMAGE_MAX_HEIGHT,
     DEFAULT_HUD_SCALE, DEFAULT_TRUNCATE_MAX_LINES, DEFAULT_TRUNCATE_MAX_WIDTH, HUD_DURATION_SECS,
@@ -32,6 +32,7 @@ pub fn default_display_settings() -> DisplaySettings {
         hud_background_opacity: DEFAULT_HUD_BACKGROUND_OPACITY,
         hud_emoji: "📋".to_string(),
         hud_image_max_height: DEFAULT_HUD_IMAGE_MAX_HEIGHT,
+        copy_sound: CopySound::default(),
         language: LanguageSetting::default(),
         show_menu_bar_icon: true,
     }
@@ -135,6 +136,9 @@ pub fn apply_config_file(base: DisplaySettings, config: &AppConfigFile) -> Displ
             "hud_image_max_height",
         );
     }
+    if let Some(value) = config.display.copy_sound {
+        settings.copy_sound = value;
+    }
     if let Some(value) = config.display.language {
         settings.language = value;
     }
@@ -227,6 +231,9 @@ fn apply_env_overrides_with(
             MAX_HUD_IMAGE_MAX_HEIGHT,
         );
     }
+    if let Some(value) = read_env_option("CLIIP_SHOW_COPY_SOUND") {
+        settings.copy_sound = parse_copy_sound_setting(&value, settings.copy_sound);
+    }
     if let Some(value) = read_env_option("CLIIP_SHOW_LANGUAGE") {
         settings.language = parse_language_setting(&value, settings.language);
     }
@@ -262,6 +269,7 @@ fn saved_value(config: &AppConfigFile, key: ConfigKey) -> Option<String> {
         ConfigKey::HudBackgroundOpacity => display.hud_background_opacity.map(|v| v.to_string()),
         ConfigKey::HudEmoji => display.hud_emoji.clone(),
         ConfigKey::HudImageMaxHeight => display.hud_image_max_height.map(|v| v.to_string()),
+        ConfigKey::CopySound => display.copy_sound.map(|v| v.as_str().to_string()),
         ConfigKey::Language => display.language.map(|v| v.as_str().to_string()),
         ConfigKey::ShowMenuBarIcon => display.show_menu_bar_icon.map(|v| v.to_string()),
         ConfigKey::StartAtLogin => config.startup.start_at_login.map(|v| v.to_string()),
@@ -289,6 +297,7 @@ pub fn print_effective_settings(settings: DisplaySettings, start_at_login: bool)
     );
     println!("hud_emoji = {}", settings.hud_emoji);
     println!("hud_image_max_height = {}", settings.hud_image_max_height);
+    println!("copy_sound = {}", settings.copy_sound.as_str());
     println!("language = {}", settings.language.as_str());
     println!("show_menu_bar_icon = {}", settings.show_menu_bar_icon);
     println!("start_at_login = {start_at_login}");
@@ -315,6 +324,7 @@ pub fn settings_to_config_file(settings: DisplaySettings) -> AppConfigFile {
             hud_background_opacity: Some(settings.hud_background_opacity),
             hud_emoji: Some(settings.hud_emoji.clone()),
             hud_image_max_height: Some(settings.hud_image_max_height),
+            copy_sound: Some(settings.copy_sound),
             language: Some(settings.language),
             show_menu_bar_icon: Some(settings.show_menu_bar_icon),
         },
@@ -508,6 +518,7 @@ mod tests {
                 ConfigKey::HudBackgroundOpacity => "0.5",
                 ConfigKey::HudEmoji => "🍺",
                 ConfigKey::HudImageMaxHeight => "80",
+                ConfigKey::CopySound => "tink",
                 ConfigKey::Language => "ja",
                 ConfigKey::ShowMenuBarIcon => "false",
                 ConfigKey::StartAtLogin => continue,

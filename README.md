@@ -20,6 +20,7 @@ So here it is: Cliip Show, a macOS menu bar app that shows what you just copied 
 - Text is shown as-is, images as a thumbnail
 - The HUD fades out on its own after a few seconds
 - Runs in the background as a menu bar app
+- It can also play a sound when you copy (off by default)
 - Position, size, colour and the rest are changed from "Settings…" in the menu bar
 
 ## Install (Homebrew)

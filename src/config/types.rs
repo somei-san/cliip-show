@@ -63,6 +63,91 @@ impl HudBackgroundColor {
     }
 }
 
+/// コピーを検知したときに鳴らす効果音。`Off` 以外は macOS 標準の効果音
+/// （`/System/Library/Sounds`）に対応し、音声ファイルは同梱しない。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CopySound {
+    #[default]
+    Off,
+    Basso,
+    Blow,
+    Bottle,
+    Frog,
+    Funk,
+    Glass,
+    Hero,
+    Morse,
+    Ping,
+    Pop,
+    Purr,
+    Sosumi,
+    Submarine,
+    Tink,
+}
+
+impl CopySound {
+    /// 設定ウィンドウのポップアップに並べる順。
+    pub const ALL: [CopySound; 15] = [
+        CopySound::Off,
+        CopySound::Basso,
+        CopySound::Blow,
+        CopySound::Bottle,
+        CopySound::Frog,
+        CopySound::Funk,
+        CopySound::Glass,
+        CopySound::Hero,
+        CopySound::Morse,
+        CopySound::Ping,
+        CopySound::Pop,
+        CopySound::Purr,
+        CopySound::Sosumi,
+        CopySound::Submarine,
+        CopySound::Tink,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Basso => "basso",
+            Self::Blow => "blow",
+            Self::Bottle => "bottle",
+            Self::Frog => "frog",
+            Self::Funk => "funk",
+            Self::Glass => "glass",
+            Self::Hero => "hero",
+            Self::Morse => "morse",
+            Self::Ping => "ping",
+            Self::Pop => "pop",
+            Self::Purr => "purr",
+            Self::Sosumi => "sosumi",
+            Self::Submarine => "submarine",
+            Self::Tink => "tink",
+        }
+    }
+
+    /// `NSSound soundNamed:` に渡す名前。`Off` は鳴らさないので `None`。
+    pub fn system_sound_name(self) -> Option<&'static str> {
+        match self {
+            Self::Off => None,
+            Self::Basso => Some("Basso"),
+            Self::Blow => Some("Blow"),
+            Self::Bottle => Some("Bottle"),
+            Self::Frog => Some("Frog"),
+            Self::Funk => Some("Funk"),
+            Self::Glass => Some("Glass"),
+            Self::Hero => Some("Hero"),
+            Self::Morse => Some("Morse"),
+            Self::Ping => Some("Ping"),
+            Self::Pop => Some("Pop"),
+            Self::Purr => Some("Purr"),
+            Self::Sosumi => Some("Sosumi"),
+            Self::Submarine => Some("Submarine"),
+            Self::Tink => Some("Tink"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DisplaySettings {
     pub poll_interval_secs: f64,
@@ -76,6 +161,7 @@ pub struct DisplaySettings {
     pub hud_background_opacity: f64,
     pub hud_emoji: String,
     pub hud_image_max_height: usize,
+    pub copy_sound: CopySound,
     pub language: LanguageSetting,
     pub show_menu_bar_icon: bool,
 }
@@ -101,6 +187,7 @@ pub struct DisplayConfigFile {
     pub hud_background_opacity: Option<f64>,
     pub hud_emoji: Option<String>,
     pub hud_image_max_height: Option<usize>,
+    pub copy_sound: Option<CopySound>,
     pub language: Option<LanguageSetting>,
     pub show_menu_bar_icon: Option<bool>,
 }
@@ -123,6 +210,7 @@ pub enum ConfigKey {
     HudBackgroundOpacity,
     HudEmoji,
     HudImageMaxHeight,
+    CopySound,
     Language,
     ShowMenuBarIcon,
     StartAtLogin,
@@ -130,7 +218,7 @@ pub enum ConfigKey {
 
 impl ConfigKey {
     /// 設定ファイルに並ぶ順。キーを網羅して回りたい箇所はここを使う。
-    pub const ALL: [ConfigKey; 14] = [
+    pub const ALL: [ConfigKey; 15] = [
         ConfigKey::PollIntervalSecs,
         ConfigKey::HudDurationSecs,
         ConfigKey::HudFadeDurationSecs,
@@ -142,6 +230,7 @@ impl ConfigKey {
         ConfigKey::HudBackgroundOpacity,
         ConfigKey::HudEmoji,
         ConfigKey::HudImageMaxHeight,
+        ConfigKey::CopySound,
         ConfigKey::Language,
         ConfigKey::ShowMenuBarIcon,
         ConfigKey::StartAtLogin,
@@ -160,6 +249,7 @@ impl ConfigKey {
             ConfigKey::HudBackgroundOpacity => "hud_background_opacity",
             ConfigKey::HudEmoji => "hud_emoji",
             ConfigKey::HudImageMaxHeight => "hud_image_max_height",
+            ConfigKey::CopySound => "copy_sound",
             ConfigKey::Language => "language",
             ConfigKey::ShowMenuBarIcon => "show_menu_bar_icon",
             ConfigKey::StartAtLogin => "start_at_login",

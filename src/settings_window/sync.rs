@@ -3,8 +3,8 @@ use objc2::runtime::AnyObject;
 use objc2_foundation::{NSRange, NSString};
 
 use crate::app::{
-    apply_settings_now, apply_start_at_login_if_changed, present_hud, show_sample_image_content,
-    show_text_content, AppState,
+    apply_settings_now, apply_start_at_login_if_changed, play_copy_sound, present_hud,
+    show_sample_image_content, show_text_content, AppState,
 };
 use crate::config::{
     apply_config_file, default_display_settings, hud_emoji_validation_error, load_config_file,
@@ -150,6 +150,7 @@ pub unsafe fn sync_controls_from_settings(
         controls.hud_background_color_popup,
         settings.hud_background_color.as_str(),
     );
+    select_popup_item(controls.copy_sound_popup, settings.copy_sound.as_str());
     select_language_item(controls.language_popup, settings.language);
     sync_menu_bar_icon_toggle(controls, settings.show_menu_bar_icon);
 
@@ -331,6 +332,11 @@ pub unsafe fn apply_setting_change(
         &state.settings_controls.draft,
         key,
     );
+
+    // 音は聞かないと選べないので、選んだ時点で試しに鳴らす
+    if key == ConfigKey::CopySound {
+        play_copy_sound(state.settings_controls.draft.copy_sound);
+    }
 
     hint
 }
@@ -697,7 +703,7 @@ pub unsafe fn save_settings(state: &mut AppState) -> bool {
 /// デフォルトボタン（保存）に先取りされる。保存・お試し表示の直前にここで読み直すことで、
 /// 未確定の入力の取りこぼしと、拒否された値がフィールドに残ることの両方を防ぐ。
 unsafe fn sync_draft_from_controls(controls: &mut SettingsControls) {
-    const KEYS: [ConfigKey; 11] = [
+    const KEYS: [ConfigKey; 12] = [
         ConfigKey::PollIntervalSecs,
         ConfigKey::HudDurationSecs,
         ConfigKey::HudFadeDurationSecs,
@@ -709,6 +715,7 @@ unsafe fn sync_draft_from_controls(controls: &mut SettingsControls) {
         ConfigKey::HudBackgroundColor,
         ConfigKey::HudBackgroundOpacity,
         ConfigKey::HudEmoji,
+        ConfigKey::CopySound,
     ];
 
     let mut config = settings_to_config_file(controls.draft.clone());
@@ -745,6 +752,7 @@ fn control_for_key(controls: &SettingsControls, key: ConfigKey) -> *mut AnyObjec
         ConfigKey::HudBackgroundColor => controls.hud_background_color_popup,
         ConfigKey::HudBackgroundOpacity => controls.hud_background_opacity_slider,
         ConfigKey::HudEmoji => controls.hud_emoji_field,
+        ConfigKey::CopySound => controls.copy_sound_popup,
         ConfigKey::Language => controls.language_popup,
         ConfigKey::ShowMenuBarIcon => controls.show_menu_bar_icon_toggle,
         ConfigKey::StartAtLogin => controls.login_item_toggle,
@@ -763,7 +771,7 @@ unsafe fn raw_value_for_key(key: ConfigKey, control: *mut AnyObject) -> Option<S
             // 値が設定ファイルに残る。値ラベルの表示と同じ桁で丸めて揃える。
             Some(format!("{value:.2}"))
         }
-        ConfigKey::HudPosition | ConfigKey::HudBackgroundColor => {
+        ConfigKey::HudPosition | ConfigKey::HudBackgroundColor | ConfigKey::CopySound => {
             let title: *mut AnyObject = msg_send![control, titleOfSelectedItem];
             nsstring_to_string(title)
         }
@@ -837,7 +845,7 @@ unsafe fn resync_controls_after_apply(
             settings.hud_image_max_height,
         ),
         // ポップアップの選択肢は常に妥当な値のみを取りうるためクランプが発生せず、再同期は不要
-        ConfigKey::HudPosition | ConfigKey::HudBackgroundColor => {}
+        ConfigKey::HudPosition | ConfigKey::HudBackgroundColor | ConfigKey::CopySound => {}
         // 拒否された入力は set_config_value のエラー側で戻すため、ここでは触らない。
         ConfigKey::HudEmoji => {}
         // 言語は下書きモデルの対象外で、保存の成否にかかわらず再同期する対象が無い。

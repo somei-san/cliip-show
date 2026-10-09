@@ -54,6 +54,7 @@ cliip-show --config-show
 - `hud_background_opacity`（既定値: `0.9`、`0.2` - `1.0`）HUD 背景の不透明度。`1.0` で背景が透けなくなります。文字とアイコンは常に不透明です
 - `hud_emoji`（既定値: `📋`、任意の絵文字。空でアイコンなし）
 - `hud_image_max_height`（既定値: `160`、`40` - `240`）画像サムネイルの高さ上限（px）。実際の上限は `hud_scale` 倍され、元画像より大きくは表示しません
+- `copy_sound`（既定値: `off`、`off` / `basso` / `blow` / `bottle` / `frog` / `funk` / `glass` / `hero` / `morse` / `ping` / `pop` / `purr` / `sosumi` / `submarine` / `tink`）コピーを検知して HUD を出すときに鳴らす macOS 標準の効果音。音量はシステムの音量に従います
 - `language`（既定値: `auto`、`auto` / `ja` / `en`）メニューバーと設定ウィンドウの表示言語。`auto` は macOS の優先言語に従います
 - `show_menu_bar_icon`（既定値: `true`）メニューバーアイコンの表示。`false` にすると、メニューから開く設定・一時停止・終了に触れなくなります。アプリをもう一度起動すると設定ウィンドウが前面に出るので、そこから表示に戻せます
 
@@ -72,6 +73,7 @@ CLIIP_SHOW_HUD_BACKGROUND_COLOR=blue \
 CLIIP_SHOW_HUD_BACKGROUND_OPACITY=0.6 \
 CLIIP_SHOW_HUD_EMOJI=🍣 \
 CLIIP_SHOW_HUD_IMAGE_MAX_HEIGHT=120 \
+CLIIP_SHOW_COPY_SOUND=tink \
 CLIIP_SHOW_LANGUAGE=en \
 CLIIP_SHOW_SHOW_MENU_BAR_ICON=true \
 cargo run

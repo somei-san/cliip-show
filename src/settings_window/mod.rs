@@ -81,6 +81,7 @@ pub struct SettingsControls {
     pub hud_background_opacity_slider: *mut AnyObject,
     pub hud_background_opacity_value_label: *mut AnyObject,
     pub hud_emoji_field: *mut AnyObject,
+    pub copy_sound_popup: *mut AnyObject,
     /// 絵文字欄の右隣のヘルプボタン（`?`）がクリックされたときに出す `NSPopover`。
     /// アプリの生存期間中保持し、`showEmojiHelp:` が使い回す。中身（`hud_emoji_help_label`）は
     /// popover の contentViewController.view が所有しており、popover 自体を手放さない限り
@@ -154,6 +155,7 @@ impl Default for SettingsControls {
             hud_background_opacity_slider: ptr::null_mut(),
             hud_background_opacity_value_label: ptr::null_mut(),
             hud_emoji_field: ptr::null_mut(),
+            copy_sound_popup: ptr::null_mut(),
             hud_emoji_help_popover: ptr::null_mut(),
             hud_emoji_help_label: ptr::null_mut(),
             range_hint_popover: ptr::null_mut(),
@@ -184,6 +186,7 @@ pub fn config_key_to_tag(key: ConfigKey) -> isize {
         ConfigKey::HudBackgroundOpacity => 11,
         ConfigKey::StartAtLogin => 12,
         ConfigKey::ShowMenuBarIcon => 13,
+        ConfigKey::CopySound => 14,
     }
 }
 
@@ -203,6 +206,7 @@ pub fn tag_to_config_key(tag: isize) -> Option<ConfigKey> {
         11 => Some(ConfigKey::HudBackgroundOpacity),
         12 => Some(ConfigKey::StartAtLogin),
         13 => Some(ConfigKey::ShowMenuBarIcon),
+        14 => Some(ConfigKey::CopySound),
         _ => None,
     }
 }
@@ -222,7 +226,7 @@ mod tests {
     #[test]
     fn tag_to_config_key_rejects_unknown_tags() {
         assert_eq!(tag_to_config_key(-1), None);
-        assert_eq!(tag_to_config_key(14), None);
+        assert_eq!(tag_to_config_key(15), None);
         assert_eq!(tag_to_config_key(9999), None);
     }
 }

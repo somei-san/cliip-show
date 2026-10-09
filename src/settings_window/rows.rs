@@ -17,8 +17,8 @@ pub(super) const SETTINGS_STYLE_MASK: usize = 1 | 2;
 
 pub(super) const SETTINGS_WINDOW_WIDTH: f64 = 520.0;
 const SETTINGS_ROW_HEIGHT: f64 = 34.0;
-const SETTINGS_ROW_COUNT: usize = 11;
-// HUD の見た目を決める上記 11 行とは別に、区切り行・言語・自動起動・メニューバーアイコン
+const SETTINGS_ROW_COUNT: usize = 12;
+// 下書き→保存のモデルに乗る上記 12 行とは別に、区切り行・言語・自動起動・メニューバーアイコン
 // 表示の 4 行を末尾に置く。各行の番号は build_settings_window が出現順に払い出す。
 pub(super) const SETTINGS_TOTAL_ROW_COUNT: usize = SETTINGS_ROW_COUNT + 4;
 const SETTINGS_TOP_MARGIN: f64 = 20.0;
@@ -1106,7 +1106,7 @@ mod tests {
     // 下の行を見せる（ウィンドウは伸ばさない）。
     #[test]
     fn document_height_exceeds_scroll_height() {
-        assert_eq!(document_height(), 530.0);
+        assert_eq!(document_height(), 564.0);
         assert!(document_height() > SETTINGS_SCROLL_HEIGHT);
     }
 
@@ -1114,7 +1114,7 @@ mod tests {
     // 起きるとここで落ちる
     #[test]
     fn row_bottom_y_pins_the_first_row() {
-        assert_eq!(row_bottom_y(0), 476.0);
+        assert_eq!(row_bottom_y(0), 510.0);
     }
 
     // 最終行はちょうど documentView の下端に載る（負なら下へはみ出して見えなくなる）

@@ -305,6 +305,10 @@ pub fn handle_cli_flags() -> bool {
             );
             let _ = writeln!(
                 help,
+                "  CLIIP_SHOW_COPY_SOUND           Sound played on copy (off|basso|blow|bottle|frog|funk|glass|hero|morse|ping|pop|purr|sosumi|submarine|tink)"
+            );
+            let _ = writeln!(
+                help,
                 "  CLIIP_SHOW_LANGUAGE             UI language (auto|ja|en)"
             );
             let _ = writeln!(

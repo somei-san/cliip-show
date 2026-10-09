@@ -42,6 +42,7 @@ fn controls_for(controls: &SettingsControls, key: ConfigKey) -> Vec<*mut AnyObje
             controls.hud_image_max_height_field,
             controls.hud_image_max_height_stepper,
         ],
+        ConfigKey::CopySound => vec![controls.copy_sound_popup],
         ConfigKey::Language => vec![controls.language_popup],
         ConfigKey::StartAtLogin => vec![controls.login_item_toggle],
         ConfigKey::ShowMenuBarIcon => vec![controls.show_menu_bar_icon_toggle],
@@ -66,6 +67,7 @@ fn expected_action(key: ConfigKey) -> Sel {
         | ConfigKey::HudBackgroundOpacity
         | ConfigKey::HudEmoji
         | ConfigKey::HudImageMaxHeight
+        | ConfigKey::CopySound
         | ConfigKey::Language => sel!(settingChanged:),
     }
 }
