@@ -64,6 +64,7 @@ pub enum Msg {
     LabelHudBackgroundColor,
     LabelHudBackgroundOpacity,
     LabelHudEmoji,
+    LabelCopySound,
     TooltipPollInterval,
     TooltipHudDuration,
     TooltipHudFadeDuration,
@@ -146,6 +147,7 @@ pub fn text(lang: Lang, msg: Msg) -> &'static str {
         Msg::LabelHudBackgroundColor => ("背景色", "Background color"),
         Msg::LabelHudBackgroundOpacity => ("背景の不透明度", "Background opacity"),
         Msg::LabelHudEmoji => ("アイコン絵文字", "Icon emoji"),
+        Msg::LabelCopySound => ("コピー時の音", "Sound on copy"),
         Msg::TooltipPollInterval => (
             "クリップボードの内容を確認する間隔。",
             "How often the clipboard is checked for changes.",

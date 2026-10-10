@@ -4,6 +4,7 @@ use objc2::runtime::{AnyObject, Sel};
 use objc2::{class, msg_send, sel};
 use objc2_foundation::{NSSize, NSString};
 
+use crate::config::CopySound;
 use crate::hud::{fit_thumbnail_size, layout_hud, layout_hud_image};
 use crate::text::truncate_text;
 
@@ -134,7 +135,29 @@ pub(super) unsafe fn present_pasteboard_content(this: &AnyObject, state: &mut Ap
     }
 
     present_hud(this, state);
+    play_copy_sound(state.settings.copy_sound);
     true
+}
+
+/// `sound` を鳴らす。`CopySound::Off` なら何もしない。
+///
+/// `soundNamed:` は名前ごとに同じインスタンスを返し、再生中の `play` は何もせず `NO` を返す。
+/// 連続でコピーしたときも毎回鳴るよう、止めてから鳴らし直す。
+///
+/// # Safety
+/// AppKit のメインスレッドから呼ぶこと。
+pub(crate) unsafe fn play_copy_sound(sound: CopySound) {
+    let Some(name) = sound.system_sound_name() else {
+        return;
+    };
+    let name = NSString::from_str(name);
+    let sound: *mut AnyObject = msg_send![class!(NSSound), soundNamed: &*name];
+    if sound.is_null() {
+        eprintln!("warning: system sound {name} is unavailable");
+        return;
+    }
+    let _: bool = msg_send![sound, stop];
+    let _: bool = msg_send![sound, play];
 }
 
 /// `hideHud:` の実処理。`fade_timer`/`hide_timer` の後始末とフェードアウト開始をまとめて行う。
@@ -217,9 +240,9 @@ pub(super) extern "C" fn fade_tick(_: &AnyObject, _: Sel, timer: *mut AnyObject)
 #[cfg(test)]
 mod tests {
     use super::{image_from_pasteboard, FADE_TICK_INTERVAL_SECS};
-    use crate::config::DEFAULT_HUD_FADE_DURATION_SECS;
+    use crate::config::{CopySound, DEFAULT_HUD_FADE_DURATION_SECS};
     use objc2::runtime::AnyObject;
-    use objc2::{class, msg_send};
+    use objc2::{class, msg_send, sel};
     use objc2_foundation::{NSSize, NSString};
     use std::ptr;
 
@@ -294,5 +317,26 @@ mod tests {
         let elapsed: u32 = 9;
         let alpha = 1.0 - (elapsed as f64 / total as f64);
         assert!((alpha - 0.5).abs() < 1e-10, "alpha={}", alpha);
+    }
+
+    /// 名前の綴りがずれると `soundNamed:` が nil を返し、その音を選んでも鳴らない。
+    #[test]
+    fn every_copy_sound_resolves_to_a_system_sound() {
+        for sound in CopySound::ALL {
+            let Some(name) = sound.system_sound_name() else {
+                continue;
+            };
+            let ns = NSString::from_str(name);
+            let resolved: *mut AnyObject = unsafe { msg_send![class!(NSSound), soundNamed: &*ns] };
+            assert!(!resolved.is_null(), "{name} が NSSound で見つからない");
+        }
+    }
+
+    /// `play_copy_sound` が送るセレクタ。綴りを間違えると鳴らす瞬間に落ちる。
+    #[test]
+    fn appkit_responds_to_sound_selectors() {
+        assert!(class!(NSSound).metaclass().responds_to(sel!(soundNamed:)));
+        assert!(class!(NSSound).responds_to(sel!(play)));
+        assert!(class!(NSSound).responds_to(sel!(stop)));
     }
 }

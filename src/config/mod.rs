@@ -47,6 +47,6 @@ pub use settings::{
     start_at_login_from_config,
 };
 pub use types::{
-    AppConfigFile, ConfigKey, DisplayConfigFile, DisplaySettings, HudBackgroundColor, HudPosition,
-    LanguageSetting, StartupConfigFile,
+    AppConfigFile, ConfigKey, CopySound, DisplayConfigFile, DisplaySettings, HudBackgroundColor,
+    HudPosition, LanguageSetting, StartupConfigFile,
 };

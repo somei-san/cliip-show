@@ -3,7 +3,9 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::error::AppError;
 use crate::i18n::{self, Lang, Msg};
 
-use super::types::{AppConfigFile, ConfigKey, HudBackgroundColor, HudPosition, LanguageSetting};
+use super::types::{
+    AppConfigFile, ConfigKey, CopySound, HudBackgroundColor, HudPosition, LanguageSetting,
+};
 use super::{
     MAX_HUD_BACKGROUND_OPACITY, MAX_HUD_DURATION_SECS, MAX_HUD_FADE_DURATION_SECS,
     MAX_HUD_IMAGE_MAX_HEIGHT, MAX_HUD_SCALE, MAX_POLL_INTERVAL_SECS, MAX_TRUNCATE_MAX_LINES,
@@ -46,6 +48,13 @@ pub fn parse_hud_background_color(raw: &str) -> Option<HudBackgroundColor> {
         "purple" => Some(HudBackgroundColor::Purple),
         _ => None,
     }
+}
+
+pub fn parse_copy_sound(raw: &str) -> Option<CopySound> {
+    let normalized = raw.trim().to_ascii_lowercase();
+    CopySound::ALL
+        .into_iter()
+        .find(|sound| sound.as_str() == normalized)
 }
 
 /// `"true"`/`"false"`（前後空白は trim）以外は `None`。
@@ -198,6 +207,10 @@ pub(crate) fn parse_hud_background_color_setting(
     parse_hud_background_color(raw).unwrap_or(default)
 }
 
+pub(crate) fn parse_copy_sound_setting(raw: &str, default: CopySound) -> CopySound {
+    parse_copy_sound(raw).unwrap_or(default)
+}
+
 pub(crate) fn parse_language_setting(raw: &str, default: LanguageSetting) -> LanguageSetting {
     parse_language(raw).unwrap_or(default)
 }
@@ -347,6 +360,17 @@ pub fn set_config_value(
                     "hud_image_max_height was clamped from {parsed} to {clamped} (allowed range: {MIN_HUD_IMAGE_MAX_HEIGHT}..={MAX_HUD_IMAGE_MAX_HEIGHT})"
                 )));
             }
+        }
+        ConfigKey::CopySound => {
+            let raw = value.trim();
+            let parsed = parse_copy_sound(raw).ok_or_else(|| {
+                let allowed: Vec<&str> = CopySound::ALL.iter().map(|s| s.as_str()).collect();
+                AppError::InvalidValue {
+                    key: "copy_sound",
+                    message: format!("{raw} (allowed: {})", allowed.join(", ")),
+                }
+            })?;
+            config.display.copy_sound = Some(parsed);
         }
         ConfigKey::ShowMenuBarIcon => {
             let raw = value.trim();
@@ -587,6 +611,30 @@ mod tests {
         let err = set_config_value(&mut config, ConfigKey::Language, "fr")
             .expect_err("reject invalid language");
         assert!(err.to_string().contains("language"));
+    }
+
+    #[test]
+    fn parse_copy_sound_accepts_every_choice() {
+        for sound in CopySound::ALL {
+            assert_eq!(parse_copy_sound(sound.as_str()), Some(sound));
+        }
+        assert_eq!(parse_copy_sound("  Tink  "), Some(CopySound::Tink));
+        assert_eq!(parse_copy_sound("on"), None);
+        assert_eq!(parse_copy_sound(""), None);
+    }
+
+    #[test]
+    fn set_config_value_accepts_copy_sound() {
+        let mut config = AppConfigFile::default();
+        let warning =
+            set_config_value(&mut config, ConfigKey::CopySound, "pop").expect("set copy sound");
+        assert_eq!(config.display.copy_sound, Some(CopySound::Pop));
+        assert!(warning.is_none());
+
+        let err = set_config_value(&mut config, ConfigKey::CopySound, "beep")
+            .expect_err("reject unknown sound");
+        assert!(err.to_string().contains("copy_sound"));
+        assert_eq!(config.display.copy_sound, Some(CopySound::Pop));
     }
 
     #[test]

@@ -22,7 +22,9 @@ pub(crate) use config_reload::{
     apply_settings_now, apply_start_at_login_if_changed, display_settings_from_file,
     resolved_config_from_file,
 };
-pub(crate) use hud_show::{present_hud, show_sample_image_content, show_text_content};
+pub(crate) use hud_show::{
+    play_copy_sound, present_hud, show_sample_image_content, show_text_content,
+};
 
 pub struct AppState {
     pub last_change_count: isize,

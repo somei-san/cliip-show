@@ -62,6 +62,7 @@ render_and_compare() {
     -u CLIIP_SHOW_HUD_BACKGROUND_COLOR
     -u CLIIP_SHOW_HUD_IMAGE_MAX_HEIGHT
     -u CLIIP_SHOW_HUD_EMOJI
+    -u CLIIP_SHOW_COPY_SOUND
     -u CLIIP_SHOW_LANGUAGE
     -u CLIIP_SHOW_SHOW_MENU_BAR_ICON
     "CLIIP_SHOW_CONFIG_PATH=$VRT_CONFIG_PATH"
@@ -390,6 +391,13 @@ run_settings_case \
   "settings_rows_en" \
   "settings-rows" \
   "CLIIP_SHOW_LANGUAGE=en"
+
+# Settings profile: copy_sound=tink (the sound popup shows the chosen sound, not "off")
+run_settings_case \
+  "settings_rows_copy_sound_ja" \
+  "settings-rows" \
+  "CLIIP_SHOW_LANGUAGE=ja" \
+  "CLIIP_SHOW_COPY_SOUND=tink"
 
 run_settings_case \
   "support_pane_ja" \
