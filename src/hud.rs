@@ -394,7 +394,8 @@ pub fn hud_origin_for_frame(
     let upper_half_mid_y = center_y + vertical_quarter;
     let lower_half_mid_y = center_y - vertical_quarter;
     let y = match position {
-        HudPosition::Top => upper_half_mid_y,
+        // カーソルの位置が使えないとき（起動直後の配置など）は既定値の `Top` と同じ位置に出す
+        HudPosition::Top | HudPosition::Cursor => upper_half_mid_y,
         HudPosition::Center => center_y,
         HudPosition::Bottom => lower_half_mid_y,
     };
@@ -412,6 +413,71 @@ pub unsafe fn hud_origin(width: f64, height: f64, position: HudPosition) -> Opti
     Some(hud_origin_for_frame(frame, width, height, position))
 }
 
+// macOS の矢印カーソルは指す点から右下へ伸びる。その大きさのぶん HUD を避けさせる
+const POINTER_WIDTH: f64 = 12.0;
+const POINTER_HEIGHT: f64 = 20.0;
+const POINTER_GAP: f64 = 8.0;
+
+/// マウスカーソルの指す点 `pointer` の右下に HUD を置いたときの位置 (x, y) を返す。
+/// 右に入りきらなければ左へ、下に入りきらなければ上へ折り返し、最後に `frame` の中へ収める。
+pub fn hud_origin_near_pointer(
+    frame: NSRect,
+    width: f64,
+    height: f64,
+    pointer: NSPoint,
+) -> (f64, f64) {
+    let min_x = frame.origin.x;
+    let max_x = frame.origin.x + (frame.size.width - width).max(0.0);
+    let min_y = frame.origin.y;
+    let max_y = frame.origin.y + (frame.size.height - height).max(0.0);
+
+    let right = pointer.x + POINTER_WIDTH + POINTER_GAP;
+    let x = if right <= max_x {
+        right
+    } else {
+        pointer.x - POINTER_GAP - width
+    };
+    // AppKit の座標は上へ増えるので、「下」は y が小さい側
+    let below = pointer.y - POINTER_HEIGHT - POINTER_GAP - height;
+    let y = if below >= min_y {
+        below
+    } else {
+        pointer.y + POINTER_GAP
+    };
+    (x.clamp(min_x, max_x), y.clamp(min_y, max_y))
+}
+
+/// `point` を含むスクリーンの可視領域を返す。どのスクリーンにも入らなければ `None`。
+///
+/// # Safety
+/// AppKit のメインスレッドから呼ぶこと。
+unsafe fn visible_frame_containing(point: NSPoint) -> Option<NSRect> {
+    let screens: *mut AnyObject = msg_send![class!(NSScreen), screens];
+    let count: usize = msg_send![screens, count];
+    for index in 0..count {
+        let screen: *mut AnyObject = msg_send![screens, objectAtIndex: index];
+        let frame: NSRect = msg_send![screen, frame];
+        // カーソルが画面の最上行にあると、`mouseLocation` の y は画面の上端ちょうどになる
+        let inside_x = point.x >= frame.origin.x && point.x <= frame.origin.x + frame.size.width;
+        let inside_y = point.y >= frame.origin.y && point.y <= frame.origin.y + frame.size.height;
+        if inside_x && inside_y {
+            let visible: NSRect = msg_send![screen, visibleFrame];
+            return Some(visible);
+        }
+    }
+    None
+}
+
+/// `HudPosition::Cursor` のとき、いまのマウスカーソルがある画面の中で、カーソルのそばの位置を返す。
+///
+/// # Safety
+/// AppKit のメインスレッドから呼ぶこと。
+unsafe fn hud_origin_near_mouse(width: f64, height: f64) -> Option<(f64, f64)> {
+    let pointer: NSPoint = msg_send![class!(NSEvent), mouseLocation];
+    let frame = visible_frame_containing(pointer)?;
+    Some(hud_origin_near_pointer(frame, width, height, pointer))
+}
+
 /// ウィンドウをスクリーン上の指定位置に移動・リサイズする。
 ///
 /// # Safety
@@ -423,7 +489,13 @@ pub unsafe fn position_window(
     height: f64,
     position: HudPosition,
 ) {
-    let (x, y) = hud_origin(width, height, position).unwrap_or((0.0, 0.0));
+    let near_mouse = match position {
+        HudPosition::Cursor => hud_origin_near_mouse(width, height),
+        HudPosition::Top | HudPosition::Center | HudPosition::Bottom => None,
+    };
+    let (x, y) = near_mouse
+        .or_else(|| hud_origin(width, height, position))
+        .unwrap_or((0.0, 0.0));
 
     let rect = NSRect {
         origin: NSPoint { x, y },
@@ -666,7 +738,7 @@ mod tests {
     use super::{
         compute_hud_frame_metrics, compute_hud_text_metrics_default, fit_thumbnail_size,
         horizontal_chrome_width, hud_background_rgba, hud_border_white_alpha, hud_dimensions,
-        hud_origin_for_frame, hud_width_for_text,
+        hud_origin_for_frame, hud_origin_near_pointer, hud_width_for_text,
     };
     use crate::config::{
         HudBackgroundColor, HudPosition, DEFAULT_HUD_BACKGROUND_OPACITY,
@@ -868,5 +940,42 @@ narrow_clamped: w=220.0 text_w=151.8 h=57.2 text_h=24.2 label_y=16.5 icon_y=16.5
         assert_eq!(top_y, 525.0);
         assert_eq!(center_y, 350.0);
         assert_eq!(bottom_y, 175.0);
+
+        let (cursor_x, cursor_y) =
+            hud_origin_for_frame(frame, hud_width, hud_height, HudPosition::Cursor);
+        assert_eq!((cursor_x, cursor_y), (top_x, top_y));
+    }
+
+    const HUD_W: f64 = 300.0;
+    const HUD_H: f64 = 60.0;
+
+    fn near(pointer_x: f64, pointer_y: f64) -> (f64, f64) {
+        let screen = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1000.0, 800.0));
+        hud_origin_near_pointer(screen, HUD_W, HUD_H, NSPoint::new(pointer_x, pointer_y))
+    }
+
+    #[test]
+    fn hud_is_placed_below_right_of_the_pointer_arrow() {
+        // 右は矢印の幅 12 + 余白 8、下は矢印の高さ 20 + 余白 8
+        assert_eq!(near(100.0, 500.0), (120.0, 412.0));
+    }
+
+    #[test]
+    fn hud_flips_left_at_the_right_edge_and_up_at_the_bottom_edge() {
+        assert_eq!(near(950.0, 500.0).0, 642.0);
+        assert_eq!(near(100.0, 50.0).1, 58.0);
+    }
+
+    #[test]
+    fn hud_stays_on_screen_in_the_top_right_corner() {
+        assert_eq!(near(1000.0, 800.0), (692.0, 712.0));
+    }
+
+    /// メインディスプレイの左にある画面は x が負になる。
+    #[test]
+    fn hud_stays_in_the_screen_left_of_the_main_display() {
+        let frame = NSRect::new(NSPoint::new(-1000.0, 0.0), NSSize::new(1000.0, 800.0));
+        let origin = hud_origin_near_pointer(frame, HUD_W, HUD_H, NSPoint::new(-500.0, 300.0));
+        assert_eq!(origin, (-480.0, 212.0));
     }
 }

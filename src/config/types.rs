@@ -7,14 +7,19 @@ pub enum HudPosition {
     Top,
     Center,
     Bottom,
+    /// マウスカーソルのそば。
+    Cursor,
 }
 
 impl HudPosition {
+    pub const ALL: [HudPosition; 4] = [Self::Top, Self::Center, Self::Bottom, Self::Cursor];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Top => "top",
             Self::Center => "center",
             Self::Bottom => "bottom",
+            Self::Cursor => "cursor",
         }
     }
 }

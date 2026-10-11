@@ -281,7 +281,7 @@ pub fn handle_cli_flags() -> bool {
             );
             let _ = writeln!(
                 help,
-                "  CLIIP_SHOW_HUD_POSITION         HUD position (top|center|bottom)"
+                "  CLIIP_SHOW_HUD_POSITION         HUD position (top|center|bottom|cursor)"
             );
             let _ = writeln!(
                 help,

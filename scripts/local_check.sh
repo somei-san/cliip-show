@@ -9,7 +9,7 @@ usage() {
 Usage: ./scripts/local_check.sh [options]
 
 Options:
-  --position <top|center|bottom>                      HUD position (optional; default uses app config default)
+  --position <top|center|bottom|cursor>               HUD position (optional; default uses app config default)
   --scale <0.5-2.0>                                   HUD scale (optional; default uses app config default)
   --color <default|yellow|blue|green|red|purple>      HUD background color (optional; default uses app config default)
   --opacity <0.2-1.0>                                 HUD background opacity multiplier (optional; default uses app config default)
@@ -137,9 +137,9 @@ done
 
 if $POSITION_EXPLICIT; then
   case "$POSITION" in
-    top|center|bottom) ;;
+    top|center|bottom|cursor) ;;
     *)
-      echo "invalid --position: $POSITION (allowed: top, center, bottom)" >&2
+      echo "invalid --position: $POSITION (allowed: top, center, bottom, cursor)" >&2
       exit 2
       ;;
   esac

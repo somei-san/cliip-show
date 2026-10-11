@@ -48,7 +48,7 @@ cliip-show --config-show
 - `hud_fade_duration_secs`（既定値: `0.3`、`0.0` - `2.0`、`0.0` でフェードなし）
 - `max_chars_per_line`（既定値: `100`、`1` - `500`）
 - `max_lines`（既定値: `5`、`1` - `20`）
-- `hud_position`（既定値: `top`、`top` / `center` / `bottom`）
+- `hud_position`（既定値: `top`、`top` / `center` / `bottom` / `cursor`）`cursor` はコピーした瞬間のマウスカーソルのそば（カーソルがある画面の中）に出します
 - `hud_scale`（既定値: `1.1`、`0.5` - `2.0`）
 - `hud_background_color`（既定値: `default`、`default` / `yellow` / `blue` / `green` / `red` / `purple`）
 - `hud_background_opacity`（既定値: `0.9`、`0.2` - `1.0`）HUD 背景の不透明度。`1.0` で背景が透けなくなります。文字とアイコンは常に不透明です
