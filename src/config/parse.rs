@@ -33,6 +33,7 @@ pub fn parse_hud_position(raw: &str) -> Option<HudPosition> {
         "top" => Some(HudPosition::Top),
         "center" => Some(HudPosition::Center),
         "bottom" => Some(HudPosition::Bottom),
+        "cursor" => Some(HudPosition::Cursor),
         _ => None,
     }
 }
@@ -293,7 +294,7 @@ pub fn set_config_value(
             let raw = value.trim();
             let parsed = parse_hud_position(raw).ok_or_else(|| AppError::InvalidValue {
                 key: "hud_position",
-                message: format!("{raw} (allowed: top, center, bottom)"),
+                message: format!("{raw} (allowed: top, center, bottom, cursor)"),
             })?;
             config.display.hud_position = Some(parsed);
         }
@@ -535,6 +536,15 @@ mod tests {
         assert_eq!(parse_hud_position("  Top  "), Some(HudPosition::Top));
         assert_eq!(parse_hud_position("CENTER"), Some(HudPosition::Center));
         assert_eq!(parse_hud_position("invalid"), None);
+    }
+
+    /// 設定ウィンドウのポップアップは `HudPosition::ALL` の `as_str` を並べるので、
+    /// 選んだ値が読み戻せないと保存した設定が既定値に戻る。
+    #[test]
+    fn parse_hud_position_accepts_every_choice() {
+        for position in HudPosition::ALL {
+            assert_eq!(parse_hud_position(position.as_str()), Some(position));
+        }
     }
 
     #[test]

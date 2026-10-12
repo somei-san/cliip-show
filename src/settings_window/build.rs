@@ -5,7 +5,7 @@ use objc2::{class, msg_send, sel};
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
 use crate::config::{
-    default_display_settings, ConfigKey, CopySound, MAX_HUD_BACKGROUND_OPACITY,
+    default_display_settings, ConfigKey, CopySound, HudPosition, MAX_HUD_BACKGROUND_OPACITY,
     MAX_HUD_DURATION_SECS, MAX_HUD_FADE_DURATION_SECS, MAX_HUD_IMAGE_MAX_HEIGHT, MAX_HUD_SCALE,
     MAX_POLL_INTERVAL_SECS, MAX_TRUNCATE_MAX_LINES, MAX_TRUNCATE_MAX_WIDTH,
     MIN_HUD_BACKGROUND_OPACITY, MIN_HUD_DURATION_SECS, MIN_HUD_FADE_DURATION_SECS,
@@ -269,6 +269,7 @@ pub unsafe fn build_settings_window(
 
     // HUD の見た目を一目で決める 3 項目とコピー時の音を先頭に置き、以降は操作の種類ごとに
     // まとめる（スライダー → ステッパー）
+    let hud_position_items: Vec<&str> = HudPosition::ALL.iter().map(|p| p.as_str()).collect();
     let hud_position_popup = add_popup_row(
         document_view,
         delegate,
@@ -276,7 +277,7 @@ pub unsafe fn build_settings_window(
         lang,
         Msg::LabelHudPosition,
         ConfigKey::HudPosition,
-        &["top", "center", "bottom"],
+        &hud_position_items,
         placeholder.hud_position.as_str(),
         &mut localized,
     );

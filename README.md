@@ -21,6 +21,7 @@ So here it is: Cliip Show, a macOS menu bar app that shows what you just copied 
 - The HUD fades out on its own after a few seconds
 - Runs in the background as a menu bar app
 - It can also play a sound when you copy (off by default)
+- Setting the position to `cursor` shows the HUD next to the mouse pointer
 - Position, size, colour and the rest are changed from "Settings…" in the menu bar
 
 ## Install (Homebrew)
