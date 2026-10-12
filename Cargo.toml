@@ -1,6 +1,6 @@
 [package]
 name = "cliip-show"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 # crates.io には公開しない（cargo release の publish ステップも抑止する）
 publish = false
