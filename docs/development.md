@@ -176,7 +176,7 @@ MAX_DIFF_PERMILLE=80 ./scripts/visual_regression.sh
 
 ### 1. cargo-release を実行する
 
-バージョン更新（`Cargo.toml` と `Cargo.lock`）・コミット・タグ付け・push は [cargo-release](https://github.com/crate-ci/cargo-release) が行います（`cargo install cargo-release` または `brew install cargo-release` で導入）。設定はリポジトリルートの `release.toml` にあります。
+バージョン更新（`Cargo.toml` と `Cargo.lock`）・コミット・タグ付け・push は [cargo-release](https://github.com/crate-ci/cargo-release) が行います（`cargo install cargo-release` または `brew install cargo-release` で導入）。設定はリポジトリルートの `release.toml` にあります。未処理の dependabot PR が残っているとフック（`scripts/check_dependabot.sh`）が止めるので、先に片付けてください。
 
 上げ幅は第 1 引数で指定します。次のバージョンは `Cargo.toml` の現在値から計算されるので、番号そのものは書きません。
 

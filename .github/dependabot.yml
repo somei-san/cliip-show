@@ -1,0 +1,39 @@
+version: 2
+
+# 更新は半年に 1 度 dependabot が自動で拾う（interval 参照）。
+# 溜まった PR は scripts/check_dependabot.sh がリリース前に片付けさせる。
+# 脆弱性は interval と無関係に Dependabot alerts と security updates が拾う（リポジトリの Settings 側で有効化済み）。
+# 自動マージは入れない。CI の UT と VRT は HUD や設定ウィンドウを描くだけで、
+# クリップボード監視やメニューバー常駐は通らないので、緑でも挙動の変化は人が見るしかない。
+#
+# major を minor / patch と同じグループに入れないこと。major だけが壊れたときに
+# 無害な更新まで道連れになり、リリース直前に切り分け作業が発生する。
+
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: semiannually
+    commit-message:
+      prefix: "⬆️"
+    groups:
+      cargo-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+      cargo-major:
+        patterns: ["*"]
+        update-types: [major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: semiannually
+    commit-message:
+      prefix: "⬆️"
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+      actions-major:
+        patterns: ["*"]
+        update-types: [major]
