@@ -5,3 +5,4 @@ allow-branch = ["main"]
 # 既定は英語の "chore: Release ..." で、このリポジトリの規約から外れる
 pre-release-commit-message = "🔖 v{{version}} リリース準備"
 tag-message = "🔖 v{{version}} リリース準備"
+pre-release-hook = ["scripts/check_dependabot.sh"]
