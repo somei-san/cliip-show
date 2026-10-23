@@ -98,9 +98,9 @@ pub unsafe fn activate_existing_instance() -> bool {
     // 直後に終了するため、配送を待たずに投げると受け取ってもらえない
     let () = msg_send![
         center,
-        postNotificationName: &*name
-        object: std::ptr::null_mut::<AnyObject>()
-        userInfo: std::ptr::null_mut::<AnyObject>()
+        postNotificationName: &*name,
+        object: std::ptr::null_mut::<AnyObject>(),
+        userInfo: std::ptr::null_mut::<AnyObject>(),
         deliverImmediately: true
     ];
 
@@ -128,9 +128,9 @@ pub unsafe fn observe_activation_requests(delegate: *mut AnyObject) {
     let name = NSString::from_str(ACTIVATE_NOTIFICATION);
     let () = msg_send![
         center,
-        addObserver: delegate
-        selector: sel!(openSettings:)
-        name: &*name
+        addObserver: delegate,
+        selector: sel!(openSettings:),
+        name: &*name,
         object: std::ptr::null_mut::<AnyObject>()
     ];
 }

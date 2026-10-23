@@ -246,9 +246,9 @@ pub unsafe fn build_settings_window(
     let window: *mut AnyObject = msg_send![class!(NSWindow), alloc];
     let window: *mut AnyObject = msg_send![
         window,
-        initWithContentRect: rect
-        styleMask: SETTINGS_STYLE_MASK
-        backing: BACKING_BUFFERED
+        initWithContentRect: rect,
+        styleMask: SETTINGS_STYLE_MASK,
+        backing: BACKING_BUFFERED,
         defer: false
     ];
     // 閉じても解放させず、AppState に持ったポインタを再利用して開き直す

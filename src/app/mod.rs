@@ -65,7 +65,7 @@ pub fn get_delegate_class() -> &'static AnyClass {
     static mut CLASS: *const AnyClass = ptr::null();
 
     ONCE.call_once(|| unsafe {
-        let mut builder = ClassBuilder::new("ClipboardHudAppDelegate", class!(NSObject))
+        let mut builder = ClassBuilder::new(c"ClipboardHudAppDelegate", class!(NSObject))
             .expect("delegate class creation failed");
 
         builder.add_method(
@@ -253,10 +253,10 @@ unsafe fn announce_launch(this: &AnyObject, lang: i18n::Lang) {
 unsafe fn schedule_poll_timer(delegate: *const AnyObject, interval: f64) -> *mut AnyObject {
     msg_send![
         class!(NSTimer),
-        scheduledTimerWithTimeInterval: interval
-        target: delegate
-        selector: sel!(pollPasteboard:)
-        userInfo: ptr::null_mut::<AnyObject>()
+        scheduledTimerWithTimeInterval: interval,
+        target: delegate,
+        selector: sel!(pollPasteboard:),
+        userInfo: ptr::null_mut::<AnyObject>(),
         repeats: true
     ]
 }
@@ -532,8 +532,8 @@ pub(crate) unsafe fn show_emoji_help_popover(anchor: *mut AnyObject) {
     };
     let () = msg_send![
         popover,
-        showRelativeToRect: zero_rect
-        ofView: anchor
+        showRelativeToRect: zero_rect,
+        ofView: anchor,
         preferredEdge: NS_RECT_EDGE_MAX_X
     ];
 }
@@ -596,10 +596,10 @@ unsafe fn show_range_hint_popover(anchor: *mut AnyObject, text: &str) {
         }
         let timer: *mut AnyObject = msg_send![
             class!(NSTimer),
-            scheduledTimerWithTimeInterval: RANGE_HINT_AUTO_CLOSE_SECS
-            target: state.delegate
-            selector: sel!(closeRangeHintPopover:)
-            userInfo: ptr::null_mut::<AnyObject>()
+            scheduledTimerWithTimeInterval: RANGE_HINT_AUTO_CLOSE_SECS,
+            target: state.delegate,
+            selector: sel!(closeRangeHintPopover:),
+            userInfo: ptr::null_mut::<AnyObject>(),
             repeats: false
         ];
         controls.range_hint_close_timer = timer;
@@ -619,8 +619,8 @@ unsafe fn show_range_hint_popover(anchor: *mut AnyObject, text: &str) {
     let () = msg_send![popover, close];
     let () = msg_send![
         popover,
-        showRelativeToRect: zero_rect
-        ofView: anchor
+        showRelativeToRect: zero_rect,
+        ofView: anchor,
         preferredEdge: NS_RECT_EDGE_MAX_X
     ];
 }

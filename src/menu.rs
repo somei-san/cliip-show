@@ -113,8 +113,8 @@ unsafe fn make_menu_item(delegate: &AnyObject, title: &str, action: Sel) -> *mut
     let item: *mut AnyObject = msg_send![class!(NSMenuItem), alloc];
     let item: *mut AnyObject = msg_send![
         item,
-        initWithTitle: &*title_str
-        action: action
+        initWithTitle: &*title_str,
+        action: action,
         keyEquivalent: &*key_equivalent
     ];
     let () = msg_send![item, setTarget: delegate];
@@ -209,8 +209,8 @@ unsafe fn make_responder_menu_item(
     let item: *mut AnyObject = msg_send![class!(NSMenuItem), alloc];
     let item: *mut AnyObject = msg_send![
         item,
-        initWithTitle: &*title_str
-        action: action
+        initWithTitle: &*title_str,
+        action: action,
         keyEquivalent: &*key_equivalent_str
     ];
     item

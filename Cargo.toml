@@ -6,10 +6,10 @@ edition = "2021"
 publish = false
 
 [dependencies]
-objc2 = { version = "0.5", features = ["relax-sign-encoding", "relax-void-encoding"] }
-objc2-foundation = { version = "0.2", features = ["NSGeometry", "NSRange", "NSString"] }
+objc2 = { version = "0.6", features = ["relax-sign-encoding", "relax-void-encoding"] }
+objc2-foundation = { version = "0.3", features = ["NSGeometry", "NSRange", "NSString"] }
 serde = { version = "1", features = ["derive"] }
-toml = "0.8"
+toml = "1"
 unicode-segmentation = "1"
 
 # 設定ウィンドウのビューツリー検査。NSWindow はメインスレッドでしか生成できず、
