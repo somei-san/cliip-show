@@ -159,8 +159,8 @@ pub(super) extern "C" fn show_about_panel(_: &AnyObject, _: Sel, _: *mut AnyObje
         ];
         let options: *mut AnyObject = msg_send![
             class!(NSDictionary),
-            dictionaryWithObjects: value_ptrs.as_ptr()
-            forKeys: key_ptrs.as_ptr()
+            dictionaryWithObjects: value_ptrs.as_ptr(),
+            forKeys: key_ptrs.as_ptr(),
             count: key_ptrs.len()
         ];
 
@@ -200,8 +200,8 @@ unsafe fn about_credits(lang: Lang) -> *mut AnyObject {
     if !url.is_null() {
         let () = msg_send![
             credits,
-            addAttribute: &*link_key
-            value: url
+            addAttribute: &*link_key,
+            value: url,
             range: link_range
         ];
     }
@@ -279,8 +279,8 @@ mod tests {
                 };
                 let url: *mut AnyObject = msg_send![
                     credits,
-                    attribute: &*link_key
-                    atIndex: link_location
+                    attribute: &*link_key,
+                    atIndex: link_location,
                     effectiveRange: &mut effective
                 ];
                 assert!(!url.is_null(), "link attribute missing ({lang:?})");

@@ -186,7 +186,7 @@ pub fn render_settings_png(pane: SettingsPane, output_path: &str) -> Result<(), 
         let () = msg_send![target_view, setWantsLayer: true];
         let layer: *mut AnyObject = msg_send![target_view, layer];
         let bg: *mut AnyObject =
-            msg_send![class!(NSColor), colorWithCalibratedWhite: 0.93f64 alpha: 1.0f64];
+            msg_send![class!(NSColor), colorWithCalibratedWhite: 0.93f64, alpha: 1.0f64];
         let cg_color: *mut std::ffi::c_void = msg_send![bg, CGColor];
         let () = msg_send![layer, setBackgroundColor: cg_color];
 
@@ -290,7 +290,7 @@ unsafe fn draw_preview_sample_label(canvas_width: f64, canvas_height: f64) {
     let shadow: *mut AnyObject = msg_send![class!(NSShadow), alloc];
     let shadow: *mut AnyObject = msg_send![shadow, init];
     let shadow_color: *mut AnyObject =
-        msg_send![class!(NSColor), colorWithCalibratedWhite: 0.0f64 alpha: 0.85f64];
+        msg_send![class!(NSColor), colorWithCalibratedWhite: 0.0f64, alpha: 0.85f64];
     let () = msg_send![shadow, setShadowColor: shadow_color];
     let () = msg_send![shadow, setShadowOffset: NSSize { width: 0.0, height: -1.0 }];
     let () = msg_send![shadow, setShadowBlurRadius: 3.0f64];
@@ -300,9 +300,9 @@ unsafe fn draw_preview_sample_label(canvas_width: f64, canvas_height: f64) {
     let white: *mut AnyObject = msg_send![class!(NSColor), whiteColor];
 
     let attributes: *mut AnyObject = msg_send![class!(NSMutableDictionary), dictionary];
-    let () = msg_send![attributes, setObject: font forKey: NSFontAttributeName];
-    let () = msg_send![attributes, setObject: white forKey: NSForegroundColorAttributeName];
-    let () = msg_send![attributes, setObject: shadow forKey: NSShadowAttributeName];
+    let () = msg_send![attributes, setObject: font, forKey: NSFontAttributeName];
+    let () = msg_send![attributes, setObject: white, forKey: NSForegroundColorAttributeName];
+    let () = msg_send![attributes, setObject: shadow, forKey: NSShadowAttributeName];
 
     let text_size: NSSize = msg_send![&*text, sizeWithAttributes: attributes];
     let text_rect = NSRect {
@@ -312,7 +312,7 @@ unsafe fn draw_preview_sample_label(canvas_width: f64, canvas_height: f64) {
         },
         size: text_size,
     };
-    let () = msg_send![&*text, drawInRect: text_rect withAttributes: attributes];
+    let () = msg_send![&*text, drawInRect: text_rect, withAttributes: attributes];
 
     let () = msg_send![shadow, release];
 }
@@ -356,11 +356,11 @@ unsafe fn write_view_png(
         }
     };
 
-    let () = msg_send![view, cacheDisplayInRect: bounds toBitmapImageRep: bitmap];
+    let () = msg_send![view, cacheDisplayInRect: bounds, toBitmapImageRep: bitmap];
     let properties: *mut AnyObject = msg_send![class!(NSDictionary), dictionary];
     let data: *mut AnyObject = msg_send![
         bitmap,
-        representationUsingType: BITMAP_IMAGE_FILE_TYPE_PNG
+        representationUsingType: BITMAP_IMAGE_FILE_TYPE_PNG,
         properties: properties
     ];
     if data.is_null() {
@@ -372,7 +372,7 @@ unsafe fn write_view_png(
     }
 
     let output_path_ns = NSString::from_str(output_path);
-    let success: bool = msg_send![data, writeToFile: &*output_path_ns atomically: true];
+    let success: bool = msg_send![data, writeToFile: &*output_path_ns, atomically: true];
     let () = msg_send![bitmap, release];
     let () = msg_send![window, close];
 
@@ -530,7 +530,7 @@ pub fn generate_diff_png(
         let properties: *mut AnyObject = msg_send![class!(NSDictionary), dictionary];
         let data: *mut AnyObject = msg_send![
             diff_rep,
-            representationUsingType: BITMAP_IMAGE_FILE_TYPE_PNG
+            representationUsingType: BITMAP_IMAGE_FILE_TYPE_PNG,
             properties: properties
         ];
         if data.is_null() {
@@ -543,7 +543,7 @@ pub fn generate_diff_png(
         }
 
         let output_path_ns = NSString::from_str(output_path);
-        let success: bool = msg_send![data, writeToFile: &*output_path_ns atomically: true];
+        let success: bool = msg_send![data, writeToFile: &*output_path_ns, atomically: true];
         let () = msg_send![baseline_rep, release];
         let () = msg_send![current_rep, release];
         let () = msg_send![diff_rep, release];
@@ -569,15 +569,15 @@ pub fn create_bitmap_rep_for_bounds(bounds: NSRect) -> Result<*mut AnyObject, Ap
         let color_space = NSString::from_str("NSCalibratedRGBColorSpace");
         let bitmap: *mut AnyObject = msg_send![
             bitmap,
-            initWithBitmapDataPlanes: std::ptr::null_mut::<*mut u8>()
-            pixelsWide: width
-            pixelsHigh: height
-            bitsPerSample: 8isize
-            samplesPerPixel: 4isize
-            hasAlpha: true
-            isPlanar: false
-            colorSpaceName: &*color_space
-            bytesPerRow: 0isize
+            initWithBitmapDataPlanes: std::ptr::null_mut::<*mut u8>(),
+            pixelsWide: width,
+            pixelsHigh: height,
+            bitsPerSample: 8isize,
+            samplesPerPixel: 4isize,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: &*color_space,
+            bytesPerRow: 0isize,
             bitsPerPixel: 0isize
         ];
 
@@ -667,12 +667,12 @@ mod tests {
         let properties: *mut AnyObject = msg_send![objc2::class!(NSDictionary), dictionary];
         let png: *mut AnyObject = msg_send![
             rep,
-            representationUsingType: BITMAP_IMAGE_FILE_TYPE_PNG
+            representationUsingType: BITMAP_IMAGE_FILE_TYPE_PNG,
             properties: properties
         ];
         assert!(!png.is_null());
         let path_ns = NSString::from_str(path);
-        let success: bool = msg_send![png, writeToFile: &*path_ns atomically: true];
+        let success: bool = msg_send![png, writeToFile: &*path_ns, atomically: true];
         let () = msg_send![rep, release];
         assert!(success, "failed to write test PNG: {path}");
     }

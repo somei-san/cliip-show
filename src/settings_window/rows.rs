@@ -111,7 +111,7 @@ fn background_view_class() -> &'static AnyClass {
     static mut CLASS: *const AnyClass = ptr::null();
 
     ONCE.call_once(|| unsafe {
-        let mut builder = ClassBuilder::new("CliipShowSettingsBackgroundView", class!(NSView))
+        let mut builder = ClassBuilder::new(c"CliipShowSettingsBackgroundView", class!(NSView))
             .expect("settings background view class creation failed");
         builder.add_method(
             sel!(mouseDown:),
@@ -143,7 +143,7 @@ fn emoji_help_button_class() -> &'static AnyClass {
     static mut CLASS: *const AnyClass = ptr::null();
 
     ONCE.call_once(|| unsafe {
-        let mut builder = ClassBuilder::new("CliipShowEmojiHelpButton", class!(NSButton))
+        let mut builder = ClassBuilder::new(c"CliipShowEmojiHelpButton", class!(NSButton))
             .expect("emoji help button class creation failed");
         builder.add_method(
             sel!(updateTrackingAreas),
@@ -184,9 +184,9 @@ extern "C" fn emoji_help_update_tracking_areas(this: &AnyObject, _cmd: Sel) {
         let area: *mut AnyObject = msg_send![class!(NSTrackingArea), alloc];
         let area: *mut AnyObject = msg_send![
             area,
-            initWithRect: bounds
-            options: NS_TRACKING_AREA_OPTIONS
-            owner: this
+            initWithRect: bounds,
+            options: NS_TRACKING_AREA_OPTIONS,
+            owner: this,
             userInfo: ptr::null_mut::<AnyObject>()
         ];
         let () = msg_send![this, addTrackingArea: area];
@@ -318,7 +318,7 @@ unsafe fn make_language_popup(
     delegate: &AnyObject,
 ) -> *mut AnyObject {
     let popup: *mut AnyObject = msg_send![class!(NSPopUpButton), alloc];
-    let popup: *mut AnyObject = msg_send![popup, initWithFrame: frame pullsDown: false];
+    let popup: *mut AnyObject = msg_send![popup, initWithFrame: frame, pullsDown: false];
     for setting in i18n::LANGUAGE_CHOICES {
         let ns = NSString::from_str(i18n::language_label(lang, setting));
         let () = msg_send![popup, addItemWithTitle: &*ns];
@@ -350,7 +350,7 @@ unsafe fn make_popup(
     delegate: &AnyObject,
 ) -> *mut AnyObject {
     let popup: *mut AnyObject = msg_send![class!(NSPopUpButton), alloc];
-    let popup: *mut AnyObject = msg_send![popup, initWithFrame: frame pullsDown: false];
+    let popup: *mut AnyObject = msg_send![popup, initWithFrame: frame, pullsDown: false];
     for item in items {
         let ns = NSString::from_str(item);
         let () = msg_send![popup, addItemWithTitle: &*ns];
@@ -626,7 +626,7 @@ unsafe fn make_help_button(delegate: &AnyObject, row_bottom: f64) -> *mut AnyObj
     let symbol_name = NSString::from_str(EMOJI_HELP_SYMBOL_NAME);
     let image: *mut AnyObject = msg_send![
         class!(NSImage),
-        imageWithSystemSymbolName: &*symbol_name
+        imageWithSystemSymbolName: &*symbol_name,
         accessibilityDescription: ptr::null_mut::<AnyObject>()
     ];
     let rect = if image.is_null() {

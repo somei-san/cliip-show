@@ -38,7 +38,7 @@ pub unsafe fn template_image_from_png(png: &[u8], size: f64) -> *mut AnyObject {
     let bytes = png.as_ptr() as *const c_void;
     let data: *mut AnyObject = msg_send![
         class!(NSData),
-        dataWithBytes: bytes
+        dataWithBytes: bytes,
         length: png.len()
     ];
     let image: *mut AnyObject = msg_send![class!(NSImage), alloc];

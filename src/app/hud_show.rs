@@ -109,10 +109,10 @@ pub(crate) unsafe fn present_hud(this: &AnyObject, state: &mut AppState) {
 
     let hide_timer: *mut AnyObject = msg_send![
         class!(NSTimer),
-        scheduledTimerWithTimeInterval: state.settings.hud_duration_secs
-        target: this
-        selector: sel!(hideHud:)
-        userInfo: ptr::null_mut::<AnyObject>()
+        scheduledTimerWithTimeInterval: state.settings.hud_duration_secs,
+        target: this,
+        selector: sel!(hideHud:),
+        userInfo: ptr::null_mut::<AnyObject>(),
         repeats: false
     ];
     state.hide_timer = hide_timer;
@@ -193,10 +193,10 @@ pub(super) unsafe fn hide_hud_now(this: &AnyObject, state: &mut AppState) {
 
     let fade_timer: *mut AnyObject = msg_send![
         class!(NSTimer),
-        scheduledTimerWithTimeInterval: FADE_TICK_INTERVAL_SECS
-        target: this
-        selector: sel!(fadeTick:)
-        userInfo: ptr::null_mut::<AnyObject>()
+        scheduledTimerWithTimeInterval: FADE_TICK_INTERVAL_SECS,
+        target: this,
+        selector: sel!(fadeTick:),
+        userInfo: ptr::null_mut::<AnyObject>(),
         repeats: true
     ];
     state.fade_timer = fade_timer;
@@ -257,9 +257,9 @@ mod tests {
             let text_type = NSString::from_str("public.utf8-plain-text");
             let types: *mut AnyObject = msg_send![class!(NSArray), arrayWithObject: &*text_type];
             let _: isize =
-                msg_send![pasteboard, declareTypes: types owner: ptr::null_mut::<AnyObject>()];
+                msg_send![pasteboard, declareTypes: types, owner: ptr::null_mut::<AnyObject>()];
             let text = NSString::from_str("no image here");
-            let _: bool = msg_send![pasteboard, setString: &*text forType: &*text_type];
+            let _: bool = msg_send![pasteboard, setString: &*text, forType: &*text_type];
 
             let no_image = image_from_pasteboard(pasteboard);
             assert!(
@@ -270,7 +270,7 @@ mod tests {
             let png_type = NSString::from_str("public.png");
             let types: *mut AnyObject = msg_send![class!(NSArray), arrayWithObject: &*png_type];
             let _: isize =
-                msg_send![pasteboard, declareTypes: types owner: ptr::null_mut::<AnyObject>()];
+                msg_send![pasteboard, declareTypes: types, owner: ptr::null_mut::<AnyObject>()];
             let png_path = NSString::from_str(concat!(
                 env!("CARGO_MANIFEST_DIR"),
                 "/tests/visual/baseline/image_tiny.png"
@@ -278,7 +278,7 @@ mod tests {
             let png_data: *mut AnyObject =
                 msg_send![class!(NSData), dataWithContentsOfFile: &*png_path];
             assert!(!png_data.is_null(), "fixture PNG must be readable");
-            let _: bool = msg_send![pasteboard, setData: png_data forType: &*png_type];
+            let _: bool = msg_send![pasteboard, setData: png_data, forType: &*png_type];
 
             let image = image_from_pasteboard(pasteboard);
             assert!(!image.is_null(), "PNG pasteboard must yield an image");

@@ -229,9 +229,9 @@ pub unsafe fn create_hud_window(
     let window: *mut AnyObject = msg_send![class!(NSWindow), alloc];
     let window: *mut AnyObject = msg_send![
         window,
-        initWithContentRect: rect
-        styleMask: BORDERLESS_MASK
-        backing: BACKING_BUFFERED
+        initWithContentRect: rect,
+        styleMask: BORDERLESS_MASK,
+        backing: BACKING_BUFFERED,
         defer: false
     ];
 
@@ -258,16 +258,16 @@ pub unsafe fn create_hud_window(
     );
     let bg: *mut AnyObject = msg_send![
         class!(NSColor),
-        colorWithCalibratedRed: bg_r
-        green: bg_g
-        blue: bg_b
+        colorWithCalibratedRed: bg_r,
+        green: bg_g,
+        blue: bg_b,
         alpha: bg_a
     ];
     let cg_color: *mut std::ffi::c_void = msg_send![bg, CGColor];
     let () = msg_send![layer, setBackgroundColor: cg_color];
     let (border_white, border_alpha) = hud_border_white_alpha(settings.hud_background_color);
     let border_color_obj: *mut AnyObject =
-        msg_send![class!(NSColor), colorWithCalibratedWhite: border_white alpha: border_alpha];
+        msg_send![class!(NSColor), colorWithCalibratedWhite: border_white, alpha: border_alpha];
     let border_color: *mut std::ffi::c_void = msg_send![border_color_obj, CGColor];
     let () = msg_send![layer, setBorderColor: border_color];
     let border_width = (HUD_BORDER_WIDTH * clamped_scale).clamp(1.0, 2.5);
@@ -332,7 +332,7 @@ pub unsafe fn create_hud_window(
     let menlo_name = NSString::from_str("Menlo");
     let text_font_size = (HUD_TEXT_FONT_SIZE * clamped_scale).clamp(10.0, 44.0);
     let font: *mut AnyObject =
-        msg_send![class!(NSFont), fontWithName: &*menlo_name size: text_font_size];
+        msg_send![class!(NSFont), fontWithName: &*menlo_name, size: text_font_size];
     if !font.is_null() {
         let () = msg_send![label, setFont: font];
     }
@@ -501,7 +501,7 @@ pub unsafe fn position_window(
         origin: NSPoint { x, y },
         size: NSSize { width, height },
     };
-    let () = msg_send![window, setFrame: rect display: true];
+    let () = msg_send![window, setFrame: rect, display: true];
 }
 
 /// テキスト内容に合わせて HUD のサイズ・位置・ラベルフレームを再計算して適用する。
